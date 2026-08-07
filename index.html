@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <!-- iOS "Add to Home Screen" caches index.html in its own web-clip storage and
+         keeps pointing at the OLD hashed bundle. These force a revalidate so the
+         home-screen app loads the latest deploy like a normal Safari tab does. -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+    <title>Marble Sort</title>
+    <link rel="preload" as="font" type="font/ttf" href="fonts/LilitaOne.ttf" crossorigin />
+    <style>
+      @font-face {
+        font-family: "Lilita One";
+        src: url("fonts/LilitaOne.ttf") format("truetype");
+        font-display: swap;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        /* Match the game background so the FIT letterbox bars blend in. */
+        background: #eef2f7;
+        overflow: hidden;
+        overscroll-behavior: none;
+        touch-action: none;
+        -webkit-tap-highlight-color: transparent;
+      }
+      #game {
+        position: absolute;
+        inset: 0;
+      }
+      #game canvas {
+        display: block;
+      }
+      /* Pure HTML boot screen — paints in the first frame, before the Phaser
+         bundle has downloaded. HomeScene hides it once the game is up. */
+      #boot {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 22px;
+        background: #eef2f7;
+        font-family: "Lilita One", Arial, sans-serif;
+        z-index: 10;
+        transition: opacity 0.3s ease;
+      }
+      #boot.hide {
+        opacity: 0;
+        pointer-events: none;
+      }
+      #boot .title {
+        font-size: 46px;
+        color: #fff;
+        -webkit-text-stroke: 3px #2b3550;
+        letter-spacing: 2px;
+        animation: bootPulse 1s ease-in-out infinite;
+      }
+      #boot .dots {
+        display: flex;
+        gap: 10px;
+      }
+      #boot .dots span {
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        animation: bootBounce 0.9s ease-in-out infinite;
+      }
+      #boot .dots span:nth-child(1) { background: #e32d2d; }
+      #boot .dots span:nth-child(2) { background: #f7d117; animation-delay: 0.15s; }
+      #boot .dots span:nth-child(3) { background: #2f6fe0; animation-delay: 0.3s; }
+      @keyframes bootPulse {
+        0%, 100% { transform: scale(1); }
+        50% { transform: scale(1.06); }
+      }
+      @keyframes bootBounce {
+        0%, 100% { transform: translateY(0); opacity: 0.5; }
+        50% { transform: translateY(-12px); opacity: 1; }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="game"></div>
+    <div id="boot">
+      <div class="title">MARBLE SORT</div>
+      <div class="dots"><span></span><span></span><span></span></div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
