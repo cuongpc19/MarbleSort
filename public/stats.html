@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Ball Flow — real games</title>
+<style>
+  :root { --bg:#eef2f7; --panel:#fff; --ink:#2b3550; --soft:#6b7490; --line:#dde3ee; --accent:#2f6fe0; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#171a22; --panel:#20242e; --ink:#e6e9f2; --soft:#9aa2b8; --line:#313644; --accent:#7aa7f0; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:24px 16px 60px; background:var(--bg); color:var(--ink);
+         font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; }
+  .wrap { max-width:1180px; margin:0 auto; }
+  h1 { font-size:1.4rem; margin:0 0 2px; }
+  .sub { color:var(--soft); margin:0 0 18px; }
+  .bar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:16px; }
+  select, button { font:inherit; padding:6px 10px; border-radius:8px; border:1px solid var(--line);
+                   background:var(--panel); color:var(--ink); }
+  button { cursor:pointer; }
+  label { display:flex; align-items:center; gap:6px; color:var(--soft); }
+  .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin-bottom:20px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px 16px; }
+  .card .n { font-size:1.7rem; font-weight:700; }
+  .card .k { color:var(--soft); }
+  .card .d { color:var(--soft); font-size:.85em; margin-top:2px; }
+  h2 { font-size:1rem; margin:24px 0 6px; }
+  .note { color:var(--soft); font-size:.87em; margin:0 0 10px; }
+  .scroll { overflow:auto; border:1px solid var(--line); border-radius:12px; background:var(--panel); }
+  table { width:100%; border-collapse:collapse; }
+  th, td { padding:6px 10px; border-bottom:1px solid var(--line); text-align:right; white-space:nowrap; }
+  th:first-child, td:first-child { text-align:left; }
+  thead th { position:sticky; top:0; background:var(--panel); color:var(--soft); font-weight:600; }
+  .good { color:#2e9b57; } .warn { color:#c98a12; } .bad { color:#d2452f; }
+  .spark { display:inline-block; height:9px; background:var(--accent); border-radius:2px; vertical-align:middle; }
+  .spark.n2 { background:var(--line); }
+  code { background:var(--bg); padding:1px 5px; border-radius:4px; }
+  #gate { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:28px; text-align:center; }
+  #uid { font-size:.87em; color:var(--soft); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Ball Flow — real games</h1>
+  <p class="sub">Every finished level, straight from the Realtime Database. Bots are elsewhere.</p>
+
+  <div id="gate">
+    <p>Sign in with the Google account that owns the Firebase project.</p>
+    <button id="signin">Sign in with Google</button>
+    <p id="gateErr" class="note"></p>
+  </div>
+
+  <div id="app" hidden>
+    <div class="bar">
+      <select id="days">
+        <option value="0.25">last 6 hours</option>
+        <option value="1">last 24 hours</option>
+        <option value="7" selected>last 7 days</option>
+        <option value="30">last 30 days</option>
+        <option value="9999">everything</option>
+      </select>
+      <select id="build"><option value="">all builds</option></select>
+      <label><input type="checkbox" id="excl" checked /> hide test games</label>
+      <button id="reload">reload</button>
+      <span id="status" class="note"></span>
+      <span style="flex:1"></span>
+      <span id="range" class="note"></span>
+      <button id="signout">sign out</button>
+    </div>
+    <p id="uid"></p>
+
+    <div class="cards" id="cards"></div>
+
+    <h2>By day</h2>
+    <p class="note" id="hDay"></p>
+    <div class="scroll" style="max-height:44vh"><table id="tDay"></table></div>
+
+    <h2>By level</h2>
+    <p class="note">
+      <b>Drop-off</b> = players who started this level and never started the next one.
+      <b>Peak belt</b> is how full the conveyor ever got, averaged — the thing stars are scored on,
+      so a level near 100% is one nobody has slack on.
+    </p>
+    <div class="scroll" style="max-height:70vh"><table id="tLv"></table></div>
+
+    <p class="note" id="foot"></p>
+  </div>
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged }
+  from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+
+// This config is PUBLIC by design and is not a secret: what may be read is decided by the
+// Realtime Database rules (one uid — see database.rules.json), not by hiding these lines.
+// ⚠ A database SECRET must never appear here. That one is admin, and this page is on the web.
+const app = initializeApp({
+  apiKey: "AIzaSyCdKUOGezba8aBslq-UqNdkbzj0Y9XYxTU",
+  authDomain: "ball-flow-d1d9a.firebaseapp.com",
+  databaseURL: "https://ball-flow-d1d9a-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "ball-flow-d1d9a",
+  appId: "1:733192915298:web:e0042ef6e15211f577443b",
+});
+const DB = "https://ball-flow-d1d9a-default-rtdb.asia-southeast1.firebasedatabase.app";
+const auth = getAuth(app);
+const $ = (id) => document.getElementById(id);
+
+$("signin").onclick = () => signInWithPopup(auth, new GoogleAuthProvider())
+  .catch((e) => { $("gateErr").textContent = e.message; });
+$("signout").onclick = () => signOut(auth);
+
+// ⚠ **Keep the `user`, never the token string.** A Firebase ID token lives one hour, and
+// `getIdToken()` refreshes it when it is close to expiring — a string cached at sign-in simply
+// rots. Cache the string and the first load works while an hour later every request comes back
+// 401 "Permission denied", which reads exactly like a rules mistake and sends you editing rules
+// that were never wrong.
+let user = null;
+onAuthStateChanged(auth, (u) => {
+  user = u;
+  $("gate").hidden = !!u;
+  $("app").hidden = !u;
+  if (u) {
+    // Shown because it is what `database.rules.json` has to allow. Reading it off the screen
+    // beats digging through the Auth console.
+    $("uid").innerHTML = `signed in as ${u.email} — uid <code>${u.uid}</code>`;
+    load();
+  }
+});
+
+// ---- load ---------------------------------------------------------------------------------
+// ⚠ Only the window being viewed, never the whole node: /runs grows every day and one day it is
+// tens of megabytes. The `orderBy` query needs `.indexOn: ["at"]` in the rules — without it the
+// database rejects it outright and the only way left is pulling everything.
+let rows = [];
+async function load() {
+  if (!user) return;
+  const days = Number($("days").value);
+  const since = days >= 9999 ? 0 : Date.now() - days * 864e5;
+  $("status").textContent = "loading…";
+  const q = since ? `&orderBy="at"&startAt=${since}` : "";
+  const get = async (force) => {
+    const t = await user.getIdToken(force);
+    return fetch(`${DB}/runs.json?auth=${encodeURIComponent(t)}${q}`);
+  };
+  let res = await get(false);
+  // A token can still expire between the check and the request — force a refresh and retry ONCE.
+  if (res.status === 401) res = await get(true);
+  if (!res.ok) {
+    $("status").innerHTML = `error ${res.status} — ${await res.text()}`;
+    return;
+  }
+  const j = await res.json();
+  rows = Object.values(j || {}).filter((r) => r && r.at && r.lvl != null);
+  const builds = [...new Set(rows.map((r) => r.build).filter(Boolean))].sort();
+  const sel = $("build"), keep = sel.value;
+  sel.innerHTML = '<option value="">all builds</option>' + builds.map((b) => `<option>${b}</option>`).join("");
+  sel.value = builds.includes(keep) ? keep : "";
+  $("status").textContent = "";
+  render();
+}
+$("reload").onclick = load;
+$("days").onchange = load;
+$("excl").onchange = render;
+$("build").onchange = render;
+
+// ---- maths --------------------------------------------------------------------------------
+const VN = 7 * 3600e3;                        // timestamps are epoch; bucket them in local time
+const day = (ms) => new Date(ms + VN).toISOString().slice(0, 10);
+const pct = (a, b) => (b ? Math.round((100 * a) / b) : 0);
+const cls = (v, lo, hi) => (v < lo ? "bad" : v < hi ? "warn" : "good");
+
+function filtered() {
+  const ex = $("excl").checked, b = $("build").value;
+  return rows.filter((r) => {
+    if (ex && /^localhost$|^127\.|^192\.168\.|^10\./.test(r.from || "")) return false;
+    if (b && r.build !== b) return false;
+    // ⚠ A player's clock can be wrong, and real data has carried rows dated in the FUTURE. Drop
+    // them or the by-day table sprouts empty columns off the end.
+    if (r.at > Date.now() + 36e5) return false;
+    return true;
+  });
+}
+
+/** Boosters spent in a row. Absent means none — RTDB drops empty arrays, it is not missing data. */
+const usedOf = (r) => (Array.isArray(r.used) ? r.used : []);
+
+function render() {
+  const g = filtered();
+  if (!g.length) {
+    $("cards").innerHTML = "<div class='card'><div class='n'>0</div><div class='k'>no data</div></div>";
+    $("tDay").innerHTML = $("tLv").innerHTML = $("foot").innerHTML = "";
+    return;
+  }
+
+  const at = g.map((r) => r.at);
+  $("range").textContent = `${day(Math.min(...at))} → ${day(Math.max(...at))}`;
+
+  // ---- by day, or BY HOUR when the window is a day or less. Picking "6 hours" and getting one
+  // row saying "today" tells you nothing; over short windows the shape within the day is the point.
+  const hourly = Number($("days").value) <= 1;
+  const bucket = hourly ? (ms) => new Date(ms + VN).toISOString().slice(11, 13) + ":00" : day;
+  const first = new Map();
+  for (const r of g) if (!first.has(r.dev) || r.at < first.get(r.dev)) first.set(r.dev, r.at);
+  const byDay = new Map();
+  for (const r of g) {
+    const d = bucket(r.at);
+    if (!byDay.has(d)) byDay.set(d, { devs: new Set(), n: 0, w: 0, ms: 0 });
+    const o = byDay.get(d);
+    o.devs.add(r.dev); o.n++; if (r.result === "win") o.w++; o.ms += r.ms || 0;
+  }
+  const days = [...byDay.keys()].sort();
+  const maxDev = Math.max(...days.map((d) => byDay.get(d).devs.size));
+  const dayRows = days.map((d) => {
+    const o = byDay.get(d);
+    const nw = [...o.devs].filter((x) => bucket(first.get(x)) === d).length;
+    const w = (n) => Math.round((n / maxDev) * 180);
+    return `<tr><td>${d}</td><td>${o.devs.size}</td><td>${nw}</td><td>${o.devs.size - nw}</td>
+      <td class="${cls(pct(o.devs.size - nw, o.devs.size), 5, 15)}">${pct(o.devs.size - nw, o.devs.size)}%</td>
+      <td>${o.n}</td><td>${(o.n / o.devs.size).toFixed(1)}</td>
+      <td>${pct(o.w, o.n)}%</td><td>${Math.round(o.ms / o.n / 1000)}s</td>
+      <td style="text-align:left"><span class="spark" style="width:${w(nw)}px"></span><span class="spark n2" style="width:${w(o.devs.size - nw)}px"></span></td></tr>`;
+  }).reverse().join("");
+  $("tDay").innerHTML = `<thead><tr><th>${hourly ? "Hour" : "Day"}</th><th>Players</th><th>New</th><th>Returning</th>
+    <th>% returning</th><th>Games</th><th>Games/player</th><th>Winrate</th><th>Time/game</th>
+    <th style="text-align:left">new ▏returning</th></tr></thead><tbody>${dayRows}</tbody>`;
+  // ⚠ "New" only means new *within the loaded window*: someone who played before it still counts
+  // as new, because their earlier rows were never fetched. Say so rather than let the first rows
+  // be read as a retention collapse.
+  $("hDay").textContent =
+    "“% returning” is the share of that row's players seen earlier. ⚠ Only within the loaded window — "
+    + "anyone who played before it still counts as new, so the FIRST row is always 0% and the early rows "
+    + "are always artificially low. "
+    + (hourly ? "Showing hours: over a few hours this column means almost nothing — widen the window." : "");
+
+  // ---- summary cards
+  const today = days[days.length - 1], t = byDay.get(today);
+  const devAll = new Set(g.map((r) => r.dev));
+  const wins = g.filter((r) => r.result === "win").length;
+  const revives = g.reduce((s, r) => s + usedOf(r).filter((u) => u === "revive").length, 0);
+  const boosts = g.reduce((s, r) => s + usedOf(r).length, 0);
+  const ret = [...devAll].filter((x) => new Set(g.filter((r) => r.dev === x).map((r) => day(r.at))).size > 1).length;
+  $("cards").innerHTML = [
+    [devAll.size, "players", hourly ? `${t.devs.size} at ${today}` : `${t.devs.size} on ${today}`],
+    [g.length, "games", `${(g.length / devAll.size).toFixed(1)} per player`],
+    [pct(wins, g.length) + "%", "winrate", `${wins} won`],
+    [pct(ret, devAll.size) + "%", "returning", `${ret} played on 2+ days`],
+    [revives, "revives", `${pct(g.filter((r) => usedOf(r).includes("revive")).length, g.length)}% of games`],
+    [boosts, "booster uses", `${pct(g.filter((r) => usedOf(r).length).length, g.length)}% of games`],
+  ].map(([n, k, d]) => `<div class="card"><div class="n">${n}</div><div class="k">${k}</div><div class="d">${d}</div></div>`).join("");
+
+  // ---- by level
+  const lv = new Map();
+  for (const r of g) {
+    if (!lv.has(r.lvl)) lv.set(r.lvl, { devs:new Set(), pass:new Set(), n:0, w:0, ms:0, taps:0, peak:0, belt:0, used:{}, sigs:new Set() });
+    const o = lv.get(r.lvl);
+    o.devs.add(r.dev); o.n++; o.ms += r.ms || 0; o.taps += r.taps || 0;
+    o.peak += r.peak || 0; o.belt += r.belt || 0;
+    if (r.sig) o.sigs.add(r.sig);
+    if (r.result === "win") { o.w++; o.pass.add(r.dev); }
+    for (const u of usedOf(r)) o.used[u] = (o.used[u] || 0) + 1;
+  }
+  const nums = [...lv.keys()].sort((a, b) => a - b);
+  const lvRows = nums.map((n) => {
+    const o = lv.get(n), nx = lv.get(n + 1);
+    const drop = nx ? 100 - pct(nx.devs.size, o.devs.size) : null;
+    const bs = Object.entries(o.used).map(([k, v]) => `${k}×${v}`).join(" ");
+    const belt = o.belt ? pct(o.peak, o.belt) : 0;
+    return `<tr><td>L${n}</td><td>${o.devs.size}</td><td>${o.n}</td>
+      <td class="${cls(pct(o.w, o.n), 25, 50)}">${pct(o.w, o.n)}%</td>
+      <td class="${cls(pct(o.pass.size, o.devs.size), 50, 80)}">${pct(o.pass.size, o.devs.size)}%</td>
+      <td>${(o.n / o.devs.size).toFixed(1)}</td>
+      <td class="${drop == null ? "" : drop > 40 ? "bad" : drop > 20 ? "warn" : ""}">${drop == null ? "—" : drop + "%"}</td>
+      <td>${Math.round(o.ms / o.n / 1000)}s</td><td>${(o.taps / o.n).toFixed(1)}</td>
+      <td class="${belt > 90 ? "warn" : ""}">${belt}%</td>
+      <td style="text-align:left">${bs}</td>
+      <td class="${o.sigs.size > 1 ? "warn" : ""}" style="text-align:left">${[...o.sigs].join(" ")}</td></tr>`;
+  }).join("");
+  $("tLv").innerHTML = `<thead><tr><th>Level</th><th>Players</th><th>Games</th><th>Winrate/game</th>
+    <th>Winrate/player</th><th>Games/player</th><th>Drop-off</th><th>Time</th><th>Taps</th><th>Peak belt</th>
+    <th style="text-align:left">Boosters</th><th style="text-align:left">Fingerprint</th></tr></thead><tbody>${lvRows}</tbody>`;
+
+  // ⚠ The fingerprint column is the whole reason not to read winrate out of Google Analytics.
+  // Two fingerprints under one level number means two different boards averaged into one number.
+  const multi = nums.filter((n) => lv.get(n).sigs.size > 1);
+  $("foot").innerHTML =
+    `The device code is a random 16-bit number, so two strangers can collide — with ${devAll.size} devices that is
+     ~${Math.round((devAll.size * (devAll.size - 1)) / 2 / 65536)} pairs counted as one, i.e. the real player count is
+     slightly higher. A row is only written when a game ENDS, so anyone who opens the game and quits mid-level never
+     appears here.` +
+    (multi.length
+      ? `<br><b>Fingerprint column:</b> ${multi.length} level(s) show more than one board in this window
+         (${multi.map((n) => "L" + n).join(", ")}) — their numbers are averaging games from two different designs.
+         Filter by build to separate them.`
+      : "");
+}
+</script>
+</body>
+</html>

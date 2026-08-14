@@ -1,14 +1,28 @@
 {
-  "name": "marble-sort",
+  "name": "ball-flow",
   "version": "0.1.0",
-  "description": "Marble Sort - pour marbles between tubes until each tube holds a single colour (Phaser 3 + TS + Vite)",
+  "description": "Ball Flow - tip trays of marbles down a chute onto a looping conveyor and land them in the matching boxes before the belt jams (Phaser 3 + TS + Vite)",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "apk": "node scripts/build-apk.mjs",
-    "deploy": "npm run build && gh-pages -d dist -f"
+    "deploy": "npm run build && gh-pages -d dist -f",
+    "sim": "node scripts/sim.mjs",
+    "shot": "node scripts/shot.mjs",
+    "winrate": "node scripts/winrate.mjs",
+    "pull": "node scripts/pull-runs.mjs",
+    "levels": "node scripts/winrate.mjs --build",
+    "tune": "node scripts/tune.mjs",
+    "sheet": "node scripts/sheet.mjs",
+    "cuongxs1": "node scripts/cuongxs1.mjs",
+    "revive": "node scripts/revive.mjs",
+    "table": "node scripts/table.mjs",
+    "editor": "vite --open /editor.html",
+    "build:crazy": "node scripts/build-target.mjs crazy",
+    "build:web": "node scripts/build-target.mjs web",
+    "iframe": "vite preview"
   },
   "dependencies": {
     "@capacitor/android": "^6.2.1",

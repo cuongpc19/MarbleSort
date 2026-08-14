@@ -12,7 +12,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
-    <title>Marble Sort</title>
+    <title>Ball Flow</title>
     <link rel="preload" as="font" type="font/ttf" href="fonts/LilitaOne.ttf" crossorigin />
     <style>
       @font-face {
@@ -31,6 +31,12 @@
         overscroll-behavior: none;
         touch-action: none;
         -webkit-tap-highlight-color: transparent;
+        /* ⚠ Required by the host's mobile checklist, and worth having anyway: without these a
+           long press on a tray raises the text-selection magnifier and the context menu on top
+           of the board, over a game whose only input *is* press-and-hold-adjacent. */
+        user-select: none;
+        -webkit-user-select: none;
+        -webkit-touch-callout: none;
       }
       #game {
         position: absolute;
@@ -86,13 +92,120 @@
         0%, 100% { transform: translateY(0); opacity: 0.5; }
         50% { transform: translateY(-12px); opacity: 1; }
       }
+      /* The watchdog's report. Deliberately plain and selectable — its whole job is to be read
+         off a screen or copied out of a phone that has no DevTools attached to it. */
+      #boot .diag {
+        display: none;
+        max-width: 92%;
+        max-height: 60%;
+        overflow: auto;
+        font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace;
+        color: #2b3550;
+        background: #fff;
+        border: 2px solid #2b3550;
+        border-radius: 10px;
+        padding: 10px 12px;
+        text-align: left;
+        white-space: pre-wrap;
+        word-break: break-word;
+        user-select: text;
+        -webkit-user-select: text;
+      }
     </style>
+    <!--
+      Boot watchdog.
+
+      ⚠ A **classic** inline script, in ES5, on purpose — three separate reasons, and each one is
+      a failure this is meant to catch. A browser too old for `<script type="module">` ignores the
+      bundle entirely and runs nothing at all; a browser too old for the bundle's syntax throws
+      before any of our code exists; and either way the only thing on screen is the boot poster,
+      pulsing forever with nothing to say. `defer`/`async` would not help: the point is to be
+      installed *before* the module is even fetched, so `window.onerror` is already listening.
+
+      What it produces is a report the player can read off the screen and send back, because the
+      devices this fires on are exactly the ones with no DevTools attached.
+    -->
+    <script>
+      (function () {
+        var notes = [];
+        function note(s) {
+          notes.push(s);
+        }
+        window.addEventListener("error", function (e) {
+          // Two different events share this name. A resource that 404s or fails to parse targets
+          // the element; a thrown exception targets the window and carries `message`.
+          if (e && e.target && e.target !== window && (e.target.src || e.target.href)) {
+            note("khong tai duoc: " + (e.target.src || e.target.href));
+          } else if (e && e.message) {
+            note("loi: " + e.message + " @ " + (e.filename || "?") + ":" + (e.lineno || 0));
+          }
+        }, true);
+        window.addEventListener("unhandledrejection", function (e) {
+          var r = e && e.reason;
+          note("promise: " + ((r && (r.stack || r.message)) || r));
+        });
+
+        function probe() {
+          var out = [];
+          out.push("URL: " + location.href);
+          out.push("UA: " + navigator.userAgent);
+          var mod = "noModule" in document.createElement("script");
+          out.push("ES module: " + (mod ? "co" : "KHONG — day chinh la loi"));
+          var gl = "none";
+          try {
+            var c = document.createElement("canvas");
+            gl = c.getContext("webgl") || c.getContext("experimental-webgl") ? "webgl" : c.getContext("2d") ? "chi 2d" : "none";
+          } catch (err) {
+            gl = "loi: " + err;
+          }
+          out.push("canvas: " + gl);
+          try {
+            out.push("webp: " + (document.createElement("canvas").toDataURL("image/webp").indexOf("image/webp") === 5 ? "co" : "KHONG"));
+          } catch (err) {
+            out.push("webp: ?");
+          }
+          out.push("storage: " + (function () {
+            try {
+              localStorage.setItem("bf_probe", "1");
+              localStorage.removeItem("bf_probe");
+              return "co";
+            } catch (err) {
+              return "KHONG (" + err.name + ")";
+            }
+          })());
+          out.push(notes.length ? "\n" + notes.join("\n") : "\n(khong bat duoc loi nao — bundle co the van dang tai)");
+          return out.join("\n");
+        }
+
+        // 12s. Long enough that a slow link is not accused of being a broken browser — the game
+        // measures 4.4s over a throttled 4 Mbps phone link — and short enough to beat the point
+        // where someone gives up and closes the tab.
+        setTimeout(function () {
+          var boot = document.getElementById("boot");
+          if (!boot || document.querySelector("#game canvas")) return;
+          var d = boot.querySelector(".diag");
+          if (!d) return;
+          d.textContent = probe();
+          d.style.display = "block";
+          var t = boot.querySelector(".title");
+          if (t) {
+            t.textContent = "KHONG KHOI DONG DUOC";
+            t.style.fontSize = "24px";
+            t.style.animation = "none";
+          }
+        }, 12000);
+      })();
+    </script>
   </head>
   <body>
     <div id="game"></div>
     <div id="boot">
-      <div class="title">MARBLE SORT</div>
+      <!-- ⚠ The third place the game is named, after <title> and the home screen's cover art.
+           It is the *first* one a player sees — the boot poster stands until `platform.init()`
+           resolves — so a stale name here is the name they read, whatever the other two say. -->
+      <div class="title">BALL FLOW</div>
       <div class="dots"><span></span><span></span><span></span></div>
+      <div class="diag"></div>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

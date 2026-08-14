@@ -48,3 +48,17 @@ Desktop.ini
 
 # Local dev scratch scripts (headless-browser playtest harnesses)
 /_*.mjs
+
+# headless screenshot runs (scripts/shot.mjs) — browser profile + captures
+scripts/.shots/
+
+# real games pasted out of the game (Settings -> COPY N GAMES); local data
+playlog.jsonl
+
+# Firebase CLI deploy cache
+.firebase/
+
+# Generator scratch output (level blocks, shuffle maps) — the result is baked into
+# src/game/handmade.ts, these are the working notes that produced it.
+scripts/.*.txt
+scripts/.shuffle-map.json

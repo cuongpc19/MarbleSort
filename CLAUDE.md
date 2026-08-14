@@ -1,69 +1,1029 @@
 # Marble Sort — project notes for Claude
 
 **2026-08-07: scaffolded from the Beads Out project** (`github.com/cuongpc19/BeadsOut`)
-following its `NEW-GAME.md` checklist. Only the shared frame was carried over — build
-setup, `main.ts`, `save.ts`, `audio.ts`, the Android packaging scripts and the font.
-Nothing of Beads Out's own game code came with it.
+following its `NEW-GAME.md` checklist, then built out from the reference material in
+`Manythings/` (a gameplay clip, a screenshot and `Motagame.txt`).
+
+⚠ This file originally specified a *classic tube-sort* — pouring marbles between glass
+tubes. That is **not** the game. The reference material describes a different machine, and
+the code implements the machine. Everything below matches the code.
 
 ## THE mechanic
 
-Classic marble-sort. **Not yet built** — this file is the spec to build against.
+A vending-machine-shaped board with three tiers, top to bottom:
 
-A row of **glass tubes**, each holding up to `TUBE_H` marbles stacked bottom-up. There are
-`colors` colours with exactly `TUBE_H` marbles each, plus `spare` empty tubes.
+1. **Tray grid** — a `cols × 5` grid of tiles, each tile a slab of `TRAY_N` marbles of one
+   colour. Tap a tile and it empties down the chute.
+2. **Chute** — straight sides down from the grid, then a short cone into a neck barely wider
+   than one marble. Marbles fall on **real Matter.js physics** and pile up at the neck.
+   ⚠ The drop is **fast out of the tray and slow through the cone** — that is deliberate and
+   it is done *per body*: gravity stays at full strength and `GameScene.update` raises
+   `frictionAir` to `CONE_DRAG` once a marble passes **`L.funnel.brake`** — not `funnel.top`.
+   A single global gravity cannot do both, and lowering it makes the tray dribble out instead
+   of emptying. Braking from the mouth of the cone is just as wrong the other way: the
+   marbles hang about halfway down and never reach the neck and the rail.
+3. **Conveyor** — a closed stadium-shaped ring of `BELT_SLOTS` positions. Marbles leave the
+   neck one per tick and ride round the loop forever until something eats them.
+   ⚠ A marble only leaves the neck when the rail directly beneath it will be clear on the
+   next shift (`Game.entryFreeNextTick`), so the chute visibly backs up when the belt is
+   congested — that backlog is the warning the player needs.
+   ⚠ A tap is gated on **chute** room (`CHUTE_CAP`), not belt room. The tray tips even with the
+   rail full and its marbles wait in the hopper. Read the note on `CHUTE_CAP` before changing
+   it: it is far more expensive than it looks, because gating on belt room *was* the game's
+   main skill test.
+   ⚠ The tread is **sprites that travel**, not decoration baked into the housing: cleats
+   advance one `BELT_SPACING` per tick, exactly like the marbles, so the belt reads as
+   *carrying* them. Baked in place, the same scene reads as marbles sliding along a dead
+   track. `npm run shot -- --level 5 --taps 1 --belt` asserts they are still moving.
+   ⚠ There is **exactly one cleat per slot**, on the slot's own path offset — any other count
+   puts the two on different pitches and marbles only line up with a hole now and again. That
+   makes `BELT_SLOTS` a multiple of `2 * CLEAT_GROUP` (30 = 6 x 5), or the dark/light banding
+   fails to close and a seam travels round the loop forever.
+4. **Box columns** — `BOX_COLS` stacks of boxes under the belt's bottom run. Only the top box
+   of each column is open; it shows `BOX_SLOTS` holes and accepts only its own colour. A
+   marble riding over a column drops in automatically if the colour matches. Fill all the
+   holes and the box pops off, promoting the next box in that column.
 
-- Tap a tube → it **lifts its top marble, plus every marble of the same colour directly
-  under it** (the "run"). Tap it again to put the run back.
-- Tap a second tube → the run **pours** if that tube is empty, or its top marble is the
-  same colour and it has room. A partial pour is allowed when the target has room for some
-  but not all of the run.
-- **Win**: every tube is either empty or holds `TUBE_H` marbles of a single colour.
-- **Lose**: no legal move exists. Undo and Restart are the way out.
+A tray only leaves the grid if **at least one of its four neighbouring cells is empty**
+(`Game.canEscape`) — one open side is enough; the tray slides into the gap.
 
-Difficulty levers, in the order they should be reached for: **colour count**, **spare tube
-count** (2 is comfortable, 1 is tight), **tube height**, and the **solver's minimum move
-count** for the generated board.
+⚠ **The board edge on its own is not an exit** — except the bottom. A tile in the top row whose
+other three sides are occupied is boxed in and stays locked. Counting the empty space beyond the
+edge as an open side hands every edge tile a free way out, and the corners of a block open when
+they visibly cannot.
+
+⚠ **The bottom row is the exception, and it is not arbitrary.** That row sits on the mouth of the
+chute and the cavity is *drawn* opening into the funnel there, closed by its rim everywhere else.
+The art has to answer "can this move" — that is the entire job of the raised/flat eggs — and it
+can only do that if the one edge drawn as a hole behaves like one. Reported from real play as
+"the cells at the bottom are right over the funnel, there's no border under them, why are they
+flat", and the reporter was right: the picture and the rule had been saying different things ever
+since the cavity was opened into the chute.
+
+⚠ It is **adjacency, not a clear lane to the edge**. Requiring the whole row or column to be
+empty out to the border locks tiles that plainly have a gap beside them — a tile with one empty
+neighbour and a wall behind it read as sealed, which is wrong and was reported from real play.
+`level.ts` keeps a byte-for-byte copy of this test; if the two ever disagree, a "proven" level
+jams on its own solution. That is what makes the grid a puzzle rather than a
+list of buttons — a packed block is peeled from its shell inwards. The tray art carries the
+answer: **eggs standing proud = it will move, eggs pressed flat = locked**, so the rule is
+readable without tapping anything. The two looks are **presence versus absence** of the eggs,
+not shading — shading has to be compared against a neighbour to be read, and it does not
+survive every colour in the palette.
+
+- **Win**: every box filled, belt empty.
+- **Lose**: nothing can move. ⚠ Judge that on the *belt*, not on the trays: if the belt is full
+  and nothing on it fits an open box, no marble can leave, none can get on, and the open boxes
+  never change — so the position is dead however many trays are left. Asking "is a tray still
+  tappable" first let a visibly jammed board run forever while the player kept tipping trays
+  into a chute that could never drain. `Game.isStuck` checks belt drainage first, and only then
+  falls through to the trays.
+
+## Revive — the only thing that un-loses a level
+
+The rail fills and nothing on it fits a box. Instead of the JAMMED card, the player is offered a
+**revive**: `REVIVE_BOXES` = 2 boxes come off the board and `REVIVE_MARBLES` = 6 marbles come off
+the belt, for coins, as often as they can pay. `Game.revivePlan` / `Game.useRevive` own the whole
+rule; the scene only draws it. `npm run revive` is the check.
+
+⚠ **The two numbers are one number.** Six marbles and two boxes is not a pair of dials — a box is
+`BOX_SLOTS` holes, and a board is only winnable while every colour has exactly as many marbles in
+the world as it has holes waiting. Free six belt slots without taking their boxes and six holes can
+never be filled; take two boxes without their marbles and six marbles can never be eaten. Either
+way the level is dead several minutes before it says so, and the player will read it as their own
+mistake. So a box and its `BOX_SLOTS` marbles leave together, always.
+
+- A box only qualifies if its colour has `BOX_SLOTS` marbles **on the belt**. The rail is what is
+  jammed; clearing a colour still sitting in a tray relieves nothing.
+- Order: **row 2 of the well first** (stack index 1), left to right, then rows 3, 4, … the same way.
+  The open box is considered last and only while **untouched** — taking one the player has already
+  put marbles into throws that progress away, and its part-filled holes would make the marbles
+  removed something other than six. Measured over 1450 real jams: row 2 covers 76% of the picks and
+  the open box was never needed, because a colour the open box accepts is not a colour that jams.
+- ⚠ **No half revives.** `revivePlan` returns null unless it can find the full two, and the pop-up
+  is not offered at all in that case. Three slots freed is not worth the coins, and an offer that
+  quietly under-delivers is worse than the honest JAMMED card.
+- ⚠ **Undo is cleared by a revive.** Rewinding across one restores the jammed board *with its boxes
+  back on it*, and the player is then sold the same revive twice.
+- ⚠ **Offer it before `finish()`**, which writes the play log. A game that carries on is not over,
+  and logging there records a loss the player then went on to win. A revive is pushed onto
+  `boostersUsed`, so `PURE=1` keeps a bought level out of the model ranking like any other booster.
+- The pop-up animates **the real plan** — its two boxes and six marbles are the ones about to go,
+  and the rest of the strip is the belt's own colours, sitting still. ⚠ Drawing only the six had
+  them all fly off and leave the rail bare, which says the opposite of what the card is for: what
+  the player is buying is six gaps in a full rail, not an empty one.
+- `npm run shot -- --level 12 --taps 3 --jam` draws the card and buys it. ⚠ Its `__ms.jam()` hook
+  stuffs the rail to *make* the offer appear — supply no longer matches demand on a board it has
+  touched, so it proves the card renders and nothing whatever about the rules.
+
+Over 1450 jams from levels 1-45: a plan was available in every one, the arithmetic held every time,
+every revived board played on, and 10% of them went on to be **won** by the same careless play that
+jammed them.
+
+Board modifiers, all from the reference material:
+
+- **`?` tiles** — colour hidden, cannot be tapped. Reveals as soon as the tray has **a way out**,
+  so a face-down block peels from its edges inward.
+  ⚠ **The reveal test is `canEscape`, the same test the eggs are drawn from — one test, not two.**
+  Revealing on "has an empty orthogonal neighbour" instead is identical everywhere except the
+  bottom row, where the chute mouth is an exit that is not a neighbouring cell: a tray boxed in
+  down there stood its eggs proud — the board's own promise that it will move — and stayed
+  face-down, i.e. untappable. Shipped that way in level 38 and reported from real play as
+  *"khay mà hở 1 hướng thì không thể là khay ?"*. **A tray with a way out is never a `?`.**
+  ⚠ Three places have to agree, and two of them are copies: `Game.settleInto`, the generator's
+  own `settle` in `level.ts`, and the top-up in `hiddenMin` — which must count the bottom row as
+  **open**, or it reads that row as the most enclosed part of the board and spends the whole
+  face-down quota on cells that flip before the first frame.
+- **Chocolate boxes** — `lids[]`: a 2x2 slab over four trays with a counter on its face. While it
+  is closed its four cells are as good as crates — nothing taps them, and they block escape lanes
+  and `?` reveals for everything around them. Every tray the player tips brings the counter down
+  by one; at zero the box bursts and the four trays join the board.
+  ⚠ **It counts trays tipped, not boxes filled**, and that was the other way round first. A tray
+  is `TRAY_N` = 9 marbles and a box holds `BOX_SLOTS` = 3, so the same board offers three times as
+  many box-clears as tray-taps and a counter written for one clock is meaningless on the other.
+  The rule the player is told is "how many trays you have to pour", so that is what the number is.
+  ⚠ Two kinds, and **the ribbons say which**: two bands crossing the slab, the way a box of
+  chocolates is tied. One colour on both bands counts only trays of that colour; bands running
+  through the whole palette count any tray. The ribbon is the other half of the rule, so it is the
+  loudest thing on the piece after the number — and it is a **cross, not a rim**: a rim reads as
+  "a tray of this colour" and the box comes out looking like one more tile in the row, where a
+  ribbon plainly wraps something.
+  ⚠ **A single-colour box holds four trays of its own colour** — "cả 2 dải ruy băng đều cùng màu
+  với màu khay". That is a design convention rather than an engine rule, so the editor enforces it
+  the cheap way: clicking a ribbon swatch repaints all four trays. A rainbow box's four trays are
+  free, and `Tô cả 4 cùng màu` is how you build a one-colour interior under rainbow ribbons.
+  ⚠ **A single-colour counter can outrun its own supply, and the failure is silent.** The four
+  trays underneath cannot be tapped while the box is closed, so they never count toward opening
+  it — `need` has to be reachable from the trays *outside*, hatch queues included. `isWon` refuses
+  to finish while any box is still on the board, so a counter one too high is an unwinnable level,
+  not a hard one. The editor raises it as fatal and prints the real supply.
+  ⚠ **It all happens on the pour, not when the marbles arrive.** Tipping the tray is the whole
+  action the counter counts; the nine marbles then spend seconds falling through the cone and
+  shuffling round the rail, and a counter that waits for them reads as broken — the player taps a
+  tray the box plainly wanted and nothing moves. So `creditLids` runs inside `tap`, `settle`
+  returns its `TickEvents` so the box can burst on that same tap, and `Game.lastOpened` carries
+  which one to the scene. Three places have to agree or the number lies: the count, the burst, and
+  **`GameScene.refreshFixtures`, which `onTapCell` must call** — `refreshGrid` only touches tray
+  sprites, so leaving the box to the next tick left the number sitting still on screen while the
+  model had already moved it.
+  ⚠ `openLids` is still called from `tick` as well, and neither call is redundant: only `tap` can
+  bring a counter down, but only `tick` runs while the player is doing nothing.
+  ⚠ The burst is **slower and heavier** than the box-clear burst, on purpose. A box in the well
+  clears several times a level so it gets punctuation; a chocolate box comes off once, after a
+  dozen taps spent earning it. Chocolate-toned shards that arc out and then *fall*, over ~860ms,
+  and the four trays fade up rather than blinking in.
+  ⚠ A linked pair credits **both** halves, matching `trayCounts` counting it as two trays.
+  ⚠ `trayCounts` must include the four trays underneath or the box derivation is four boxfuls
+  short and the level is unwinnable by arithmetic alone.
+  The editor draws them with tool **8**. ⚠ Its panel carries **its own two swatch rows** — one for
+  the ribbon, one for the four trays — and neither is the main palette. Driving them off the main
+  row was reported as the colour picking being awkward, and the reason is that the main row is the
+  *brush*: a click on it was silently doing a third job with nothing on screen to say which. Both
+  rows mark their live swatch (`.sw.sel`, alongside the brush row's `aria-pressed`), because a
+  swatch row you have to click to find out is the rest of the awkwardness.
+  The generator can place one (`Params.lids`) but its gate is `d >= 0.6 && level % 4 === 0`, and
+  the sheet pins `d` near 0 — **no shipped level has one**.
+- **Hatches** — a housing with a roller shutter and a count on its face, holding
+  `DISPENSER_HOLD` trays. It shoves the next one out from under the shutter into the cell
+  directly below whenever that cell frees up.
+- **x2 bars** — a fixture bolted **across two cells**, stored in `bars[]` by its left cell. It is
+  not a tray: it never clears, never taps, and `cellFree` reports its cells occupied forever. What
+  it does is double the load of every tray **above** it in either of its two columns
+  (`Game.doubled` — `by > y`), so one tap drops `2 * TRAY_N` = 18 marbles, half the belt.
+  ⚠ **A bar belongs on its own empty pair of cells, low on the board, with trays stacked above
+  it.** It must never share a cell with a tray, a crate or a hatch, and never sit at the same
+  height as the trays it is meant to double — reported from a level design as "the x2 bar has to
+  go underneath, it can't be in the same place as a tray". Two reasons, and the second is the
+  expensive one:
+  - The bar is read *positionally*, not as a flag. A tray sitting **on** a bar cell is not
+    doubled by it (`by > y` is false), yet `cellFree` still calls that cell occupied after the
+    tray is tapped — so the player sees an x2 that does nothing and a hole that never opens a
+    lane. Both look like bugs and neither is recoverable.
+  - The bar has to be legible as *a thing the column pours through*. Level with its trays it
+    reads as one more tile in the row.
+  `level.ts` places bars correctly but its test is weak — it only asks that **something** is
+  occupied above (`level.ts` ~654: "a bar with nothing over it does nothing at all"), which still
+  permits a bar shoulder-to-shoulder with crates. ⚠ The **editor cannot place one at all**:
+  `Blueprint.cells` has no bar kind, so `custom.ts` always emits `bars: []` and `fromLevelDef`
+  drops them. A hand-built level that needs an x2 has to be finished by hand in `handmade.ts`,
+  and nothing in the editor will check it.
+- **Legacy `wide` trays** — the old double-width tray, kept only so saved boards still parse.
+  `Game.span` returns 1 for everything now. Do not build new levels on it.
+- **Linked pairs** — two trays clipped together across two cells, **each with its own colour**, and
+  one tap empties both. Stored once at the left cell with `wide: true` and `mate` for the right
+  half's colour; `Game.anchorAt` is what makes the right cell answer for it, so everything asking
+  "is this cell free" must go through `cellFree`.
+  ⚠ **Not the same thing as an x2 bar**, and the two multiply: a bar doubles whatever stands over
+  it, so a linked pair above one drops four trays' worth. Anything gating on room asks `load()`.
+  ⚠ It is drawn as **two ordinary tray sprites plus a small clip**, never one double-width face.
+  A pair carries two colours and baking every combination would be PALETTE² textures at boot for
+  an 18px detail. The right half has no tile of its own, so `refreshGrid` has to drive its sprite
+  from the anchor or it renders as an empty cell with a clip floating beside it.
+  ⚠ **Only the colour is per-half. Raised/flat and face-down belong to the piece**, and both
+  halves have to say the same thing — one tap empties both, so if either half has a way out the
+  whole pair moves. Two halves disagreeing is the clip claiming they are one piece while the eggs
+  say they are two. The traps, all of which were live: the wide branch of `refreshGrid` ignored
+  `hidden` and drew a face-down pair in full colour; the editor drove the right half's face-down
+  state off the *drawing* rather than the settled anchor; and `onTapCell` looked up `tiles[i]`
+  directly, so tapping the right half found nothing there and denied the tap — half a piece dead
+  to the touch. Go through `anchorAt`, always.
+  ⚠ **The drop is two colours out of two cells.** `tap()` queues half of each, so spawning `load`
+  marbles of the anchor's colour puts nine of the wrong colour on screen and the belt contradicts
+  them one at a time. `spawnTray` takes a colour *and an x offset* per marble for this.
+  ⚠ **Every bot has to score both halves.** `SCORERS`/`trayScore` read `.color`, which judges an
+  eighteen-marble two-colour piece by its left half — and which colour landed on the left is a
+  coin flip in the drawing. `tileValue` (`bots.mjs` and its browser copy in `custom.ts`) and
+  `coloursOf` (Cuongxs1's supply and demand) are the fix. The **mean** of the halves, not the sum:
+  a pair serves two demands with one tap but also eats half the belt, so it does not get to
+  outrank every single tray on arithmetic alone.
+  ⚠ **A pair is 18 marbles on a belt of 30, and that is enough to break a board on its own.** A
+  26-tray packed slab found a winning line with no pairs — at peak belt 30/30, already at the
+  limit — and none at all with one. Boards carrying pairs need real gaps; `scripts/pairs.mjs`
+  draws them at 16-22 trays and sweeps a density knob for exactly this.
+  The editor draws them with tool **7**: the tool claims the cell to its right, and the panel sets
+  each half's colour (point at a half, pick a colour, it steps to the other). `Tách đôi` splits one
+  back into two ordinary trays, keeping both colours.
+  The generator can build them too — `Params.pairs` — and it **defaults to 0**. Turning it on
+  changes what every board is made of and costs a full retune, so the capability ships switched
+  off and gets switched on deliberately. Measured with 2 pairs forced on: level 20 went 74% -> 43%
+  and level 28 88% -> 35% on (B+D)/2, and every board still cleared `verify`.
+  ⚠ `span()` in **both** `logic.ts` and `tapOrder` was a stub returning 1. Both have to be real or
+  the escape test reads only the left cell and the generator hands out a tap order the real board
+  refuses.
+  ⚠ `paint` draws the two halves **separately**. Spending one colour on the whole pair makes it an
+  ordinary double-load tray and throws away the only thing the piece is for.
+  ⚠ `trayCounts` counts a pair as **two** trays. Counting it once leaves the box derivation a
+  boxful short and the level unwinnable by arithmetic alone.
+- **Map shapes** — ten silhouettes, expressed as **masks** over the grid rather than column
+  heights, because the real machine's boards are arbitrary outlines (crosses, L-shapes, hollow
+  frames) and a heights array can only describe something hanging from the top. They matter
+  *because* of the escape rule: a notch or a hole is an open side for everything beside it.
+- **Crates** — cells permanently in the way. Never hold a tray, never clear, count as occupied
+  for both escape lanes and "?" reveals. The only board element the player can do nothing at
+  all about, which is what makes them shape a level rather than pace one.
+- **`?` boxes** — a box below the top of its column with its colour hidden until it rises.
+  ⚠ **The bot-based tuner is blind to this**: bots read `boxes` directly, so hiding a colour
+  changes nothing they can measure. It makes the game harder for a person and *not at all* for
+  the tuner, so it can never be traded off against the other levers on the same scale. Treat
+  it as flavour whose real cost only a play log can show.
+
+Difficulty levers, in the order they should be reached for: **colour count**, **tray count**,
+**`sloppy`** (how careless the generator lets its own reference solve be, which is what
+tangles the box stacks), then grid size and hidden fraction.
 
 ## Rules that must hold
 
-- ⚠ **Every generated level must be provably solvable.** Generate by shuffling the marble
-  multiset, then run the solver; reject and reshuffle until it returns a solution. The
-  solver's move count is also what the star pars are fitted to. Do NOT ship a level the
-  solver has not cleared — a stuck-from-the-start board is unrecoverable and the player
-  has no way to tell it apart from their own mistake.
-- **A tube is never partially "one colour done"** — the win test is per tube: empty, or
-  full and monochrome. Anything looser lets a level end with marbles stranded.
-- **Undo must restore the exact board**, not re-derive it. Keep a move stack of
-  `(from, to, count)` and replay backwards.
+- ⚠ **Every generated level must be provably solvable.** `level.ts` builds a board *from* a
+  solution and then replays that exact tap order through the real engine in `logic.ts`
+  (`verify()`); a board that does not clear is thrown away and regenerated. Do NOT ship a
+  level the engine has not cleared — a jammed-from-the-start board is unrecoverable and the
+  player cannot tell it apart from their own mistake.
+- ⚠ **Solvable is not the same as playable, and shipping on `verify()` alone is not enough.**
+  `verify` replays the generator's *own recorded line*, which the player cannot see. Levels 21
+  and 27 both passed it and then won 7% and 0% of 120 games played by bots that had to work it
+  out as they went. Every board now also has to clear `MIN_PLAYABLE` in `playableRate()` —
+  twelve games, alternating greedy and patient, needing 25% wins — before it ships. That costs
+  ~90 ms a level to generate (with the early exit; ~170 ms without), paid once at level load.
+- **Never let a tray commit marbles it has nowhere to land.** `capacity()` subtracts belt
+  contents *and* everything already spoken for — queued at the neck, still falling, parked in
+  the magnet. Double-booking any of those strands marbles and the level can never be won.
+- **Undo must restore the exact board**, not re-derive it. `snapshot()`/`restore()` take a
+  whole-board copy; the physics marbles are then thrown away and re-dropped to match.
+- **The scene may not make decisions the headless sim cannot reproduce.** `GameScene` owns
+  pixels and physics only; every rule lives in `logic.ts`, which never imports Phaser.
+
+## The level-1 walkthrough — `src/scenes/tutorial.ts`
+
+Four coach marks in the order the machine works: pour a tray, the marbles ride the belt, one drops
+into a box of its colour, fill every box. Shown only on level 1 and only while `save.tutorialDone`
+is false (`bf_tutor`).
+
+- ⚠ **It never blocks input.** Steps advance on something the player did or on a timer; none of
+  them swallows a tap. Gating taps would also gate `window.__ms.tap()` and every `npm run shot`
+  run — the one screen every reviewer sees would be the one nothing can drive. A player tapping
+  past a step has already learned what it was about.
+- ⚠ **`tutorialDone` is written when it finishes, not when it starts.** A player who bounces off
+  the first screen and comes back gets it again; they are exactly who it exists for.
+- ⚠ The tray it points at comes from `hint()`, the engine's own next-best tap — **not** a hardcoded
+  cell. Level 1 is generated, so its board changes whenever the ladder is retuned and a fixed index
+  would eventually point at an empty cell.
+- ⚠ **English.** `public/fonts/LilitaOne.ttf` is a Latin-only subset, so Vietnamese copy here falls
+  back to Arial glyph-by-glyph and looks broken — the same constraint as the rest of the UI.
+- The caption sits at `funnel.shoulder + 26`, in the throat of the chute. Above that is the board:
+  the first draft used `shoulder - 34` and the plate landed on the bottom row of cells. It is drawn
+  on a plate rather than as stroked text, because by step 2 the chute behind it is full of marbles.
+- The pointing hand is **baked** (`K.hand`), not an emoji: a pictograph falls back to whatever the
+  OS has, which is a different shape per device and nothing at all on some Androids.
+- ⚠ Its layer is added **after** `uiLayer`, so the hand and caption sit over the HUD rather than
+  under it.
+
+## Layout
+
+## Board size — up to 7x7, and the chute never moves
+
+`gridMetrics(cols, rows)` in `config.ts` owns cell size and origin. A board may be up to `GRID_MAX`
+= 7 in either direction; the cabinet cannot grow, so a bigger board gets **smaller cells** — 7x7
+lands on 57 against the usual 64. Sprites are baked at `L.cell` and scaled by `cell / L.cell`.
+
+- ⚠ **A 5-row board must stay pixel-identical.** Cell 64, pitch 71, centred in `gridPanel`. Every
+  shipped level is 5 rows and every art decision was settled against those numbers.
+- ⚠ **The chute is fixed and must not be shortened to make room.** It was tried: compressing it
+  from 186px to 120px so a 7-row grid would fit takes the cone from 33° to 22.5°, and at 22.5° the
+  marbles stop sliding — they string out along the slope and sit there, which is the failure the
+  `brake` note describes reached from the other side. `GRID_MAX_H` stops the grid at
+  `funnel.top` instead, so the grid grows into the space *above* the chute.
+  Screenshot after eight taps on level 5 if this is ever touched again.
+- Everything that positions or sizes something on the grid reads `this.gm` in `GameScene`, never
+  `L.cell` or `CELL_PITCH`. Mixing them puts the pieces and the slots 7px apart per cell.
+- The editor has both **Số cột** and **Số hàng**, 4-7 each, and its DOM cells shrink by the same
+  rule. Resizing crops rather than resets.
+
+`config.ts` holds every constant *and* the layout, in design units (a 540×1160 box).
+`GameScene` draws into one container scaled to the real canvas, so nothing else has to know
+about the device pixel ratio. Matter runs in design units too.
+
+⚠ Depth order in `resetLevel` is load-bearing: the belt housing is drawn **after** `fallLayer`
+so a marble dropping into the neck slides behind its chrome rim instead of floating over the
+front of the machine. Drawing the whole machine up front puts the marbles on top of it.
+
+`TICK_MS` is a pure pacing dial — the sim counts ticks, not milliseconds, so it changes how
+the game feels without moving a single balance number. The clock is driven from `update()`
+with an accumulator, **not** a `TimerEvent`, because the interval has to change mid-level:
+once `Game.gridEmpty()` is true there is nothing left to decide, so the last lap runs at
+`TICK_MS_DRAINED`. Re-arming a looping TimerEvent mid-flight drops or doubles a tick, and the
+phase has to be re-based on the switch or the marbles jump mid-glide.
+
+⚠ The belt's bottom straight (`L.belt.hx`) must span the whole box row. A marble has to
+physically travel over a column to drop into it, so a column poking out past the straight
+gets served from its edge — or not at all. `SLOT_COLUMN` is the check: every column should
+get the same number of slots.
+
+## ⚠ A bot winrate is not a player winrate
+
+Every difficulty number in this project comes from a bot, and bots are systematically wrong
+about people. The sibling **Pixel Flow** project (`c:/CuongPC/Game/Pixel Flow`) scored five
+different bot models against 67 real games across 21 levels. **Not one beat guessing a single
+constant** — log-likelihood: constant -46.4, then E -48.6, D -54.3, A -57.0, B -74.2, C -84.9.
+
+What worked there: two models biased in *opposite* directions, averaged, then bent through a
+logistic curve fitted on real games (LL -39.4, leave-one-out cross-validated). The fitted slope
+came out near 1.0, so the entire correction was a constant offset in logit space — the bots
+were about 0.66 logit more optimistic than people.
+
+⚠ **Which model this project will use is not decided, and must not be decided by argument.**
+Pixel Flow's own note is the warning: *"I once asserted B was the most accurate; wrong, full
+analysis put B 4th of 5."* The candidates live in `MODELS` in `scripts/winrate.mjs` — greedy,
+patient, random, best-of, and a `slip` **family** (greedy that taps at random with probability
+p, so p interpolates between perfect and careless play). `npm run winrate -- --models` scans p
+across 0…0.9 and ranks everything on real games by log-likelihood with leave-one-out, refusing
+to crown anything that cannot beat guessing a constant.
+
+If forced to bet before the data exists: the slip family, because Pixel Flow's best single
+model (D) was itself "Monte-Carlo playAverage, **skill-slip**". But that is a bet, and D still
+lost to a constant on its own — it only worked blended with B and calibrated. Expect the same
+here, and do not write the bet down as a finding.
+
+⚠ Run the ranking with `PURE=1`. The bots have no boosters and no undo, so a level bought with
+coins is not a game they could ever have played; counting it flatters whichever model happens
+to be optimistic. The play log records `used[]` for exactly this.
+
+## The difficulty ladder is searched, not written
+
+`level.ts` used to carry a hand-written ladder — "colours up every 3 levels, trays every 2".
+Measured against a target curve it was flat at ~97% for fifteen levels and then fell 23 points
+in a single step. It is now produced by `npm run tune`, which writes the `LADDER` and
+`VARIANTS` tables to paste back.
+
+Three things that search had to get right, each of which was wrong first:
+
+- **Take the gentlest `d` that reaches the target, not the nearest.** Searching for "the `d`
+  whose score is closest to target" handed level 1 a `d` of 0.800, because at that end of the
+  curve almost every setting scores ~99% and 0.800 landed a point nearer. Walk `d` upward and
+  stop at the first setting that lands.
+  ⚠ The walk used to *start* at the previous level's `d`, forcing the ladder monotone. That was
+  right for a curve that only falls and is wrong for the sheet, which spikes to 40% at level 20
+  and returns to 80% at 21 on purpose — carrying the spike's `d` forward makes every level after
+  a spike as hard as the spike. Each level now walks from 0.
+- **⚠ The knob alone cannot land a curve.** With `d` pinned at 1.0, one level scored 86% and
+  another 30% — board luck swamps the ingredients. So the search has two axes: `d` picks the
+  ingredients (and decides whether the target is reachable at all — at `d` = 0.08 the board is
+  three colours and six trays and *no* board of those ingredients scores under 100%), and
+  `VARIANTS` picks which board gets made from them.
+- **⚠ Two-stage selection, or the winner's curse eats the result.** Taking the best of 40
+  noisy measurements selects boards whose *measured* score happened to land on target, not
+  boards whose *true* score is on target. Screen cheaply (20 games), then re-measure the
+  survivors properly, and report the re-measured number.
+
+`TARGET` in `level.ts` is the design intent as control points. Change it there, then retune —
+hand-editing a LADDER or VARIANTS entry silently detaches that level from the curve.
+
+## The level sheet — `Manythings/winrate Marble sort - Sheet1.csv`
+
+Levels 1-29 are specified by hand in that sheet and transcribed into `SHEET` in `level.ts`: trays,
+colours, face-down trays, hatches, crates, and a target winrate ±10 points. Past 29 the old
+interpolated `TARGET` curve takes over. `applySheet` raises a generated `Params` to those floors
+and `npm run sheet` checks every shipped board against them.
+
+- ⚠ **Floors, never caps.** The row says "at least 6 colours"; clamping back down to 6 when the
+  tuner found a seventh lands the winrate throws the tuning away. The row constrains the design,
+  the winrate is the goal.
+- ⚠ **A blank cell is no constraint, not "carry the row above".** Rows 17, 18, 21, 22, 23, 26 and
+  27 ask only for a winrate and leave the ingredients open — that is the sheet giving the player
+  a breather after a spike, and inheriting the previous row's numbers erases it.
+- ⚠ **Variety must not ride on `d`.** The sheet pins everything that decides the winrate, so the
+  tuner lands all 29 levels with `d` at or near **0** — and at `d < 0.1` `shapeFor` returns
+  `block` and `paramsFromD` returns 4 columns. Every one of the 29 came out as the same slab on
+  the same narrow grid: the silhouette lever, the walled-board lever and the board growing at all
+  were switched off by a knob that no longer had to move. Board width, silhouette and walling now
+  come from the **level number** (`colsForSheet`, `shapeForSheet`, `WALL_FROM`); `d` keeps the
+  difficulty extras. The tuner still lands the target through `VARIANTS`.
+- ⚠ **A hatch holds `DISPENSER_HOLD` of the sheet's trays, so the tray count is not the board.**
+  Level 20 asks for fourteen and starts *eight* on the grid; drawn as a full-width `arrow` that
+  is two thin rows with an open side everywhere, and the escape rule never bites. Levels whose
+  on-grid tray count is under `WIDE_NEEDS` get a compact silhouette instead, and the block window
+  sizes itself. ⚠ Narrowing the **grid** looks like the same fix and is not: at four columns
+  levels 19 and 29 fell outside the sheet's ±10 at *every* setting of `d`, because a cramped
+  board is harder, not denser.
+- ⚠ **Do not wall a board whose trays are mostly in hatches.** Level 25 starts five of fourteen
+  on the grid; compact that is a three-wide block, and walling it seals three of six columns into
+  casing — 8% against a target of 30%, unreachable at every `d`. Walling is a rule change and it
+  needs a board to change the rule on.
+- ⚠ **"Số khay ?" means face-down trays the player actually meets.** `hiddenFrac` scatters `?` by
+  probability, most land on the block's outside edge, and the reveal rule flips those before the
+  first frame — so a board can satisfy the count at build time and show the player fewer. Count
+  only the ones that survive, and top up in this order: **enclosed grid cells, then hatch queues,
+  then exposed cells as a last resort.** The queues matter: an eight-tray slab four wide has
+  exactly two enclosed cells, so a quota of five is structurally unreachable on the grid, and a
+  tray that comes out of a hatch face-down is face-down in every way that counts.
+- ⚠ The top-up has to run **after** crates and casing are placed and use the engine's own idea of
+  a solid neighbour (`cellFree`: crates, walls, bars, lids and hatch cells all count as solid).
+  Testing enclosure earlier reads cells as exposed that the finished board has sealed.
+- Hatches hold `DISPENSER_HOLD` = 3 trays and face **down only up to `SIDEWAYS_FROM` = 15**; above
+  that they may turn left or right. A sideways shutter is a second thing to read on a board and
+  the early levels are where the first one is still being learned.
+- The tuner's cost is `|score − target| + 0.5 × max(0, |B−D| − GAP_OK)`. Landing the mean is not
+  enough on its own: a level reading 50% because best play wins 90% and slip-0.25 wins 10% is two
+  different levels depending on who is holding it. `GAP_OK` is **0.20**, measured: at 0.35 four
+  sheet levels shipped 25-33 points apart (level 20 read 36% as the mean of 20% and 53%), and
+  retuning at 0.20 pulled them to 15, 3, 5 and 3 for at most 3 points of target accuracy.
+- The sheet's hardest rows need a **wide board search**, not a harder `d`. At `VARIANTS` 28 level
+  25 could not get past 19% against a target of 30% at any `d`; at 64 it landed 35%. When a level
+  is stuck below target with the ladder already at 0, the ingredients are fixed by the sheet and
+  the only axis left is which board gets made from them.
+
+## What a bot is actually scoring — and the defect that was in it for weeks
+
+A thinking bot picks the tray whose colour the open boxes want most. The original scoring was
+
+```
+holes standing open in boxes of this colour × 10  −  marbles of this colour on the belt
+```
+
+⚠ **The weights are 10 against 1, and that makes the second term nearly inert.** A box with three
+holes and three matching marbles already on the belt needs *nothing* and still scores 30 − 3 = 27,
+comfortably the highest on the board — so the bot tips nine more marbles for a colour with no room
+left and they ride the belt forever. Reported by the person playing, not found by the tooling:
+*"it should subtract the marbles about to be eaten, and the boxes about to clear"*.
+
+The fix is to score **net need** — holes open minus everything already committed, where committed
+means the belt *and* the neck queue *and* the marbles still falling *and* the magnet. Floored at
+zero. The "box about to clear" case comes free: once the committed marbles will fill it, the box
+pops, its colour stops being on top, and there is nothing left to aim at.
+
+Measured over the 29 sheet levels: **best play 78% → 96%**, better on 19 levels, worse on none.
+
+- ⚠ **The tie-break is not a detail.** `need × 10 − sent` alone prefers a colour with *no box open
+  at all* (0 − 0) over one with a hole left and three marbles coming (0 − 3). A quarter of that
+  bot's taps went to colours nothing could accept and level 8 fell 100% → 65%. Reward "has
+  somewhere to go" first, penalise over-supply second.
+- ⚠ **Sometimes dumping a useless colour is correct**, so do not forbid it. Penalising a
+  zero-hole colour outright fixed level 8 outright *and cost 6 points of average* — on some boards
+  emptying a tray nothing can accept is what frees the cells other trays need to escape.
+- ⚠ **Keep the old scoring.** It still wins outright on boards where the new one does not, so it
+  belongs in the pool B maximises over; and it is the bot every number published before
+  2026-08-11 was measured against, so deleting it would silently rewrite them all.
+- ⚠ **A better player is not automatically a better model of people.** This one also fit the real
+  play log better — (B+D)/2 scored −3.69 against a constant's −5.00, where the old blend tied the
+  constant at −5.00 — but that was **ten games**, worth about one game of log-likelihood. Direction,
+  not proof.
+- ⚠ **Adopting it invalidates the ladder.** Every level was tuned against the old bot, so B jumping
+  18 points means every board has to be rebuilt harder to land the same sheet target. Retune.
+
+## Method Cuongxs1 — `npm run cuongxs1`
+
+A different shape from the bots above, and it answers a different question. They pick the single
+highest-scoring tray; this one turns the scores into **weights and samples**, so one board played
+fifty times takes fifty different lines. It models a player for whom several taps look reasonable
+and the choice is genuinely open — not one who is careless, which is what `slip` already covers.
+
+Named by the person who specified it. It is an **oracle**: it reads hatch queues, the colours of face-down trays, and box colours buried
+below the top of a column. None of that is on screen. That is the point — it measures how much of
+a level's difficulty survives when the hidden information is handed over, i.e. how much is
+planning rather than guessing.
+
+Each board gets one **perfect game** (the generator's own `refTaps`, replayed) to show a winning
+line exists, then N sampled games. ⚠ Only the sampled games score. Folding the perfect game in
+would add a guaranteed win to every level.
+
+Weight of tapping a tray:
+
+```
+(boxes of this colour still short) × 49 / (available trays of this colour × (2 − map gain))
+```
+
+Demand over supply, halved again by whether the tap opens the board. `map gain` is 0…1, measured
+by actually doing the tap on a snapshot and diffing which trays now stand available — that one
+move covers a neighbour gaining a lane, a `?` revealing, and a hatch shoving its next tray out,
+without reimplementing any rule. Each newly opened tray is worth 0.15 if a box on top still needs
+its colour and 0.08 if one a row down does.
+
+⚠ **"Still short", everywhere in the method** — marbles already on their way are subtracted from
+every demand it computes, on instruction: *"all my formulas have to subtract the marbles about to
+be eaten and the boxes about to be cleared"*. Counting boxes raw is what wrecked the first
+version: a box with three holes and nine marbles already heading for it still read as demand, so
+the model sent nine more. **45-48% of its taps went to a colour with no room left**, it lost with
+the belt at 30/30 in every single losing game, and levels the other bots clear at 80% scored 4%.
+Fixing it took the average from 57% to 82% and halved the mean distance from target.
+
+Two details the arithmetic has to get right:
+
+- "Boxes about to be cleared" needs no separate rule. Once the marbles in flight cover a box's
+  remaining holes its net demand is zero, so it stops attracting taps — and when it pops, its
+  colour is no longer on top.
+- The second row has received nothing yet, so there is nothing of its own to subtract. What
+  carries over is the **surplus**: marbles that overshot the open box are still circulating when
+  the one behind it opens. Subtract that instead.
+
+Three things the formula does not specify, decided here and worth knowing before reading its
+numbers:
+
+- ⚠ **A colour nothing is short of weighs exactly zero**, so the model refuses it. With seven
+  colours and four box columns, several colours are always zero.
+- ⚠ **When every candidate weighs zero at the top row it falls through to the second**, and only
+  if that is empty too does it pick uniformly. Uniform is a last resort worth about 5% of its
+  decisions; the second row carries about 11%.
+- The expression is a **weight, not a probability** — normalised across the candidates of that
+  turn, so the ×49 cancels and only the ratios matter.
+
+⚠ `refTaps` is *a* winning line, not a proven optimal one — it is what the generator happened to
+record. Nothing here searches for a better one.
+
+## ⚠ One bot, one definition — scripts/bots.mjs
+
+`sim.mjs`, `winrate.mjs` and `tune.mjs` each grew their own copy of the same three bots, and
+the copies drifted: on level 10 the sim reported best play at 17% while winrate reported 55%,
+for what was meant to be the identical measurement. Every number either had ever produced was
+incomparable with the other, and nothing in the output said which to believe.
+
+They now all import from `scripts/bots.mjs`, which owns the bots, the seeding
+(`seedFor(level, i)` — so two tools measuring the same thing play the same games), the (B+D)/2
+blend, and the noise floor. ⚠ Do not inline "just this one bot" into a script.
+
+The same trap the calibration constants have: one definition, imported, or the tuner optimises
+something the report is not showing.
+
+## ⚠ The noise floor: ±5 points
+
+Re-running one fixed configuration with only the seed changed, over levels 20-40:
+
+| bot | 12 games/level | 30 games/level |
+|-----|----------------|----------------|
+| greedy | ±5 | ±2 |
+| patient | ±3 | — |
+| random | ±5 | — |
+
+So a **separation** figure carries about ±7 at the default of 12. **Anything under that is
+noise.** Several conclusions stated confidently during the build were inside it and should not
+have been: doubles every-3rd-level vs none (sep 52 vs 53), map shapes costing "4 points",
+belt 30 vs 32. The ones that were real were large — `TRAY_N` 9 vs 6 (50 points), the tray cap
+(15), the chute size (29), the escape rule (bots move in opposite directions).
+
+Before reporting any comparison, ask whether it clears ±7. If not, say it is a null result.
+
+`npm run sim` judges each level against `targetWin(level)`, not a flat 50% — the curve
+deliberately asks for 25% by level 20, so "loses more often than it wins" down there is the
+design working. What it flags is a level 25+ points *below* what it was asked to be.
+
+⚠ And it judges on **(B+D)/2**, the same ruler `TARGET` is defined on. Comparing best-play
+against a (B+D)/2 target flagged level 8 as 27 points too hard when the tuner had it landing
+within 4 — two different measurements, and the mismatch reads as a real defect in the game
+rather than in the tooling. Whenever a threshold is compared against a target, check both sides
+are the same metric.
+
+So: **never quote `npm run sim` numbers as winrates.** They compare configurations, which is
+what they are good for. For a number about players:
+
+- `npm run winrate 20-40` — blends the optimistic and pessimistic bots and bends the result
+  through the calibration. It prints a loud warning while the curve is still an identity,
+  which it is until real games exist.
+- Real games are collected by the game itself: every finished level is written to
+  localStorage with a **content fingerprint**, and Settings → COPY N GAMES puts them on the
+  clipboard as JSONL for `playlog.jsonl`.
+- `npm run winrate -- --fit` refits the curve, and refuses to hand over coefficients that do
+  not beat guessing a constant under leave-one-out.
+
+⚠ The fingerprint (`levelFingerprint` in `logic.ts`) is not optional. This generator gets
+retuned constantly, so "level 27" is a different board this week than last; a refit that mixes
+in games from a board that no longer exists is fitting to nothing. Games without a matching
+fingerprint are discarded, not guessed at.
+
+⚠ Keep `A_CAL`/`B_CAL` in exactly one place (`scripts/winrate.mjs`). Pixel Flow's note about
+this is blunt: coefficients copied into two files drift, and the tuner ends up optimising a
+curve the report is not showing.
+
+## Measuring — do this before tuning anything
+
+- `npm run sim` — headless, ~0.3 ms/level. Plays every level with **two opposite bots**
+  (greedy and random) and prints clear rate and peak belt occupancy for each. Use it for all
+  balance work. A lever that moves only one bot is a real lever; one that moves neither is a
+  null result a single bot would have hidden. Hold everything fixed but one variable.
+- `npm run shot -- --level 12 --taps 6 --exercise` — drives the **real game** in headless
+  Chrome over raw CDP (no Playwright download), taps through it, fires every booster, and
+  writes screenshots plus the console log to `scripts/.shots/`. Needs `npm run dev` running;
+  pass `MS_URL` if Vite picked a port other than 5173. `--belt` asserts the tread is moving.
+
+  ⚠ **Never clean up after it with `taskkill /F /IM chrome.exe`.** That matches by image name
+  and kills every Chrome on the machine, including the browser the person at the keyboard is
+  using. The script launches its own instance on its own profile and shuts it down through
+  CDP `Browser.close`; if something looks stuck, fix the shutdown path in `scripts/shot.mjs`
+  rather than reaching for a kill-by-name. Verify with: snapshot the chrome.exe PID set
+  before and after a run — no pre-existing PID may disappear.
+
+Tuning that was already paid for, so it does not need re-deriving. Note the shape of the
+result each time: what matters is the **gap** between the two bots, not the greedy number on
+its own — a change that lifts greedy by lifting random too has made the game worse.
+
+- `TRAY_N` is 9, matching the reference machine and the nine eggs on the tile. A tray needs
+  `TRAY_N / BOX_SLOTS` = 3 boxes of its colour open at once or the remainder strands. It is
+  the most expensive constant in the game: on the belt of 30 that suited trays of six it puts
+  greedy at 45%. Paid for by `BELT_SLOTS` 30 → 36 (marbles to r=12) and the tray cap 16 → 11,
+  which leaves marbles-per-level almost unchanged (11 x 9 = 99 against 16 x 6 = 96).
+- ⚠ **Do not "cluster" box colours in the generator** to feed a big tray. It sounds right — the
+  reference often shows three columns in one colour — and it measures worse (45% → 34%): with
+  four columns showing two colours, only two tray colours can drain at all, and everything
+  else clogs. Spread beats cluster.
+- `hiddenFrac` is close to a **null result on the greedy bot**. Cheap flavour, not a lever.
+- `sloppy` is a **null result on separation** (cap 0.75 / 0.85 / 0.92 → 41 / 41 / 36).
+- Making the board edge stop counting as an exit costs greedy ~6 points **and lifts the random
+  bot**: with fewer legal taps there is less room to pick a bad one. Still the right rule.
+- ⚠ `CHUTE_CAP` cannot be read with the greedy and random bots alone, and getting this wrong
+  once already produced a confidently stated, wrong conclusion. Over 630 games per setting
+  (30 per level, levels 20-40):
+
+  | hopper | greedy | patient | random |
+  |--------|--------|---------|--------|
+  | 18     | 86%    | 76%     | 26%    |
+  | 21     | 81%    | **86%** | 26%    |
+  | 27     | 57%    | 67%     | 25%    |
+  | 36     | 52%    | 48%     | 25%    |
+
+  **The random bot does not move at all.** A hopper changes nothing about colour matching, so
+  careless play jams exactly as often whatever its size — an early 12-trial sample suggested
+  otherwise and was pure noise. What a big hopper actually does is punish *greed*: the greedy
+  bot has no self-control and dumps every tray it can, so more room to over-commit makes it
+  worse. That reads as "harder" and is not.
+
+  The `patient` bot exists to separate the two. It makes the same choice but refuses to tip a
+  tray the rail has no room for. Below 21 the hopper is small enough that using it is always
+  right and patience is a pure handicap; from 21 up patience overtakes greed, which is the
+  point where restraint becomes a genuine skill rather than a missed opportunity.
+- x2 bars are the harshest thing in the game — a tray over one is `2 * TRAY_N` = 18 marbles, half
+  the belt. At the full tray cap every board carrying a bar is a coin flip (several at 0%). Fixed
+  by shortening it: `tiles - bars * 2`. Swept at 2 / 3 / 4 units → separation 54 / 47 / 47, so **2**.
+- Shrinking the belt so the cleat banding closes is free; belt capacity is coarse.
+- Stars are scored on **peak belt occupancy**, not moves — every level takes exactly one tap
+  per tray, so a move count would score nothing.
+- **Current shipped band over levels 20–40: greedy 85%, random 31%** (separation 54, the
+  widest measured). The greedy bot is one-ply and uses no boosters or undo, so a human should
+  sit above it.
+
+## Walled boards — the silhouette as a rim
+
+`wall[]` on `LevelDef` marks cells that are not part of the board at all: solid casing.
+Mechanically identical to a crate, but a different thing to the player and drawn as one — a
+crate is an obstacle *inside* the board, a wall **is the board's edge**, and the edge is not an
+exit. So the same silhouette played walled is a different puzzle: the outer ring is peeled from
+the inside out instead of from the outside in.
+
+- ⚠ **Only the margin becomes casing.** A cell is inside if the mask has cells on both sides of
+  it along its row **or** along its column. That keeps two kinds of negative space open: a hole
+  the outline encloses (`frame`'s hollow middle) and a channel running clean through it
+  (`pillars`' gaps). Both are the shape's own features — the open air that gives its trays a
+  lane — and sealing them inverts the silhouette lever instead of adding to it.
+  Flooding in from the grid border, the obvious way to write this, gets the holes right and the
+  channels wrong: a channel touches the border, so it floods, and `pillars` came out as separate
+  towers with nothing between them.
+- ⚠ **A walled board needs slack in the cavity.** With the outside solid the only escape lanes
+  left are mask cells the fill did not take, so a mask sized exactly to the tray budget seals
+  every tray in on four sides and the level is dead on arrival. Walled boards get half the tray
+  budget again as room.
+- ⚠ **A hatch keeps the cell directly beneath it.** That one cell has to stay floor or the level
+  cannot finish. Exempting its whole column is what left the outer columns standing open.
+
+## The silhouette has to be *drawn*, not cropped
+
+⚠ Fit the mask to the tray budget; do not draw it full-size and let the fill crop it. The fill
+takes `target` cells top-down and the budget (6-15) is half a 6x5 grid, so a full-height
+`diamond`, `cross`, `frame` and `tee` all truncate to **the same two-row slab** and the whole
+shape lever becomes invisible. Shipped that way for weeks; 7 of 10 shapes were in use and none
+of them read.
+
+- ⚠ An outline needs an interior. Squeezed to two rows a `frame` is every cell border, i.e. a
+  solid slab. Minimum height 3 for `frame`/`cross`/`diamond`/`tee`/`arrow`.
+- ⚠ `shapeFor` normalises `d` against **the range LADDER occupies** (0.20…0.85), not 0…1.
+  Scaling raw `d` left the window short of both ends and `castle`, `block` and `pillars` never
+  came up once in 45 levels — including `pillars`, the hardest silhouette measured. A lever the
+  ladder cannot reach is not a lever.
+
+## Drawing the machine — three tones, one recess
+
+`machine` is the cabinet interior, **white**. `panelDeep` is the rim, the only slate in the
+machine. `panel` is the cavity floor, white again. The box well at the bottom uses the same two
+tones — one recess treatment, both ends of it the same material.
+
+⚠ Collapsing this to two tones fails in both directions, and both were shipped and rejected:
+filling the cavity with slate makes the board a dark sticker on a white box; painting the whole
+cabinet slate makes the casing read as the hole rather than the solid part.
+
+`drawGridCavity` draws the union of the playable cells **twice** — once dilated in the rim
+colour, once inset in the panel colour. The dilated union *is* the outline, corners rounded and
+all; tracing the boundary would need its own convex/concave corner arithmetic, redone per
+silhouette. ⚠ Each cell's rounded rect must overlap its neighbour's by more than the corner
+radius or the union keeps the individual corners and the well comes out as a string of beads.
+
+The cavity always opens into the chute. The mouth is the board's **lowest row, not the grid's**:
+a four-row shape would otherwise hang above the shelf with its own rim parallel to it, and two
+lines a few pixels apart read as a mistake. ⚠ Lowest row *of the board*, not each column's own
+lowest cell — per column, `diamond` pours white down its shoulders and comes out a rectangle
+again. ⚠ And the drop from mouth to funnel goes through **both** passes: painted in fill only
+(the obvious shortcut, since the point is to open the floor) it has no sides at all.
+
+## Hand-built levels — `editor.html`
+
+DOM, not Phaser: the editor is mostly buttons and dropdowns, every one free in HTML and
+hand-built in canvas. It edits a `Blueprint`; `custom.ts` turns that into the same `LevelDef`
+the generator produces, so a hand-built board is not a second idea of what a board is and every
+rule, bot and fingerprint applies to it unchanged.
+
+Resolution order in `blueprintFor`: this device's saved levels, then the shipped `HANDMADE`
+table, then the generator. ⚠ Device first is deliberate — otherwise editing a level that already
+ships keeps serving the shipped copy and reads as the save having failed.
+
+Picking a level opens **the board that level actually is**, not a blank grid — starting from the
+real thing is the difference between editing a level and retyping one. Where nothing is saved and
+nothing ships, that is the generator's board, and `fromLevelDef` is the inverse mapping. It is
+still ⚠ **lossy**: `bars` (x2) has no tool yet, so a level carrying one comes back without it and
+the panel has to say so. Silently dropping a level's hardest feature and calling it "opened" is
+worse than refusing. Chocolate boxes **do** round-trip now, and they go back **last**, over
+whatever the cell loop put in their four cells — a box's trays are parked inside the lid, not on
+the grid, so the loop reads all four as floor.
+
+⚠ **Boot does not open a level, and must not pretend it did.** `bp` starts from the scratch slot
+(`ms_custom`) on purpose — reopening the editor gives back the drawing you were working on. But
+the Level box sits at its HTML default of "1", so the badge asserted "Level 1" over a drawing that
+had nothing to do with level 1; held up against the game that reads as the editor and the game
+disagreeing about a level, and it was reported exactly that way. The label is now found in falling
+order of confidence: byte-identical to a save → that level; a level remembered in `ms_editor_level`
+when it was opened → that level; neither → `Bản nháp · chưa gắn với level nào`. ⚠ The scratch state
+is tested **before** the level-number branches, or it falls through and prints the lie again.
+
+⚠ **`openLevel` must walk all three steps, in `blueprintFor`'s order.** It checked the device's
+saves and then jumped straight to `makeLevel`, skipping `HANDMADE` — so level 32 opened as a
+generated 6x5 in the editor while the game played the shipped 7x7: two different boards under one
+number. Reported from a side-by-side screenshot. The badge made it worse by reading "máy sinh,
+chưa sửa", a true sentence about the wrong board, which sends you hunting in the generator. A
+shipped board is **neither** "đã lưu" (it is not in this device's book, and the game keeps serving
+the shipped copy until you press Lưu) **nor** "máy sinh" (it is hand-built and off the tuned curve
+entirely) — it says `bản ship`. Anything else that turns a level number into a board has to walk
+the same three steps in the same order, or it is showing a board nothing plays.
+
+- Boxes are **derived**, not drawn — the editor only draws the tray grid. Each tray needs
+  `TRAY_N / BOX_SLOTS` boxes of its colour, so the multiset is fixed; the **order** is not, and
+  the order is what decides whether the level can be won.
+  ⚠ Dealing the colours out evenly, which is the obvious way and what this did first, buries a
+  colour's later boxes under other colours: a tray tapped once its own column has moved on has
+  nowhere to land, rides the belt, and the level jams with the board still half full. Reported
+  from real play as "I only drew the top board and it says JAMMED" — and it was the derivation's
+  fault, not the drawing's. Measured 82% against 100% for the same board laid out properly.
+  So do what `paint()` does: take a tap order the grid permits (played on a real `Game`, so the
+  escape rule and the reveals are the engine's own), run the belt, and open a box for whatever is
+  piling up. The stacks then *are* the record of a playthrough that worked.
+- ⚠ **One layout is not enough** — the same lesson the generator pays for twice. A stack ordered
+  for a line nobody walks still jams: six random drawings scored 100, 100, 23, 0, 100, 100 off a
+  single layout. Build ~10 candidates, score each with a handful of bot games, keep the best,
+  stop early on a clean sweep. All six then scored 100. Cost is ~24 ms worst case and it is
+  cached per drawing, because `toLevelDef` runs on every editor keystroke.
+- ⚠ **The search aims at `targetWin(level)`, so a board's difficulty is a property of the *slot*,
+  not of the drawing.** Move a level and its top half travels while its bottom half is rebuilt for
+  wherever it landed. Measured on a real reorder: a board reading 100% at level 23 read **7%** at
+  level 19 — same trays, and the search had the same candidate pool (it is seeded off the drawing),
+  but it aimed at 50% instead of 80% and the pool's two nearest candidates straddled that target,
+  so it took the hard side.
+  ⚠ And it scores those candidates on **(B+D)/2** (`winRate` in `custom.ts`), which is not
+  Cuongxs1. The two rulers disagree by up to 48 points on one board, so a ladder sorted on
+  Cuongxs1 is being rebuilt by a search optimising something else. Same trap as everywhere else in
+  this file: check both sides of a comparison are the same metric.
+  **The fix is `Blueprint.columns`** — freeze the stacks (and `refTaps` with them) onto the drawing
+  and `toLevelDef` skips the search entirely, so the whole level travels. Levels 15-115 are pinned
+  this way. A drawing still being edited must leave it empty, or the boxes stop following the trays.
+- ⚠ Derivation must be **deterministic per drawing**, seeded off the cells. Otherwise the level
+  the editor measured is not the level the player gets.
+- ⚠ **Sealed means permanently sealed** — every side casing, crate or board edge. Not "has no
+  empty neighbour right now": a tray inside a packed block has none either, and peeling a block
+  from its shell inwards is the game. Warning on those would flag every board worth building.
+- The editor's bot check reports a **rate, not a pass** — the `verify()` / `playableRate()`
+  distinction again. A board a bot clears 1 time in 20 is solvable and miserable. It runs on its
+  own after every edit (debounced ~350ms, 12 games), because "press the check button" is a step
+  nobody remembers until the level is already jamming in play. ⚠ Debounced and never inline in
+  `commit()`: a drag-paint commits once per cell.
+- The panel also prints what the **generator** puts at that level number. A hand-built board
+  carries no difficulty label of its own, so the only honest way to say "this is heavy for level
+  3" is to say the generator makes 9 trays there and this one has 13. First real report of a
+  hand-built level was exactly that: a level-20-sized board saved as level 3, jamming on the
+  belt, and nothing on screen said so.
+- ⚠ Every `addIssue` has to come **after** `issuesEl.replaceChildren()`. A warning raised above
+  it is added and wiped in the same frame, which reads exactly like a condition that never
+  fired — and the one lost that way was the heaviest signal on the panel.
+- ⚠ The two "open the game" controls are real `<a target="_blank">`, not `window.open`. A popup
+  blocker swallows `window.open` silently: the click does nothing and there is no error anywhere
+  to find. The URL is also printed next to the button for a blocked tab.
+- ⚠ A level in `HANDMADE` is **off the tuned curve**. `npm run tune` searches LADDER and VARIANTS
+  for the generator and a hand-built board ignores both; `npm run sim` is the only thing that
+  says whether it belongs where you put it.
+- The editor's scratch board is never written to the play log — the log calibrates the
+  *generator's* curve, and a drawing is a board no ladder ever produced.
+- A hatch has a **direction** (`Dir` on `Dispenser`): its shutter faces down, left or right, and
+  it pushes into that neighbour. Absent means down, so every board built before this still reads.
+  ⚠ The `Game` constructor must **spread** the stored dispenser rather than list its fields —
+  rebuilding it by hand is exactly how `dir` was dropped the first time, and every hatch went on
+  facing down however the board was drawn, in silence. The fingerprint carries it too.
+- A hatch is edited as **a count and then its trays in order**, not as a list you append to:
+  set how many it holds, then fill left to right, the selection stepping on by itself. Appending
+  leaves the count implicit, which is the one thing about a hatch the board actually shows.
+- ⚠ `.box { display: flex }` beats the browser's own `[hidden] { display: none }`, so a panel
+  toggled with `.hidden` stays on screen showing its **empty** state. The hatch panel looked
+  broken for exactly this reason, and the empty state is convincing enough to send you hunting
+  in the render code. `.box[hidden] { display: none }` is not optional.
+- ⚠ The board paints on `pointerdown`, so a synthetic `.click()` in a test does nothing. Drive it
+  with `new PointerEvent("pointerdown", { bubbles: true, pointerId: 1, clientX, clientY })`, and
+  re-query the cell **after** every commit — each one rebuilds the board and detaches the old
+  nodes, so a reference taken earlier fires into nothing and the test silently passes.
+- Changing the level number loads that level's board, or blanks it, and **never asks**. Hopping
+  between levels to compare them is the common move, so a confirm on every hop is noise; the
+  badge already says "có sửa chưa lưu" while work is unsaved, which is the same information
+  without stopping the hand. Accepted cost: an unsaved drawing is gone once you switch away.
+  ⚠ On `change`, not `input`: typing "12" passes through "1", and an `input` handler would load
+  level 1 and wipe the board between two keystrokes — with no confirm left, that is the only
+  thing standing between a keystroke and the loss.
+- ⚠ **The editor renders a real settled `Game`, never the blueprint literally.** Drawn literally
+  it disagrees with the game on three things at once, all of which happen before the first frame:
+  a `?` tile beside a gap is already face-up, a hatch has already pushed one tray out, and a tray
+  with no open side sits flat. Reported from a side-by-side: four `?` tiles in the drawing, none
+  of them `?` in play. Reimplementing the rules in the editor would be a third copy of the escape
+  test — `level.ts` already keeps the second, and this file says what that costs.
+  What the editor adds on top is a marker on cells whose `?` does not survive settling, because
+  "you drew this face-down and it is not" is invisible in a picture that agrees with the game.
 
 ## What came from the scaffolding (do not re-invent)
 
-- `src/main.ts` — Phaser boot, DPR capped at 2, 60fps cap, `?reset=1` wipes saved state,
-  and `window.__game` exposed in dev so a headless browser can drive the scene. **That
-  hook is what makes anything measurable — keep it.**
-- `src/game/save.ts` — localStorage behind the `ms_` prefix (levels, stars, coins, mute).
-  ⚠ The prefix must stay distinct from other games or they share storage.
-- `src/game/audio.ts` — synthesised WebAudio, no sample files.
+- `src/main.ts` — Phaser boot, DPR capped at 2, 60fps cap, Matter enabled, `?reset=1` wipes
+  saved state, and `window.__game` exposed in dev. ⚠ **No dev wallet float.** A dev build briefly
+  topped the wallet up to 1000 at boot, and that made the economy unreadable from the machine it
+  is being tuned on: 1000 coins is twenty revives, while a real new player starts on **nothing**
+  (`save.coins` defaults to 0) and earns `WIN_COINS` = 10 a level. Grant coins deliberately instead
+  — `localStorage.setItem('bf_coins','200'); location.reload()` — so a test wallet is visible
+  rather than standing silently behind every session. `GameScene` adds `window.__ms`
+  (`state()`, `tap()`, `hint()`, `goto()`). **Those hooks are what make anything measurable
+  — keep them.**
+  ⚠ **The HTML boot poster is dismissed by `dismissBootSplash()`, and every scene that can be
+  the first one on screen has to call it** — Home *and* Game. It is a full-screen div at
+  `z-index: 10`, so a scene that forgets does not degrade: it covers the running game completely
+  and the player watches the title pulse forever over a board they cannot see or touch. Owned
+  privately by `HomeScene` at first, which broke **`?level=N` and `?custom=1`** — `main.ts` stops
+  Home and starts Game directly, so `HomeScene.create` never ran. Reported from a phone as *"chỉ
+  hiển thị Ball Flow rồi mãi không play được"* and misread as a network problem for an hour,
+  because every URL tested from a desktop went to `/` and worked. What found it was a one-page
+  HTTP server run purely to prove the phone could reach the machine: its request log showed the
+  phone asking for `/?level=31`, and the query string *was* the bug. **When a report and every
+  local test disagree, log what the device actually asked for.** The editor's two "open the game"
+  links are those same two URLs, so every hand-built board previewed that way was dead too.
+- `src/game/save.ts` — localStorage behind the `ms_` prefix. ⚠ The prefix must stay distinct
+  from other games or they share storage.
+- `src/game/audio.ts` — synthesised WebAudio, no sample files. The marble knocks (`sfx.tumble`)
+  are driven off **real Matter `collisionstart` events**, rate-limited to one every 45ms —
+  Matter reports a burst of pairs for a single pile-up, and playing them all turns the ASMR
+  into a buzz. Never loop a canned rattle instead: the whole point of the physics is that the
+  rhythm is never the same twice. Remember `matter.world.off("collisionstart")` on restart,
+  or listeners stack up across levels.
+- Celebration art is baked in `bakeEffects` (spark, ring, sunburst, glow). ⚠ The box well is a
+  **light** surface, so a white-on-white burst vanishes — the shockwaves are tinted with the
+  box's own `dark` swatch and the sparks with its `base`. Fire them on demand to look at them:
+  `npm run shot -- --level 12 --taps 2 --fx`; catching them mid-playthrough is hopeless at
+  ~400ms. ⚠ Keep the box-clear burst **restrained** — a box clears several times per level, so
+  it is punctuation, not an event. No camera shake: shaking the whole machine that often is
+  exhausting rather than satisfying. The win screen is where the budget goes.
 - `scripts/build-apk.mjs` · `scripts/setup-android.mjs` — Android packaging; the launcher
-  icon is drawn as an SVG (a tube of marbles), there is no icon file.
-- `capacitor.config.ts` — `com.marblesort.game`, distinct from Beads Out's app id.
+  icon is an SVG, there is no icon file. `capacitor.config.ts` — `com.marblesort.game`.
 
-Three conventions worth keeping from the previous project:
+Conventions kept from the previous project:
 
-1. **Bake every graphic at boot** (a `textures.ts`), no `public/art/`.
+1. **Bake every graphic at boot** (`textures.ts`), no `public/art/`.
+   ⚠ **One exception, and it is deliberate:** `src/assets/home-cover.webp`, the 3D cover render on
+   the home screen. There is no procedure that draws it. Imported rather than dropped in
+   `public/` so Vite fingerprints it and it ships in `assets/` — 34 KB, against a 20 MB budget.
+   ⚠ Home paints its own two violets (`COVER_BG` sampled from the render's corner pixels,
+   `HOME_FOOT`) instead of `UI.bgTop`/`UI.bgBottom`, and has **no halo and no rays**. Those sat
+   behind the cover, so all they could do was brighten what it was *not* covering; at 5.6x the
+   halo reached past its lower edge, and the band hiding that edge then masked a bright glow above
+   and nothing below. That step — not any colour mismatch — was the hard horizontal line across
+   the screen, and feathering the seam could not fix a discontinuity that was not at the seam.
 2. **Generate levels from the level number with a seeded RNG**, no level files.
-3. **Write a headless simulator early** (`scripts/sim.js` in the old project), not last.
-   Tuning by driving the real game costs ~30s per data point, which is too slow to take
-   more than one or two samples — and single samples are noisy enough to mislead.
+3. **Write the headless simulator early**, not last.
 
-## Ordering — read `NEW-GAME.md` in the Beads Out repo before starting
+⚠ **The bundled `public/fonts/LilitaOne.ttf` is a Latin-only subset — no Vietnamese glyphs**
+(no Ơ Ư Ế Đ Ă …). UI strings are therefore English, matching the reference game's own UI.
+Swapping in a full Lilita One (Google Fonts serves a `vietnamese` subset) is what unblocks
+Vietnamese copy; until then non-ASCII text falls back to Arial glyph-by-glyph and looks
+broken.
 
-The short version of what that project paid to learn: decide the **lose condition** before
-tuning anything, measure with **two opposite players** (optimal and random) because a
-single bot makes real levers look like null results, and **hold everything fixed but one
-variable** in every experiment.
+## CrazyGames — one codebase, one build flag
+
+`VITE_TARGET=web|crazy|android` (default `web`) picks a platform through `src/platform/`:
+`base.ts` is the interface, `none.ts` the no-op web build, `crazy.ts` the CrazyGames SDK.
+`npm run build:crazy` · `npm run build:web` — each builds and then **checks itself**.
+
+⚠ **The door is an alias, not a runtime `if`.** `vite.config.ts` maps `virtual:platform` to one
+implementation, so the other never enters the module graph. CrazyGames bans third-party ad
+networks outright, and a runtime switch would keep the other store's SDK in the same bundle
+however carefully the branch is guarded. `build-target.mjs` proves it every build: the web bundle
+must contain **zero** files mentioning `crazygames`, the crazy bundle at least one.
+
+⚠ **Nothing may read progress before `platform.init()` resolves.** The host preloads the player's
+cloud save *during* init; a read before that returns the local copy, and the next write pushes
+that stale copy over their real save. `main.ts` awaits init before the Phaser game exists, so
+there is no loading-screen cap to race — and `crazy.ts` owns a 2.5s timeout because an adblocked
+SDK script **never fires `onerror`** and would otherwise park those players forever.
+
+⚠ **The gameplay signal lives in the `paused` flag, not at the call sites.** `gameplayStart/Stop`
+is how the host knows when it may interrupt with an ad. Six places in `GameScene` set that flag;
+emitting from the setter means the seventh, added later, is covered for free. Leaving the level is
+hooked **once** on `shutdown` for the same reason. ⚠ `_paused` starts **true** so the first
+`paused = false` actually fires a start — left at false the setter sees no change and the host
+never learns the very first level began, which is the one level every reviewer plays.
+
+⚠ **Storage keys are frozen from launch.** Automatic Progress Save backs `localStorage` up
+verbatim, so renaming the prefix after launch restores old names into a game that reads new ones
+and every player loses everything. The prefix moved `ms_` → **`bf_`** on 2026-08-13 with the
+rename to **Ball Flow**, which was free only because nobody had played yet. It is not free again.
+
+⚠ The **editor is dropped from the crazy build** (`rollupOptions.input`), and `tools/iframe-test.html`
+lives outside `dist/`. A dev tool that reaches a reviewer is the same mistake as a test harness in
+the upload.
+
+Current: **1.59 MB, 3 files**, relative paths — comfortably inside the 20 MB that qualifies for
+the mobile homepage, which is a competitive advantage worth defending rather than a detail.
+Reference material in `Manythings/CRAZYGAMES*.md` (written for the sibling "Hop In!" project).
 
 ## Commands
 
 - Typecheck: `npx tsc --noEmit` · Dev: `npm run dev` · Android: `npm run apk`
+- Level editor: `npm run editor` (or `/editor.html` on the dev server). `?level=N` and
+  `?custom=1` on the game URL open a board directly, skipping the home screen.
+- Screenshot a non-game page: `npm run shot -- --page editor.html [--js "<snippet>"]` —
+  `--js` runs before the shot and reloads, for pages that boot from localStorage.
+- Balance (bot-vs-bot): `npm run sim [levels]` · Predicted winrate: `npm run winrate 20-40`
+- Check levels 1-29 against the sheet: `npm run sheet` (`NOWIN=1` for ingredients only, ~1s)
+- Retune the ladder after any rule change: `npm run tune 20` (slow — it is playing thousands
+  of games), then paste `LADDER` and `VARIANTS` into `level.ts`.
+- Build + grade a run of levels: `npm run levels 20` (B = best play, D = slip 0.25, the
+  (B+D)/2 shape Pixel Flow settled on). It flags any level where B and D disagree by more than
+  35 points, because a mean of two models that disagree is a number neither of them believes.
+- Build the **linked-pair** levels: `node scripts/pairs.mjs 40-45 --out block.txt`. Silhouettes are
+  drawn as ASCII in the script (`<` marks a cell that may become a pair anchor); it sweeps pair
+  count, board density, face-down share and colour count, and aims each level at a **Cuongxs1**
+  target. Paste the block into `handmade.ts`. ⚠ It floors best play at 10%: the brief names one
+  model's curve, and a board can land that curve while being a board *nobody* wins — one trial
+  read Cuongxs1 30% with B and D both 0/20.
+- Build an **easy run** to a Cuongxs1 floor: `node scripts/easy.mjs 86-115 --out block.txt`. Same
+  shape as `pairs.mjs` — ASCII silhouettes, swept knobs, two-stage selection — but aimed at a
+  **floor** rather than a target, because "above 90%" is one-sided and a target would reject the
+  100% boards. `MIX` spells the feature blend out per level (exactly 3 pairs / 18 `?` / 3 crates /
+  3 chocolate / 3 plain over 30) rather than sampling it, and the four are mutually exclusive.
+  Built levels **86-115** this way.
+  - ⚠ Its `unpeelable` check must use `y === rows - 1` for the chute mouth, exactly like
+    `isSealed` and `canEscape`. Reading it as the board's lowest *occupied* row looks like the
+    more careful rule and is a third disagreeing copy of the escape test: three of five
+    silhouettes passed validation and then produced no winning line on any trial, because a shape
+    floating above an all-casing bottom row has its real bottom row sealed. **Shapes sit on the
+    last row; blank rows go at the top.**
+  - ⚠ The size tiebreak decides everything once the floor is one-sided. Left preferring the
+    smallest board, 27 of 30 came out 5x5 — five silhouettes at one size reads as one board
+    recoloured thirty times. It now alternates, and `--trays N` aims at a size for a level being
+    rebuilt inside an existing ladder.
+  - ⚠ `--nohatch` exists because the shipped run has **no hatch before level 8**. Rebuilding an
+    early level with one is an easier board that teaches a mechanic two levels early.
+- Check the revive against real jams: `npm run revive` (levels 1-45; `npm run revive 20 12` for a
+  quick pass). Exits non-zero if any revived board's marbles and holes stop matching.
+- Rank the candidate models after a playtest: `PURE=1 npm run winrate -- --models`
+- Real-game screenshots: `npm run shot -- --level N`
 - `?reset=1` on the URL wipes saved progress — the way to reset on a phone.

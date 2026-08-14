@@ -1,0 +1,1327 @@
+// Level editor. Draws a `Blueprint`; `custom.ts` turns that into the same `LevelDef` the
+// generator produces, so nothing here needs its own idea of what a board is.
+//
+// DOM rather than Phaser on purpose: the editor is mostly buttons, dropdowns and a text field,
+// and every one of those is free in HTML and hand-built in canvas. The cost is that the board
+// preview is an approximation of the machine rather than the machine — good enough to design
+// against, and "Chơi thử" opens the real thing one click away.
+
+import { BOX_SLOTS, GRID_ROWS, PALETTE, TRAY_N, type Color } from "../game/config";
+import {
+  blankBlueprint,
+  checkBlueprint,
+  deriveColumns,
+  dropLevel,
+  fromLevelDef,
+  loadBook,
+  loadCustom,
+  putLevel,
+  saveCustom,
+  chocCells,
+  toLevelDef,
+  trayCounts,
+  type Blueprint,
+  type Cell,
+  type CellKind,
+} from "../game/custom";
+import { Game, type Dir } from "../game/logic";
+import { HANDMADE } from "../game/handmade";
+import { makeLevel } from "../game/level";
+
+type Tool = "wall" | "floor" | "tile" | "hiddenTile" | "hatch" | "crate" | "pair" | "choc";
+
+const TOOLS: { id: Tool; label: string; key: string; hint: string }[] = [
+  { id: "wall", label: "Thành máy", key: "1", hint: "vẽ viền — ngoài hình" },
+  { id: "floor", label: "Ô trống", key: "2", hint: "trong hình, khay trượt sang được" },
+  { id: "tile", label: "Ô màu", key: "3", hint: "khay, hiện màu" },
+  { id: "hiddenTile", label: "Ô màu ẩn (?)", key: "4", hint: "vào game hiện dấu ?" },
+  { id: "hatch", label: "Cửa xả", key: "5", hint: "có số và hàng đợi màu" },
+  { id: "crate", label: "Thùng gỗ", key: "6", hint: "vật cản, không bao giờ mất" },
+  { id: "pair", label: "Khay đôi", key: "7", hint: "hai khay dính nhau, một chạm rơi cả hai" },
+  { id: "choc", label: "Hộp socola", key: "8", hint: "che 2x2, đổ đủ số khay thì vỡ" },
+];
+
+const hex = (c: Color) => "#" + PALETTE[c % PALETTE.length].base.toString(16).padStart(6, "0");
+
+let bp: Blueprint = loadCustom() ?? blankBlueprint(6, GRID_ROWS);
+let tool: Tool = "wall";
+let color: Color = 0;
+let selected = -1;
+/** which tray of the open hatch the colour buttons are aimed at */
+let slot = 0;
+/** Which half of the open linked pair a colour click lands on: 0 left, 1 right. */
+let pairHalf = 0;
+/** Which of the four trays under the open chocolate box a colour click lands on. */
+let chocSlot = 0;
+let painting = false;
+
+/** What a fresh hatch starts with. The generator uses two; nothing in the engine caps it. */
+const HATCH_DEFAULT = 2;
+
+const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+const boardEl = $("board");
+const toolsEl = $("tools");
+const swatchesEl = $("swatches");
+const hatchBox = $("hatchBox");
+const pairBox = $("pairBox");
+const pairSlots = $("pairSlots");
+const pairHidden = $<HTMLInputElement>("pairHidden");
+const chocBox = $("chocBox");
+const chocNeed = $<HTMLInputElement>("chocNeed");
+const chocRainbow = $<HTMLInputElement>("chocRainbow");
+const chocBorder = $("chocBorder");
+const chocSlots = $("chocSlots");
+const chocUnder = $("chocUnder");
+const chocHidden = $<HTMLInputElement>("chocHidden");
+const chocSupply = $("chocSupply");
+const queueEl = $("queue");
+const qHidden = $<HTMLInputElement>("qhidden");
+const qCount = $<HTMLInputElement>("qCount");
+const qDir = $<HTMLSelectElement>("qDir");
+const qWhich = $("qWhich");
+const statsEl = $("stats");
+const issuesEl = $("issues");
+const jsonEl = $<HTMLTextAreaElement>("json");
+const colsEl = $<HTMLSelectElement>("cols");
+const rowsEl = $<HTMLSelectElement>("rows");
+const lvlEl = $<HTMLInputElement>("lvlNum");
+const bookEl = $("book");
+const badgeEl = $("badge");
+const playLvlEl = $<HTMLAnchorElement>("playLvl");
+const lookLvlEl = $<HTMLAnchorElement>("lookLvl");
+const playUrl = $("playUrl");
+const measureEl = $<HTMLInputElement>("measure");
+
+// ── Painting ─────────────────────────────────────────────────────────────────
+
+function apply(i: number) {
+  const cur = bp.cells[i];
+  switch (tool) {
+    case "wall":
+      bp.cells[i] = { kind: "wall" };
+      break;
+    case "floor":
+      bp.cells[i] = { kind: "floor" };
+      break;
+    case "crate":
+      bp.cells[i] = { kind: "crate" };
+      break;
+    case "tile":
+      bp.cells[i] = { kind: "tile", color, hidden: false };
+      break;
+    case "hiddenTile":
+      bp.cells[i] = { kind: "tile", color, hidden: true };
+      break;
+    case "pair": {
+      // ⚠ The pair covers the cell to its right, so it needs one to cover. Refusing here rather
+      // than placing a half-pair matters: `gridDef` silently degrades a pair with no room back
+      // to a single tray, and a tool that looks like it worked and did not is worse than one
+      // that plainly declines.
+      const x = i % bp.cols;
+      if (x >= bp.cols - 1) break;
+      if (cur.kind !== "tile" || !cur.wide) {
+        bp.cells[i] = { kind: "tile", color, wide: true, mate: color, hidden: !!cur.hidden };
+        bp.cells[i + 1] = { kind: "floor" };
+      }
+      selected = i;
+      break;
+    }
+    case "choc": {
+      // ⚠ It claims a whole 2x2, so it needs one. Refusing beats placing three quarters of a
+      // box: `gridDef` drops a box with no room and a tool that looks like it worked and did
+      // not is worse than one that plainly declines.
+      const x = i % bp.cols;
+      const y = (i / bp.cols) | 0;
+      if (x >= bp.cols - 1 || y >= bp.rows - 1) break;
+      if (cur.kind !== "choc") {
+        // The four trays underneath start as whatever colour is on the brush, so the box is a
+        // real board element the moment it lands rather than a shell to be filled in first.
+        bp.cells[i] = {
+          kind: "choc",
+          need: 4,
+          border: null,
+          under: [0, 1, 2, 3].map(() => ({ color, hidden: false })),
+        };
+        for (const k of chocCells(i, bp.cols).slice(1)) bp.cells[k] = { kind: "floor" };
+      }
+      selected = i;
+      chocSlot = 0;
+      break;
+    }
+    case "hatch":
+      // Clicking a hatch that already exists selects it for editing instead of wiping its
+      // queue — the queue is the expensive part to type in and the easiest to lose.
+      if (cur.kind !== "hatch") {
+        bp.cells[i] = {
+          kind: "hatch",
+          queue: new Array<Color>(HATCH_DEFAULT).fill(color),
+          hiddenQ: new Array<boolean>(HATCH_DEFAULT).fill(false),
+        };
+        slot = 0;
+      }
+      selected = i;
+      break;
+  }
+  if (tool !== "hatch" && tool !== "pair" && tool !== "choc" && selected === i) selected = -1;
+  commit();
+}
+
+// ── Preview ──────────────────────────────────────────────────────────────────
+
+/**
+ * A real `Game` built from the drawing, settled, used only to *render* it.
+ *
+ * ⚠ Do not reimplement the reveal or escape rules here. A "?" tile with an empty neighbour turns
+ * face-up on the first frame, a hatch pushes its first tray out before the player sees anything,
+ * and a tray with no open side sits flat — draw the blueprint literally and the editor shows
+ * four face-down tiles the player will never see face-down. `level.ts` already keeps one
+ * byte-for-byte copy of the escape test and the file says what that costs; a third copy in the
+ * editor would drift the same way, and the whole point of a design view is that it agrees.
+ */
+let preview: Game | null = null;
+
+function rebuildPreview() {
+  try {
+    preview = new Game(toLevelDef(bp));
+  } catch {
+    // A drawing mid-edit can be nonsense (no colours yet, so no boxes). Fall back to drawing
+    // the blueprint as-is rather than blanking the board while the designer is working.
+    preview = null;
+  }
+}
+
+// ── Rendering ────────────────────────────────────────────────────────────────
+
+function edgesFor(i: number): string[] {
+  // A rim segment wherever floor meets casing or the grid's own border, so the union of the
+  // playable cells comes out with one outline instead of a box drawn round every cell.
+  const solid = (k: number, ok: boolean) => (ok ? bp.cells[k].kind === "wall" : true);
+  const x = i % bp.cols;
+  const y = (i / bp.cols) | 0;
+  if (bp.cells[i].kind === "wall") return [];
+  const out: string[] = [];
+  if (solid(i - bp.cols, y > 0)) out.push("t");
+  if (solid(i + bp.cols, y < bp.rows - 1)) out.push("b");
+  if (solid(i - 1, x > 0)) out.push("l");
+  if (solid(i + 1, x < bp.cols - 1)) out.push("r");
+  return out;
+}
+
+/**
+ * The two ribbons, drawn as this cell's quarter of a cross centred on the whole 2x2.
+ *
+ * ⚠ Per cell rather than per box because the four cells are four separate DOM nodes — so each
+ * draws the bands along the two edges facing the box's centre, and together they make one cross.
+ * A cross drawn inside each cell instead gives four little crosses, which reads as four boxes.
+ */
+function paintRibbon(face: HTMLElement, box: Cell, dx: number, dy: number) {
+  const rainbow = (box.border ?? null) === null;
+  const paint = rainbow
+    ? "linear-gradient(var(--dir), #ff5252, #ffb300, #ffee58, #66bb6a, #26c6da, #5c6bc0, #ab47bc)"
+    : hex(box.border as Color);
+  for (const vertical of [true, false]) {
+    const band = document.createElement("div");
+    band.className = "ribbon";
+    band.style.setProperty("--dir", vertical ? "to bottom" : "to right");
+    band.style.background = paint;
+    if (vertical) {
+      band.style.top = "0";
+      band.style.bottom = "0";
+      band.style.width = "9px";
+      // dx 0 is the left cell, so its band hugs the right edge — where the box's centre is.
+      band.style[dx === 0 ? "right" : "left"] = "-4px";
+    } else {
+      band.style.left = "0";
+      band.style.right = "0";
+      band.style.height = "9px";
+      band.style[dy === 0 ? "bottom" : "top"] = "-4px";
+    }
+    face.appendChild(band);
+  }
+}
+
+/** Index of the chocolate box covering cell `i` from elsewhere, or -1. */
+function chocOwner(i: number): number {
+  const x = i % bp.cols;
+  const y = (i / bp.cols) | 0;
+  for (const [dx, dy] of [
+    [1, 0],
+    [0, 1],
+    [1, 1],
+  ]) {
+    const ax = x - dx;
+    const ay = y - dy;
+    if (ax < 0 || ay < 0) continue;
+    const a = ay * bp.cols + ax;
+    if (bp.cells[a]?.kind === "choc") return a;
+  }
+  return -1;
+}
+
+function render() {
+  // ⚠ Cell size follows the widest side, the same way `gridMetrics` shrinks the real board — a
+  // 7x7 at the old fixed 62px is 434px of grid in a panel built for 6.
+  const px = Math.round(Math.min(62, 380 / Math.max(bp.cols, bp.rows)));
+  boardEl.style.gridTemplateColumns = `repeat(${bp.cols}, ${px}px)`;
+  boardEl.style.gridAutoRows = `${px}px`;
+  boardEl.replaceChildren();
+
+  for (let i = 0; i < bp.cols * bp.rows; i++) {
+    const c = bp.cells[i];
+    const el = document.createElement("div");
+    el.className = `cell ${c.kind}${selected === i ? " sel" : ""}`;
+    el.dataset.i = String(i);
+
+    for (const e of edgesFor(i)) {
+      const seg = document.createElement("div");
+      seg.className = `edge ${e}`;
+      el.appendChild(seg);
+    }
+
+    const face = document.createElement("div");
+    face.className = "face";
+    const pt = preview?.tiles[i] ?? null;
+
+    if (c.kind === "tile" && c.color !== undefined) {
+      // Face-down only if it is *still* face-down once the board has settled.
+      const stillHidden = pt ? pt.hidden : !!c.hidden;
+      if (stillHidden) {
+        // ⚠ Grey, the same inert slate the game bakes into `trayHidden` — a "?" tile shows no
+        // colour at all until it turns over. Painting it its real colour with a "?" on top was
+        // convenient for drawing and simply wrong about the game: the whole point of the tile is
+        // that the colour is the thing being withheld.
+        face.style.backgroundColor = "#7b89a4";
+        face.textContent = "?";
+        // The colour is still the designer's to know, so it goes in a corner chip — editor-only
+        // information, kept clearly outside the tile's own face.
+        const chip = document.createElement("span");
+        chip.className = "swatchdot";
+        chip.style.backgroundColor = hex(c.color);
+        el.appendChild(chip);
+      } else {
+        // ⚠ backgroundColor, not the `background` shorthand: set inline, the shorthand resets
+        // background-image to none and the nine eggs the .eggs class draws vanish.
+        face.style.backgroundColor = hex(c.color);
+        // Eggs standing proud is the game's own readout for "this tray can move", so the editor
+        // has to use it for the same thing or the two pictures disagree at a glance.
+        if (!preview || preview.canEscape(i)) face.classList.add("eggs");
+      }
+      if (c.hidden && !stillHidden) el.classList.add("revealed");
+      // A linked pair: draw the clip on this cell's right edge and paint the neighbouring cell
+      // with the mate's colour. The blueprint stores the pair once, at the left cell, so the
+      // right cell is plain floor and would otherwise render as an empty slot.
+      if (c.wide) el.classList.add("linked");
+    } else if (c.kind === "floor" && bp.cells[i - 1]?.kind === "tile" && bp.cells[i - 1]?.wide && i % bp.cols > 0) {
+      const left = bp.cells[i - 1];
+      // ⚠ The anchor's settled tile, not this cell's — the pair is stored once, so `preview
+      // .tiles[i]` is null here and falling back to the *drawing* would keep the right half
+      // grey after settling had already turned the piece face-up. Face-down and raised/flat
+      // both belong to the piece; only the colour is this half's own.
+      const anchor = preview?.tiles[i - 1] ?? null;
+      const stillHidden = anchor ? anchor.hidden : !!left.hidden;
+      if (stillHidden) {
+        face.style.backgroundColor = "#7b89a4";
+        face.textContent = "?";
+        const chip = document.createElement("span");
+        chip.className = "swatchdot";
+        chip.style.backgroundColor = hex(left.mate ?? left.color ?? 0);
+        el.appendChild(chip);
+      } else {
+        face.style.backgroundColor = hex(left.mate ?? left.color ?? 0);
+        if (!preview || preview.canEscape(i - 1)) face.classList.add("eggs");
+      }
+      if (left.hidden && !stillHidden) el.classList.add("revealed");
+      el.classList.add("linkedRight");
+    } else if (c.kind === "choc") {
+      face.textContent = String(c.need ?? 1);
+      face.classList.add("chocFace", "chocNum");
+      paintRibbon(face, c, 0, 0);
+      const rainbow = (c.border ?? null) === null;
+      el.title = rainbow
+        ? `Vỡ sau khi đổ ${c.need} khay bất kỳ màu`
+        : `Vỡ sau khi đổ ${c.need} khay màu ${PALETTE[(c.border as Color) % PALETTE.length].name}`;
+    } else if (c.kind === "floor" && chocOwner(i) >= 0) {
+      // One of the three cells the box covers. Drawn as part of the box, not as empty floor —
+      // the blueprint stores the piece once, at its top-left, so these would otherwise render as
+      // holes in the middle of it.
+      const at = chocOwner(i);
+      face.classList.add("chocFace");
+      paintRibbon(face, bp.cells[at], i % bp.cols === at % bp.cols ? 0 : 1, i - at < bp.cols ? 0 : 1);
+    } else if (c.kind === "hatch") {
+      // The count the *player* sees: settle() has already pushed one tray out.
+      face.textContent = String(preview?.disp[i]?.queue.length ?? (c.queue ?? []).length);
+      // Which side the shutter is on, drawn as a bar along that edge — the same thing the
+      // rotated housing says in the game.
+      face.classList.add("shutter-" + (c.dir ?? "down"));
+    } else if (c.kind === "floor" && pt) {
+      // The tray a hatch above has already shoved down here before the level even starts.
+      face.classList.add("ghost");
+      if (pt.hidden) {
+        face.style.backgroundColor = "#7b89a4";
+        face.textContent = "?";
+      } else {
+        face.style.backgroundColor = hex(pt.color);
+        face.classList.add("eggs");
+      }
+      el.title = "Khay cửa xả đẩy xuống ngay khi vào màn";
+    }
+    el.appendChild(face);
+    boardEl.appendChild(el);
+  }
+}
+
+function renderTools() {
+  toolsEl.replaceChildren();
+  for (const t of TOOLS) {
+    const b = document.createElement("button");
+    b.className = "tool";
+    b.setAttribute("aria-pressed", String(tool === t.id));
+    b.onclick = () => {
+      tool = t.id;
+      if (t.id !== "hatch" && t.id !== "pair" && t.id !== "choc") selected = -1;
+      commit();
+    };
+
+    const chip = document.createElement("span");
+    chip.className = "chip";
+    chip.style.background =
+      t.id === "wall"
+        ? "var(--body)"
+        : t.id === "floor"
+          ? "var(--slot)"
+          : t.id === "crate"
+            ? "#8a5a33"
+            : t.id === "hatch"
+              ? "#5b6a86"
+              : hex(color);
+    if (t.id === "wall" || t.id === "floor") chip.style.border = "1px solid #c8d1e2";
+
+    const label = document.createElement("span");
+    label.textContent = t.label;
+    const key = document.createElement("span");
+    key.className = "key";
+    key.textContent = t.key;
+
+    b.append(chip, label, key);
+    b.title = t.hint;
+    toolsEl.appendChild(b);
+  }
+}
+
+function renderSwatches() {
+  swatchesEl.replaceChildren();
+  PALETTE.forEach((sw, idx) => {
+    const b = document.createElement("button");
+    b.className = "sw";
+    b.style.background = hex(idx);
+    b.title = sw.name;
+    b.setAttribute("aria-pressed", String(color === idx));
+    b.onclick = () => {
+      color = idx;
+      // With a hatch open, a colour means "this is what the tray I am pointing at is" — and
+      // then step on. Filling the row is the common case, so the step is automatic; going back
+      // to fix one entry is a click on its chip.
+      const c = activeHatch();
+      if (c) {
+        const queue = [...(c.queue ?? [])];
+        if (queue.length) {
+          queue[slot] = idx;
+          c.queue = queue;
+          if (slot < queue.length - 1) slot++;
+        }
+      }
+      // Same idea for a linked pair: point at a half, pick a colour, and it steps to the other
+      // one so both get set in two clicks.
+      const pr = activePair();
+      if (pr) {
+        if (pairHalf === 0) pr.color = idx;
+        else pr.mate = idx;
+        pairHalf = pairHalf === 0 ? 1 : 0;
+      }
+      // ⚠ A chocolate box is deliberately **not** driven from here. It has its own two palettes —
+      // one for the ribbon, one for the four trays — because this row is the brush and a click on
+      // it was silently doing a third job with nothing on screen to say so.
+      commit();
+    };
+    swatchesEl.appendChild(b);
+  });
+}
+
+/** The linked pair currently open for editing, or null. */
+function activePair(): Cell | null {
+  const c = selected >= 0 ? bp.cells[selected] : null;
+  return c && c.kind === "tile" && c.wide ? c : null;
+}
+
+function renderPair() {
+  const c = activePair();
+  if (!c) {
+    pairBox.hidden = true;
+    return;
+  }
+  pairBox.hidden = false;
+  pairHidden.checked = !!c.hidden;
+  pairSlots.replaceChildren();
+  [
+    ["Trái", c.color ?? 0],
+    ["Phải", c.mate ?? c.color ?? 0],
+  ].forEach(([label, col], k) => {
+    const b = document.createElement("button");
+    b.className = `qslot${pairHalf === k ? " sel" : ""}`;
+    b.style.background = hex(col as Color);
+    b.title = String(label);
+    b.textContent = String(label);
+    b.onclick = () => {
+      pairHalf = k;
+      render();
+    };
+    pairSlots.appendChild(b);
+  });
+}
+
+/** Paint the selected tray under a chocolate box, then step to the next one. */
+function setChocSlotColor(c: Cell, idx: Color) {
+  const under = [...(c.under ?? [])];
+  if (!under.length) return;
+  under[chocSlot] = { ...under[chocSlot], color: idx };
+  c.under = under;
+  if (chocSlot < under.length - 1) chocSlot++;
+}
+
+/** The chocolate box currently open for editing, or null. */
+function activeChoc(): Cell | null {
+  const c = selected >= 0 ? bp.cells[selected] : null;
+  return c && c.kind === "choc" ? c : null;
+}
+
+function renderChoc() {
+  const c = activeChoc();
+  if (!c) {
+    chocBox.hidden = true;
+    return;
+  }
+  chocBox.hidden = false;
+  chocNeed.value = String(c.need ?? 1);
+  chocRainbow.checked = (c.border ?? null) === null;
+  // The ribbon swatches only mean anything on a single-colour box, so they go away on a rainbow
+  // one rather than sitting there inert.
+  chocBorder.hidden = chocRainbow.checked;
+  chocBorder.replaceChildren();
+  PALETTE.forEach((sw, idx) => {
+    const b = document.createElement("button");
+    b.className = `sw${c.border === idx ? " sel" : ""}`;
+    b.style.background = hex(idx);
+    b.title = sw.name;
+    b.onclick = () => {
+      c.border = idx;
+      // ⚠ And the four trays with it. A single-colour box is one whose contents are that colour —
+      // "cả 2 dải ruy băng đều cùng màu với màu khay" — so making the ribbon and then painting
+      // four trays one at a time is four extra clicks to reach the only sensible state. Reported
+      // as the colour picking being awkward, and this is most of why.
+      c.under = (c.under ?? []).map((u) => ({ ...u, color: idx }));
+      commit();
+    };
+    chocBorder.appendChild(b);
+  });
+
+  chocSlots.replaceChildren();
+  const under = c.under ?? [];
+  under.forEach((u, k) => {
+    const b = document.createElement("button");
+    b.className = `qslot${chocSlot === k ? " sel" : ""}`;
+    b.style.background = hex(u.color);
+    b.textContent = u.hidden ? "?" : "";
+    b.title = ["trên trái", "trên phải", "dưới trái", "dưới phải"][k];
+    b.onclick = () => {
+      chocSlot = k;
+      render();
+    };
+    chocSlots.appendChild(b);
+  });
+
+  // ⚠ Its own palette, right under the four slots. The main swatch row also drove these, which
+  // is the other half of why picking colours here was awkward: that row is the *brush*, so it was
+  // doing two unrelated jobs at once and nothing on screen said which one a click would hit.
+  chocUnder.replaceChildren();
+  PALETTE.forEach((sw, idx) => {
+    const b = document.createElement("button");
+    b.className = `sw${under[chocSlot]?.color === idx ? " sel" : ""}`;
+    b.style.background = hex(idx);
+    b.title = sw.name;
+    b.onclick = () => {
+      setChocSlotColor(c, idx);
+      commit();
+    };
+    chocUnder.appendChild(b);
+  });
+  chocHidden.checked = !!under[chocSlot]?.hidden;
+  // How many trays of the right kind the rest of the board can actually offer. ⚠ The four trays
+  // under the box can never count toward opening it — they are not tappable while it is closed —
+  // so this is the number the counter has to stay under or the box never opens at all.
+  chocSupply.textContent = `Bàn có ${chocSupplyCount(c)} khay thỏa mãn (không tính 4 khay bị che)`;
+}
+
+/** Trays outside this box that would count toward its counter. */
+function chocSupplyCount(c: Cell): number {
+  let n = 0;
+  const wants = (col: Color) => (c.border ?? null) === null || c.border === col;
+  bp.cells.forEach((cell, i) => {
+    if (i === selected) return;
+    if (cell.kind === "tile" && cell.color !== undefined) {
+      if (wants(cell.color)) n++;
+      if (cell.wide && wants(cell.mate ?? cell.color)) n++;
+    }
+    if (cell.kind === "hatch") for (const q of cell.queue ?? []) if (wants(q)) n++;
+    // Another box's four trays only count once *that* box has burst, which may never happen —
+    // but it is still supply the player can reach, so it counts.
+    if (cell.kind === "choc") for (const u of cell.under ?? []) if (wants(u.color)) n++;
+  });
+  return n;
+}
+
+/** The hatch currently open for editing, or null. */
+function activeHatch(): Cell | null {
+  const c = selected >= 0 ? bp.cells[selected] : null;
+  return c && c.kind === "hatch" ? c : null;
+}
+
+/**
+ * Set how many trays the hatch holds. Growing repeats the last colour rather than inventing
+ * one: the row is filled left to right straight after, and a colour you chose is a better
+ * starting point than a colour nobody picked.
+ */
+function setHatchCount(c: Cell, n: number) {
+  const queue = [...(c.queue ?? [])];
+  const hid = [...(c.hiddenQ ?? [])];
+  while (queue.length > n) {
+    queue.pop();
+    hid.pop();
+  }
+  while (queue.length < n) {
+    queue.push(queue[queue.length - 1] ?? color);
+    hid.push(false);
+  }
+  c.queue = queue;
+  c.hiddenQ = hid;
+  if (slot >= n) slot = n - 1;
+}
+
+function renderHatch() {
+  const c = activeHatch();
+  if (!c) {
+    hatchBox.hidden = true;
+    return;
+  }
+  hatchBox.hidden = false;
+  const queue = c.queue ?? [];
+  qCount.value = String(queue.length);
+  qDir.value = c.dir ?? "down";
+  if (slot < 0 || slot >= queue.length) slot = 0;
+  qWhich.textContent = queue.length ? `đang sửa khay ${slot + 1}/${queue.length}` : "";
+  qHidden.checked = !!c.hiddenQ?.[slot];
+
+  queueEl.replaceChildren();
+  queue.forEach((col, k) => {
+    const b = document.createElement("button");
+    b.className = "qchip";
+    b.style.background = hex(col);
+    b.setAttribute("aria-pressed", String(slot === k));
+    b.textContent = c.hiddenQ?.[k] ? "?" : "";
+    b.title = `Khay ${k + 1}`;
+    const idx = document.createElement("span");
+    idx.className = "idx";
+    idx.textContent = String(k + 1);
+    b.appendChild(idx);
+    b.onclick = () => {
+      slot = k;
+      commit();
+    };
+    queueEl.appendChild(b);
+  });
+}
+
+// ── Status ───────────────────────────────────────────────────────────────────
+
+function renderStatus() {
+  const counts = trayCounts(bp);
+  const trays = [...counts.values()].reduce((a, b) => a + b, 0);
+  const columns = deriveColumns(bp);
+  const boxes = columns.reduce((a, c) => a + c.length, 0);
+
+  statsEl.replaceChildren();
+  const stat = (k: string, v: string) => {
+    const row = document.createElement("div");
+    row.className = "stat";
+    const a = document.createElement("span");
+    a.textContent = k;
+    const b = document.createElement("b");
+    b.textContent = v;
+    row.append(a, b);
+    statsEl.appendChild(row);
+  };
+  stat("Số khay", String(trays));
+  stat("Số bi", String(trays * TRAY_N));
+  stat("Số màu", String(counts.size));
+  stat("Số hộp sinh ra", `${boxes} (${BOX_SLOTS} lỗ mỗi hộp)`);
+
+  // What the ladder puts at this level number. A hand-built board carries no difficulty label
+  // of its own, so the only honest way to say "this is heavy for level 3" is to say what the
+  // generator makes for level 3 — and 13 trays where it makes 9 is the whole story.
+  // ⚠ Only when asked. Building the reference calls `makeLevel`, which regenerates and re-plays
+  // a board until it is provably playable — ~90ms, on a panel that redraws per brush stroke.
+  const ref = measureEl.checked ? generatedShape(lastLevel) : null;
+  if (ref) stat(`Level ${lastLevel} máy sinh`, `${ref.trays} khay · ${ref.colors} màu`);
+
+  // ⚠ Everything that calls addIssue has to come *after* this line. Warnings raised above it
+  // are added and then wiped in the same frame, which looks exactly like a condition that never
+  // fired — and the one that got lost this way was the heaviest signal on the panel.
+  issuesEl.replaceChildren();
+  const problems = checkBlueprint(bp);
+  for (const p of problems) addIssue(p.fatal ? "fatal" : "warn", p.text);
+
+  if (droppedOnOpen.length) {
+    addIssue(
+      "warn",
+      `Bảng máy sinh có ${droppedOnOpen.join(" và ")} — editor chưa có công cụ cho những thứ đó ` +
+        `nên chúng không được mở ra. Lưu đè lên level này là mất chúng.`,
+    );
+  }
+
+  // ⚠ A chocolate box whose counter is higher than the board can ever feed it never opens, and
+  // `isWon` refuses to finish while any box is still on the board — so the level is unwinnable,
+  // not merely hard. The four trays underneath cannot count toward their own box (nothing can
+  // tap them while it is closed), which is exactly the trap: a rainbow box over a corner of a
+  // 20-tray board looks like it has plenty of supply and does not.
+  bp.cells.forEach((cell, i) => {
+    if (cell.kind !== "choc") return;
+    const was = selected;
+    selected = i;
+    const supply = chocSupplyCount(cell);
+    selected = was;
+    const need = cell.need ?? 1;
+    if (need > supply) {
+      const kind = (cell.border ?? null) === null ? "bất kỳ màu" : `màu ${PALETTE[(cell.border as Color) % PALETTE.length].name}`;
+      addIssue(
+        "fatal",
+        `Hộp socola ở ô ${i} cần đổ ${need} khay ${kind} nhưng bàn chỉ có ${supply} — hộp không ` +
+          `bao giờ mở được, và màn chỉ thắng khi mọi hộp đã vỡ. Bốn khay bị che không tự tính cho hộp che chúng.`,
+      );
+    }
+  });
+
+  // ⚠ The board has to offer a first move. `isStuck` judges a level dead when nothing on the
+  // belt fits a box and no tray can be tapped — which on an untouched board means the player
+  // sees JAMMED before making a single move. A grid packed edge to edge does exactly that: every
+  // tray is hemmed in by another tray, none of them is sealed by casing, and no per-cell check
+  // catches it. Ask the engine, which is the only thing that knows.
+  if (preview && !preview.hasAvailableTap() && trays > 0) {
+    addIssue(
+      "fatal",
+      "Không ô nào bấm được ngay từ đầu — vào màn là JAMMED luôn. Khay chỉ đi được khi có " +
+        "ít nhất một ô trống sát cạnh; bảng kín mít hoặc bị thành máy bó sát thì không khay nào nhúc nhích.",
+    );
+  }
+
+  if (measureEl.checked && ref && (trays > ref.trays + 2 || counts.size > ref.colors + 1)) {
+    addIssue(
+      "warn",
+      `Nặng hơn level ${lastLevel} bình thường (${ref.trays} khay, ${ref.colors} màu). ` +
+        `Càng nhiều bi thì ray càng dễ đầy trước khi hộp kịp mở.`,
+    );
+  }
+
+  // The one thing about a drawing that is invisible until you play it: a "?" tile next to a gap
+  // is face-up before the first frame, so placing four of them along an open edge buys nothing.
+  let popped = 0;
+  for (let i = 0; i < bp.cells.length; i++) {
+    const c = bp.cells[i];
+    if (c.kind === "tile" && c.hidden && preview && preview.tiles[i] && !preview.tiles[i]!.hidden) {
+      popped++;
+    }
+  }
+  if (popped) {
+    addIssue(
+      "warn",
+      `${popped} ô ? lộ màu ngay khi vào màn — khay hở một hướng thì không thể là khay ?. ` +
+        `Kín cả bốn phía mới úp được, và hàng dưới cùng thì luôn hở (miệng phễu).`,
+    );
+  }
+
+  if (lastRate) {
+    const { wins, runs } = lastRate;
+    const pct = Math.round((wins / runs) * 100);
+    addIssue(
+      wins === 0 ? "fatal" : pct < 40 ? "warn" : "ok",
+      wins === 0
+        ? `Bot chơi ${runs} ván, thắng 0 — bảng này có thể không giải được.`
+        : `Bot thắng ${pct}% (${wins}/${runs}). Bot không dùng booster hay undo.`,
+    );
+  } else if (!issuesEl.childElementCount) {
+    // ⚠ Ask the panel what is already on it, not the individual conditions. Listing them by hand
+    // means every new check has to be added here too, and the one that got missed printed
+    // "chưa thấy lỗi" directly underneath a fatal error.
+    addIssue("ok", "Chưa thấy lỗi cấu trúc.");
+  }
+}
+
+/**
+ * Last measured bot rate, refreshed in the background after the board settles.
+ *
+ * ⚠ Debounced, and never inline in `commit()`. A drag-paint commits once per cell, and playing
+ * a board through to a win or a jam is not free — running it per stroke turns painting a wall
+ * into a slideshow. The number being a moment out of date costs nothing; the editor showing it
+ * at all is the point, because "press Kiểm tra" is a step nobody remembers until the level is
+ * already jamming in play.
+ */
+let lastRate: { wins: number; runs: number } | null = null;
+let rateTimer = 0;
+
+function scheduleBotCheck() {
+  lastRate = null;
+  clearTimeout(rateTimer);
+  if (!measureEl.checked) return;
+  rateTimer = window.setTimeout(() => {
+    if (!trayCounts(bp).size) return;
+    lastRate = botTrials(12);
+    renderStatus();
+  }, 350);
+}
+
+/**
+ * Trays and colours the generator puts at a level number. Cached: `makeLevel` regenerates and
+ * re-plays a board until it is provably playable, which is ~90ms — fine once, not on every
+ * brush stroke.
+ */
+const shapeCache = new Map<number, { trays: number; colors: number }>();
+function generatedShape(level: number): { trays: number; colors: number } | null {
+  const hit = shapeCache.get(level);
+  if (hit) return hit;
+  try {
+    const d = makeLevel(level);
+    const trays =
+      d.tiles.filter(Boolean).length +
+      d.disp.reduce((a, x) => a + (x ? x.queue.length : 0), 0);
+    const out = { trays, colors: d.colors.length };
+    shapeCache.set(level, out);
+    return out;
+  } catch {
+    return null;
+  }
+}
+
+function addIssue(kind: "ok" | "warn" | "fatal", text: string) {
+  const row = document.createElement("div");
+  row.className = `issue ${kind}`;
+  const dot = document.createElement("span");
+  dot.className = "dot";
+  const t = document.createElement("span");
+  t.textContent = text;
+  row.append(dot, t);
+  issuesEl.appendChild(row);
+}
+
+/**
+ * Play the board with a plain greedy bot, a few times over.
+ *
+ * ⚠ This proves the board *can* be cleared, not that it is fair — the same distinction the
+ * generator draws between `verify()` and `playableRate()`. A board a bot clears 1 time in 20 is
+ * solvable and miserable, so the count is reported rather than reduced to a pass or a fail.
+ */
+function botTrials(runs = 20): { wins: number; runs: number } {
+  let wins = 0;
+  for (let r = 0; r < runs; r++) {
+    const g = new Game(toLevelDef(bp));
+    let guard = 0;
+    while (g.status === "play" && guard++ < 20000) {
+      const open: number[] = [];
+      for (let i = 0; i < g.tiles.length; i++) if (g.canTap(i)) open.push(i);
+      // Prefer a tray whose colour a box is waiting for; otherwise take any legal tap. The
+      // shuffle is what makes repeat runs differ — one deterministic run says almost nothing.
+      const ready = open.filter((i) => {
+        const t = g.tiles[i];
+        return t && !t.hidden && g.boxes.some((b) => b.stack[0] === t.color);
+      });
+      const pool = ready.length ? ready : open;
+      if (pool.length && g.capacity() >= TRAY_N) {
+        g.tap(pool[(Math.random() * pool.length) | 0]);
+      }
+      g.arriveAll();
+      g.tick();
+    }
+    if (g.status === "won") wins++;
+  }
+  return { wins, runs };
+}
+
+// ── Saved levels ─────────────────────────────────────────────────────────────
+
+function currentLevel(): number {
+  return Math.max(1, Math.round(Number(lvlEl.value) || 1));
+}
+
+/** Which level the drawing on screen belongs to. The badge and the panel both follow it. */
+let lastLevel = 1;
+/**
+ * Where the drawing on screen came from — a device save, the shipped table, the generator, nothing,
+ * or the scratch slot with no level attached to it.
+ */
+let origin: "saved" | "shipped" | "generated" | "blank" | "scratch" = "saved";
+
+/**
+ * Which level the scratch drawing belongs to, remembered across reloads.
+ *
+ * ⚠ Without this the editor reopens showing the scratch board — the drawing you were last working
+ * on, which is the point of the scratch slot — while the level box sits at its HTML default of 1.
+ * The badge then says "Level 1" about a board that has nothing to do with level 1, and comparing
+ * it against the game reads as the two disagreeing. Reported exactly that way.
+ */
+const LEVEL_KEY = "bf_editor_level";
+
+function setLastLevel(n: number) {
+  lastLevel = n;
+  try {
+    localStorage.setItem(LEVEL_KEY, String(n));
+  } catch {
+    /* storage unavailable — the label is lost on reload, the drawing is not */
+  }
+}
+/** Features the generated board had that the editor cannot represent yet. */
+let droppedOnOpen: string[] = [];
+
+/**
+ * Switch to a level: load its board, or start blank if nothing is saved there.
+ *
+ * ⚠ Unguarded on purpose — switching level never asks. Flipping between levels to compare them
+ * is the common move and a modal on every hop is noise; the badge already reads "có sửa chưa
+ * lưu" while there is unsaved work, which is the same information without stopping the hand.
+ * The cost is real and accepted: an unsaved drawing is gone once you switch away from it.
+ *
+ * ⚠ Still driven by `change` rather than `input`. Typing "12" passes through "1" on the way, so
+ * an `input` handler would load level 1 and wipe the board between two keystrokes — and with no
+ * confirm left, nothing at all would stand between a keystroke and the loss.
+ */
+function openLevel(n: number) {
+  const saved = loadBook()[n];
+  const ship = HANDMADE[n];
+  origin = "saved";
+  droppedOnOpen = [];
+  if (saved?.cells?.length) {
+    bp = JSON.parse(JSON.stringify(saved)) as Blueprint;
+  } else if (ship?.cells?.length) {
+    // ⚠ The shipped hand-built table sits **between** this device's saves and the generator —
+    // the same three-step order `blueprintFor` serves the game, and this has to stay in step
+    // with it. Skipping this step is what made the editor open a generated 6x5 board for level
+    // 32 while the game played the shipped 7x7 one: two different boards under one number, with
+    // the badge cheerfully calling the wrong one "máy sinh".
+    bp = JSON.parse(JSON.stringify(ship)) as Blueprint;
+    origin = "shipped";
+  } else {
+    // Nothing hand-built here, so open what the level *currently is* — the generator's board —
+    // rather than a blank grid. Starting from the real thing is the difference between editing
+    // a level and re-typing one.
+    try {
+      const { bp: made, dropped } = fromLevelDef(makeLevel(n));
+      bp = made;
+      origin = "generated";
+      droppedOnOpen = dropped;
+    } catch {
+      bp = blankBlueprint(bp.cols, bp.rows);
+      origin = "blank";
+    }
+  }
+  lvlEl.value = String(n);
+  colsEl.value = String(bp.cols);
+  rowsEl.value = String(bp.rows ?? GRID_ROWS);
+  selected = -1;
+  slot = 0;
+  setLastLevel(n);
+  commit();
+}
+
+/**
+ * Four states, not two: no board here yet, saved on this device, shipped in `HANDMADE`, or the
+ * generator's. Each needs its own wording — "có sửa chưa lưu" is the one worth a colour, because
+ * without it "Level 7" reads as "level 7 is this" and unsaved edits look shipped.
+ *
+ * ⚠ The three sources are tested in the same order `openLevel` opens them and `blueprintFor`
+ * serves them. A badge that names a different source than the one on screen is worse than no
+ * badge: it is what you check first when the editor and the game disagree.
+ */
+function renderBadge() {
+  // The badge describes the board on screen, so it follows `lastLevel`. Following the input box
+  // would have it report on a level you have only started typing and not switched to.
+  const n = lastLevel;
+  const saved = loadBook()[n];
+  const ship = HANDMADE[n];
+  const same = (b?: Blueprint) => !!b && JSON.stringify(b) === JSON.stringify(bp);
+  if (origin === "scratch") {
+    // ⚠ Checked before the level-number branches, because in this state there *is* no level
+    // number — `lastLevel` is only the HTML default. Letting it fall through would print
+    // "Level 1 · ..." about a drawing that was never level 1's, which is the exact confusion
+    // this state exists to name.
+    badgeEl.className = "badge";
+    badgeEl.textContent = "Bản nháp · chưa gắn với level nào";
+  } else if (saved?.cells?.length) {
+    const dirty = !same(saved);
+    badgeEl.className = "badge " + (dirty ? "dirty" : "saved");
+    badgeEl.textContent = `Level ${n} · ${dirty ? "có sửa chưa lưu" : "đã lưu"}`;
+  } else if (ship?.cells?.length) {
+    // ⚠ A shipped board is neither "đã lưu" (it is not in this device's book, so the game will
+    // keep serving the shipped copy until you press Lưu) nor "máy sinh" (it is hand-built and
+    // off the tuned curve entirely). Saying either sends you hunting in the wrong place.
+    const dirty = !same(ship);
+    badgeEl.className = "badge " + (dirty ? "dirty" : "");
+    badgeEl.textContent = `Level ${n} · bản ship${dirty ? ", có sửa chưa lưu" : ", chưa sửa"}`;
+  } else if (origin === "generated") {
+    // ⚠ Say where it came from. "Chưa lưu" on a board full of tiles reads as work about to be
+    // lost; this one is the generator's and can be regenerated at any time by not saving it.
+    badgeEl.className = "badge";
+    badgeEl.textContent = `Level ${n} · máy sinh, chưa sửa`;
+  } else {
+    badgeEl.className = "badge";
+    badgeEl.textContent = `Level ${n} · chưa lưu`;
+  }
+}
+
+/** Keep the "play" links pointed at the level in the box, and show the URL for a blocked tab. */
+function renderPlayLinks() {
+  const n = currentLevel();
+  playLvlEl.href = `./index.html?level=${n}`;
+  lookLvlEl.href = `./index.html?level=${n}&preview=1`;
+  playUrl.textContent = `index.html?level=${n}&preview=1`;
+}
+
+function renderBook() {
+  const book = loadBook();
+  const nums = Object.keys(book)
+    .map(Number)
+    .sort((a, b) => a - b);
+  bookEl.replaceChildren();
+  if (!nums.length) {
+    const p = document.createElement("span");
+    p.className = "empty-note";
+    p.textContent = "Chưa lưu level nào.";
+    bookEl.appendChild(p);
+    return;
+  }
+  for (const n of nums) {
+    const saved = book[n];
+    const trays = [...trayCounts(saved).values()].reduce((a, b) => a + b, 0);
+    const row = document.createElement("div");
+    row.className = "bookrow";
+
+    const num = document.createElement("span");
+    num.className = "n";
+    num.textContent = `Level ${n}`;
+    const meta = document.createElement("span");
+    meta.className = "meta";
+    meta.textContent = `${saved.cols} cột · ${trays} khay`;
+
+    const open = document.createElement("button");
+    open.textContent = "Mở";
+    open.onclick = () => openLevel(n);
+    const del = document.createElement("button");
+    del.textContent = "Xoá";
+    del.onclick = () => {
+      dropLevel(n);
+      renderBook();
+    };
+
+    row.append(num, meta, open, del);
+    bookEl.appendChild(row);
+  }
+}
+
+qCount.oninput = () => {
+  const c = activeHatch();
+  if (!c) return;
+  setHatchCount(c, Math.max(1, Math.min(9, Math.round(Number(qCount.value) || 1))));
+  commit();
+};
+
+qDir.onchange = () => {
+  const c = activeHatch();
+  if (!c) return;
+  c.dir = qDir.value as Dir;
+  commit();
+};
+
+qHidden.onchange = () => {
+  const c = activeHatch();
+  if (!c?.queue?.length) return;
+  const hid = [...(c.hiddenQ ?? [])];
+  hid[slot] = qHidden.checked;
+  c.hiddenQ = hid;
+  commit();
+};
+
+// `change`, not `input`: typing "12" passes through "1" on the way.
+lvlEl.onchange = () => openLevel(currentLevel());
+
+$("saveLvl").onclick = () => {
+  const n = currentLevel();
+  putLevel(n, bp);
+  setLastLevel(n);
+  renderBook();
+  renderBadge();
+  addIssue("ok", `Đã lưu vào level ${n} (trong trình duyệt máy này).`);
+};
+
+// ⚠ A real link, not window.open. A popup blocker swallows window.open silently — the click
+// does nothing at all and there is no error anywhere to find. The href is kept current by
+// `renderPlayLinks`; this handler only has to get the board into storage before the browser
+// follows it, which it does, because click handlers run before navigation.
+$("playLvl").onclick = () => {
+  const n = currentLevel();
+  putLevel(n, bp);
+  setLastLevel(n);
+  renderBook();
+  renderBadge();
+};
+
+$("exportAll").onclick = () => {
+  const book = loadBook();
+  const nums = Object.keys(book)
+    .map(Number)
+    .sort((a, b) => a - b);
+  jsonEl.value = nums.length
+    ? nums.map((n) => `  ${n}: ${JSON.stringify(book[n])},`).join("\n")
+    : "// chưa lưu level nào";
+  jsonEl.select();
+  addIssue("ok", "Dán khối này vào HANDMADE trong src/game/handmade.ts.");
+};
+
+// ── Wiring ───────────────────────────────────────────────────────────────────
+
+function commit() {
+  // ⚠ Editing the trays invalidates any frozen box stacks. `Blueprint.columns` pins the boxes so a
+  // level can be moved between slots without being rebuilt; the moment the drawing changes, those
+  // stacks describe a board that no longer exists — wrong colours, wrong count — and the level is
+  // unwinnable in a way nothing on screen would explain. Dropping them here puts the board back
+  // under the normal derivation, which is what an edited drawing should be under.
+  if (bp.columns) {
+    delete bp.columns;
+    delete bp.refTaps;
+  }
+  saveCustom(bp);
+  rebuildPreview();
+  render();
+  renderTools();
+  renderSwatches();
+  renderHatch();
+  renderPair();
+  renderChoc();
+  renderStatus();
+  renderBook();
+  renderBadge();
+  renderPlayLinks();
+  scheduleBotCheck();
+}
+
+boardEl.addEventListener("pointerdown", (e) => {
+  const t = (e.target as HTMLElement).closest(".cell") as HTMLElement | null;
+  if (!t) return;
+  painting = true;
+  boardEl.setPointerCapture(e.pointerId);
+  apply(Number(t.dataset.i));
+});
+boardEl.addEventListener("pointermove", (e) => {
+  if (!painting) return;
+  // Drag-paint has to hit-test the point rather than trust the event target: pointer capture
+  // sends every move to the cell the drag started in.
+  const t = document.elementFromPoint(e.clientX, e.clientY)?.closest(".cell") as HTMLElement | null;
+  if (!t) return;
+  const i = Number(t.dataset.i);
+  // Dragging never re-enters the hatch editor; it would reselect on every pixel of movement.
+  if (tool === "hatch" || tool === "pair" || tool === "choc") return;
+  apply(i);
+});
+const stopPaint = () => (painting = false);
+boardEl.addEventListener("pointerup", stopPaint);
+boardEl.addEventListener("pointercancel", stopPaint);
+window.addEventListener("blur", stopPaint);
+
+window.addEventListener("keydown", (e) => {
+  if ((e.target as HTMLElement)?.tagName === "TEXTAREA") return;
+  const t = TOOLS.find((x) => x.key === e.key);
+  if (t) {
+    tool = t.id;
+    if (t.id !== "hatch" && t.id !== "pair" && t.id !== "choc") selected = -1;
+    commit();
+  }
+});
+
+// Off by default: while a level is being drawn, a winrate is a distraction, and the structural
+// checks below it are the ones that catch a board that cannot be played at all.
+try {
+  measureEl.checked = !!localStorage.getItem("bf_editor_measure");
+} catch {
+  /* storage unavailable */
+}
+
+// ⚠ Boot does NOT open a level: `bp` is the scratch drawing, deliberately, so reopening the
+// editor gives you back the board you were working on. What it must not do is *label* that
+// drawing with a level number it never came from. Three ways to find the right label, in
+// falling order of confidence, and the last one is admitting there is none:
+//
+//   1. the drawing is byte-identical to a save  -> it is that level
+//   2. a level was remembered when it was opened -> it is that level
+//   3. neither                                   -> it is a loose drawing, and the badge says so
+//
+// Left to the HTML default the box reads "1" and the badge asserted "Level 1" over a drawing
+// with nothing to do with level 1 — which, held up against the game, reads as the editor and
+// the game disagreeing about a level. Reported exactly that way.
+{
+  const book = loadBook();
+  const mine = JSON.stringify(bp);
+  const match = Object.keys(book).find((k) => JSON.stringify(book[Number(k)]) === mine);
+  let stored: number | null = null;
+  try {
+    const v = Number(localStorage.getItem(LEVEL_KEY));
+    stored = Number.isFinite(v) && v >= 1 ? v : null;
+  } catch {
+    /* storage unavailable */
+  }
+  if (match) lvlEl.value = match;
+  else if (stored != null) lvlEl.value = String(stored);
+  else if (loadCustom()) origin = "scratch";
+  lastLevel = currentLevel();
+}
+
+colsEl.value = String(bp.cols);
+rowsEl.value = String(bp.rows ?? GRID_ROWS);
+const resize = () => {
+  const cols = Number(colsEl.value);
+  const rows = Number(rowsEl.value);
+  const next = blankBlueprint(cols, rows);
+  // Keep what still fits, so changing either side is a crop rather than a reset.
+  for (let y = 0; y < Math.min(rows, bp.rows); y++) {
+    for (let x = 0; x < Math.min(cols, bp.cols); x++) {
+      next.cells[y * cols + x] = bp.cells[y * bp.cols + x];
+    }
+  }
+  bp = next;
+  selected = -1;
+  commit();
+};
+colsEl.onchange = resize;
+rowsEl.onchange = resize;
+
+pairHidden.onchange = () => {
+  const c = activePair();
+  if (c) c.hidden = pairHidden.checked;
+  commit();
+};
+
+chocNeed.onchange = () => {
+  const c = activeChoc();
+  if (c) c.need = Math.max(1, Math.round(Number(chocNeed.value) || 1));
+  commit();
+};
+
+chocRainbow.onchange = () => {
+  const c = activeChoc();
+  // Coming off rainbow, land on the brush colour rather than colour 0 — the designer has one
+  // selected and it is nearly always the one they mean.
+  if (c) c.border = chocRainbow.checked ? null : color;
+  commit();
+};
+
+chocHidden.onchange = () => {
+  const c = activeChoc();
+  if (!c) return;
+  const under = [...(c.under ?? [])];
+  if (under[chocSlot]) under[chocSlot] = { ...under[chocSlot], hidden: chocHidden.checked };
+  c.under = under;
+  commit();
+};
+
+$("chocSame").onclick = () => {
+  const c = activeChoc();
+  if (!c) return;
+  // Whatever the selected tray is, applied to all four. The way to build a one-colour box on a
+  // rainbow ribbon, which the ribbon swatches deliberately cannot do.
+  const col = c.under?.[chocSlot]?.color ?? color;
+  c.under = (c.under ?? []).map((u) => ({ ...u, color: col }));
+  commit();
+};
+
+$("pairDrop").onclick = () => {
+  const c = activePair();
+  if (!c || selected < 0) return;
+  // Splitting leaves two ordinary trays, one per half, keeping the colours already chosen —
+  // throwing the right half away would lose a colour the person picked on purpose.
+  const right = c.mate ?? c.color ?? 0;
+  bp.cells[selected] = { kind: "tile", color: c.color ?? 0, hidden: !!c.hidden };
+  if (selected % bp.cols < bp.cols - 1) {
+    bp.cells[selected + 1] = { kind: "tile", color: right, hidden: !!c.hidden };
+  }
+  selected = -1;
+  commit();
+};
+
+$("clear").onclick = () => {
+  bp = blankBlueprint(bp.cols, bp.rows);
+  selected = -1;
+  commit();
+};
+
+// The panel already shows a 12-game reading. This is the same measurement taken properly:
+// ⚠ the noise floor at 12 games is ±5 points, so a 12-game number is for spotting a board that
+// cannot be won at all, not for placing one on the curve.
+// Works whether or not the panel is measuring continuously — this is the "tell me now" button.
+$("check").onclick = () => {
+  clearTimeout(rateTimer);
+  lastRate = botTrials(60);
+  renderStatus();
+};
+
+measureEl.onchange = () => {
+  try {
+    localStorage.setItem("bf_editor_measure", measureEl.checked ? "1" : "");
+  } catch {
+    /* storage unavailable */
+  }
+  commit();
+};
+
+// Same again: the header links open the scratch board, and commit() has already stored it.
+$("play").onclick = () => saveCustom(bp);
+$("look").onclick = () => saveCustom(bp);
+// Both level links save first, so what opens is the drawing on screen and not the last save.
+$("lookLvl").onclick = () => {
+  const n = currentLevel();
+  putLevel(n, bp);
+  setLastLevel(n);
+  renderBook();
+  renderBadge();
+};
+
+$("export").onclick = () => {
+  jsonEl.value = JSON.stringify(bp);
+  jsonEl.select();
+};
+
+$("import").onclick = () => {
+  try {
+    const next = JSON.parse(jsonEl.value) as Blueprint;
+    if (!next?.cells?.length || !next.cols) throw new Error("thiếu cells hoặc cols");
+    // Trust the file for size but not for contents: an unknown kind would render as nothing
+    // and quietly drop the cell.
+    const ok: CellKind[] = ["floor", "wall", "tile", "hatch", "crate"];
+    next.rows = next.rows || GRID_ROWS;
+    next.cells = Array.from({ length: next.cols * next.rows }, (_, i) => {
+      const c = next.cells[i] as Cell | undefined;
+      return c && ok.includes(c.kind) ? c : { kind: "floor" };
+    });
+    bp = next;
+    selected = -1;
+    colsEl.value = String(bp.cols);
+  rowsEl.value = String(bp.rows ?? GRID_ROWS);
+    commit();
+  } catch (err) {
+    addIssue("fatal", `JSON không đọc được: ${(err as Error).message}`);
+  }
+};
+
+commit();

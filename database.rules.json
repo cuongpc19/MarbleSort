@@ -1,0 +1,40 @@
+// Realtime Database security rules. Deploy: firebase deploy --only database
+//
+// ⚠ Comments must be `//` lines like these. A `"//"` *key* inside a node is read as a child path
+// literally named "//", whose value then has to be a rules object — put an array of strings there
+// and the CLI fails with `Syntax error … Expected '{'`.
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+
+    // WRITE: open to everyone. The game posts straight from the player's browser with one fetch
+    // and no login, so there is no credential to check — locking writes means receiving nothing.
+    //
+    // READ: one account. The database URL is visible in the game bundle (unavoidable for
+    // browser-sent telemetry), so an open read is a public download of the whole log.
+    //
+    // ⚠ **The uid is there for `public/stats.html`**, which reads /runs from a browser after a
+    // Google sign-in. A browser gets no owner privilege, so it is bound by exactly this line —
+    // unlike `scripts/pull-runs.mjs`, which goes through the Firebase CLI as project owner and
+    // never consults these rules at all.
+    //
+    // ⚠ **Never widen this to `auth != null`.** It reads as "signed-in users only" and actually
+    // means *any Google account on earth*, because anyone can make one in a minute — a public
+    // download of every game ever played, written as a rule that looks like it locks something.
+    //
+    // indexOn "at": any query using orderBy is rejected without it, and the only alternative is
+    // pulling the entire /runs node — which grows without limit.
+    "runs": {
+      ".write": true,
+      ".read": "auth != null && auth.uid === 'bTh6GMIhhYdbJauI3Fm5k9AhQk93'",
+      ".indexOn": ["at"],
+
+      // A cheap shape check. It will not stop a determined flood, but it does reject anything
+      // that is not at least the row this game sends, which is what accidental noise looks like.
+      "$row": {
+        ".validate": "newData.hasChildren(['lvl', 'at', 'result'])"
+      }
+    }
+  }
+}
