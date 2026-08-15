@@ -309,13 +309,44 @@ is false (`bf_tutor`).
   would eventually point at an empty cell.
 - ⚠ **English.** `public/fonts/LilitaOne.ttf` is a Latin-only subset, so Vietnamese copy here falls
   back to Arial glyph-by-glyph and looks broken — the same constraint as the rest of the UI.
-- The caption sits at `funnel.shoulder + 26`, in the throat of the chute. Above that is the board:
+- The caption sits at `funnel.shoulder + 44`, in the throat of the chute. Above that is the board:
   the first draft used `shoulder - 34` and the plate landed on the bottom row of cells. It is drawn
   on a plate rather than as stroked text, because by step 2 the chute behind it is full of marbles.
+  ⚠ It was `+ 26` until the coach cards below reached a `cross` silhouette, whose lowest row sits
+  **on** the chute mouth and hangs past `shoulder` — the plate then rested on that tray's face.
+  Covering a tray is not cosmetic here: raised-or-flat eggs are how the board says whether a tray
+  can move, so the card was hiding the thing it was explaining.
 - The pointing hand is **baked** (`K.hand`), not an emoji: a pictograph falls back to whatever the
   OS has, which is a different shape per device and nothing at all on some Androids.
 - ⚠ Its layer is added **after** `uiLayer`, so the hand and caption sit over the HUD rather than
   under it.
+
+## Teaching the pieces — `src/scenes/coach.ts`
+
+The walkthrough teaches the *machine*. It cannot teach the *pieces*, because none of them are on
+level 1: measured over the shipped ladder, the `?` tray arrives on **6**, the hatch on **8**, the
+crate on **11**, the linked pair on **15**, the chocolate box on **31**. A player meeting a
+chocolate box thirty levels in has no way to guess its number counts *trays poured* rather than
+boxes filled — and that is exactly the misreading the number is most likely to get.
+
+So each piece gets one card, once ever: a ring on the piece and a caption on the same plate the
+walkthrough uses (one definition, `coachRing`/`coachPlate`, exported from `tutorial.ts` — two
+copies would drift, and the player should not have to learn two visual languages for "look here").
+
+- ⚠ **Driven by what is on the board, not by level number.** A table of "level 8 → hatch" is a
+  second copy of the ladder, and the ladder moves — levels 15-115 have already been reordered
+  once. `Coach.pick` reads the settled `Game`, so it cannot drift, and a board that gains a
+  mechanic earlier explains it earlier for free.
+- ⚠ **Eligibility is "present and unseen", not "this is its first level".** One card per level, so
+  if two new pieces ever land on one board the second is not lost — it fires on the next board
+  carrying it. Levels with pairs alone: 15, 24, 25, 36, 47, 54, 60, 65, 75, 95, 108, 109.
+- ⚠ **`save.markCoach` runs on dismiss, not on show** — same rule as `tutorialDone`. A card that
+  flashed by while the player was mid-tap has taught nothing, and this is its only chance.
+- ⚠ **Never at the same time as the level-1 walkthrough.** Both own the same strip of chute.
+- `bf_coach` is a **new** key, never a rename — see the storage-key warning in the CrazyGames
+  section.
+- No x2 bar card: `bars` is empty on every shipped level, so there is nothing to explain. Ship one
+  and it needs its own entry in `MARKS`.
 
 ## Layout
 

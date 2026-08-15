@@ -20,6 +20,7 @@ import Phaser from "phaser";
 import { GAME_W, L, UI } from "../game/config";
 import { save } from "../game/save";
 import { K, TS, img } from "../game/textures";
+import { teachAll } from "../game/teach";
 
 const FONT = '"Lilita One", Arial, sans-serif';
 
@@ -31,6 +32,66 @@ const FONT = '"Lilita One", Arial, sans-serif';
  * drift, and this file would be the one nobody thinks to update.
  */
 const INK = Phaser.Display.Color.HexStringToColor(UI.ink).color;
+
+/**
+ * The pulsing ring that marks a thing on the board.
+ *
+ * ⚠ Sized to ring the target, not to sit inside it. `img` already applies 1/TS, so these are
+ * multiples of the 64-unit texture: 0.85 starts just outside a 64px cell and 1.5 pushes clear of
+ * it. At the first draft's 0.6 the ring landed *within* the tray face and read as a decoration
+ * painted on the tile rather than as a pointer at it.
+ *
+ * ⚠ Shared with `coach.ts`. A second copy would drift, and the two are meant to be the same
+ * marker — a player should not have to learn two visual languages for "look here".
+ */
+export function coachRing(scene: Phaser.Scene, x: number, y: number, grow = 1): Phaser.GameObjects.Image {
+  const ring = img(scene, K.ring, x, y).setAlpha(0.95).setScale((0.85 * grow) / TS);
+  ring.setTint(UI.gold);
+  scene.tweens.add({ targets: ring, scale: (1.5 * grow) / TS, alpha: 0, duration: 1100, repeat: -1 });
+  return ring;
+}
+
+/**
+ * The caption, on a plate.
+ *
+ * ⚠ A plate behind the words, not bare text. The caption sits over the chute, which is white
+ * cabinet at the start and full of falling marbles a second later; white-stroked text on that is
+ * unreadable exactly when it most needs reading.
+ *
+ * ⚠ Below the grid, in the throat of the chute — `shoulder` is where the cabinet walls start
+ * running in, and everything above it belongs to the board. The first draft used `shoulder - 34`
+ * and the plate landed squarely on the bottom row of cells.
+ *
+ * ⚠ `+ 44`, not the `+ 26` this started at. A silhouette whose lowest row sits on the chute mouth
+ * — a `cross`, most of level 6 — hangs its bottom tray past `shoulder`, and at 26 the plate rested
+ * on that tray's face. Covering a tray is not a cosmetic problem here: raised-or-flat eggs are how
+ * the board says whether a tray can move, so the card would be hiding the very thing it is
+ * explaining.
+ */
+export function coachPlate(scene: Phaser.Scene, text: string) {
+  const y = L.funnel.shoulder + 44;
+  // ⚠ Wrapped, and the plate is measured from the result. The plate width was capped at the screen
+  // and the label was not, so a caption a few characters too long simply ran out past both ends of
+  // its own background — white text on whatever the chute happened to contain. That is a trap for
+  // whoever writes the *next* card, not a fault in any existing one, so it is fixed here rather
+  // than by keeping every string short enough to get away with.
+  const label = scene.add
+    .text(GAME_W / 2, y, text, {
+      fontFamily: FONT,
+      fontSize: "21px",
+      color: "#ffffff",
+      align: "center",
+      wordWrap: { width: GAME_W - 84 },
+    })
+    .setOrigin(0.5)
+    .setDepth(1);
+  const w = Math.min(GAME_W - 40, label.width + 44);
+  const h = label.height + 22;
+  const plate = scene.add.graphics();
+  plate.fillStyle(INK, 0.82);
+  plate.fillRoundedRect(GAME_W / 2 - w / 2, y - h / 2, w, h, Math.min(22, h / 2));
+  return { plate, label };
+}
 
 /** What each step says, and how it ends. */
 type Step = {
@@ -60,7 +121,7 @@ export class Tutorial {
 
   /** Is the walkthrough wanted on this level, for this player? */
   static wanted(level: number): boolean {
-    return level === 1 && !save.tutorialDone;
+    return level === 1 && (!save.tutorialDone || teachAll());
   }
 
   /**
@@ -92,20 +153,8 @@ export class Tutorial {
     if (step.at) {
       // ⚠ Ring first, then hand: the hand has to read *on top of* the ring, and a container draws
       // in insertion order.
-      // ⚠ Sized to ring the target, not to sit inside it. `img` already applies 1/TS, so these
-      // are multiples of the 64-unit texture: 0.85 starts just outside a 64px cell and 1.5 pushes
-      // clear of it. At the first draft's 0.6 the ring landed *within* the tray face and read as
-      // a decoration painted on the tile rather than as a pointer at it.
-      this.ring = img(this.scene, K.ring, step.at.x, step.at.y).setAlpha(0.95).setScale(0.85 / TS);
-      this.ring.setTint(UI.gold);
+      this.ring = coachRing(this.scene, step.at.x, step.at.y);
       this.layer.add(this.ring);
-      this.scene.tweens.add({
-        targets: this.ring,
-        scale: 1.5 / TS,
-        alpha: 0,
-        duration: 1100,
-        repeat: -1,
-      });
 
       // Offset down-right of the target so the finger tip lands on it rather than the palm.
       this.hand = img(this.scene, K.hand, step.at.x + 16, step.at.y + 40);
@@ -120,22 +169,10 @@ export class Tutorial {
       });
     }
 
-    // ⚠ A plate behind the words, not bare text. The caption sits over the chute, which is white
-    // cabinet at the start and full of falling marbles a second later; white-stroked text on that
-    // is unreadable exactly when step 2 needs reading.
-    // ⚠ Below the grid, in the throat of the chute — `shoulder` is where the cabinet walls start
-    // running in, and everything above it belongs to the board. The first draft put the caption at
-    // `shoulder - 34` and it sat squarely on the bottom row of cells.
-    const y = L.funnel.shoulder + 26;
-    this.label = this.scene.add
-      .text(GAME_W / 2, y, step.text, { fontFamily: FONT, fontSize: "23px", color: "#ffffff" })
-      .setOrigin(0.5);
-    const w = Math.min(GAME_W - 60, this.label.width + 44);
-    this.plate = this.scene.add.graphics();
-    this.plate.fillStyle(INK, 0.82);
-    this.plate.fillRoundedRect(GAME_W / 2 - w / 2, y - 22, w, 44, 22);
-    this.layer.add([this.plate, this.label]);
-    this.label.setDepth(1);
+    const { plate, label } = coachPlate(this.scene, step.text);
+    this.plate = plate;
+    this.label = label;
+    this.layer.add([plate, label]);
 
     if (step.after) {
       this.timer = this.scene.time.delayedCall(step.after, () => this.show(i + 1));
@@ -162,7 +199,8 @@ export class Tutorial {
     this.clear();
     // ⚠ Marked here, at the end, not at `start()`. A player who quits on the first screen and
     // comes back gets the walkthrough again — they are precisely the player it exists for.
-    save.tutorialDone = true;
+    // ⚠ Never while replaying (`?teach=`): looking at the walkthrough must not consume it.
+    if (!teachAll()) save.tutorialDone = true;
   }
 
   /** Tear-down for a scene shutdown or a level restart mid-walkthrough. */

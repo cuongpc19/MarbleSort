@@ -18,6 +18,15 @@ const K_COINS = "bf_coins";
 const K_MUTE = "bf_mute";
 /** Has the player been walked through level 1 yet? */
 const K_TUTOR = "bf_tutor";
+/**
+ * Which one-off mechanic explanations have already been shown (`?` trays, hatches, crates, linked
+ * pairs, chocolate boxes).
+ *
+ * ⚠ A **new** key, never a rename. Automatic Progress Save backs `localStorage` up verbatim, so
+ * renaming an existing `bf_` key after launch restores the old name into a game reading the new
+ * one and wipes the player out. Adding keys is free; renaming them is not.
+ */
+const K_COACH = "bf_coach";
 
 function read<T>(key: string, fallback: T): T {
   try {
@@ -89,5 +98,22 @@ export const save = {
   },
   set tutorialDone(v: boolean) {
     write(K_TUTOR, v);
+  },
+
+  /** Mechanic explanations already shown. */
+  get coachSeen(): string[] {
+    const v = read<string[]>(K_COACH, []);
+    return Array.isArray(v) ? v : [];
+  },
+  /**
+   * ⚠ Marked when the card is **dismissed**, not when it appears — same rule as `tutorialDone`.
+   * A card that flashed by while the player was mid-tap has not taught anything, and this is the
+   * only chance it gets.
+   */
+  markCoach(id: string) {
+    const seen = this.coachSeen;
+    if (seen.includes(id)) return;
+    seen.push(id);
+    write(K_COACH, seen);
   },
 };

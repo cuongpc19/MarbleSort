@@ -31,6 +31,7 @@ import {
 } from "../game/config";
 import { Game, hint, levelFingerprint, type RevivePick, type TickEvents } from "../game/logic";
 import { Tutorial } from "./tutorial";
+import { Coach } from "./coach";
 import { levelDefFor } from "../game/board";
 import { platform } from "../platform";
 import { loadCustom, toLevelDef } from "../game/custom";
@@ -191,6 +192,7 @@ export class GameScene extends Phaser.Scene {
   private reviveClose: (() => void) | null = null;
   /** The level-1 walkthrough while it is on screen. Null everywhere else. */
   private tutorial: Tutorial | null = null;
+  private coach: Coach | null = null;
 
   private coinLabel!: Phaser.GameObjects.Text;
   private progressBar!: Phaser.GameObjects.Rectangle;
@@ -221,6 +223,8 @@ export class GameScene extends Phaser.Scene {
       // Its tweens loop forever and its timer fires on a scene that is going away.
       this.tutorial?.destroy();
       this.tutorial = null;
+      this.coach?.destroy();
+      this.coach = null;
     });
     this.resetLevel();
   }
@@ -299,6 +303,7 @@ export class GameScene extends Phaser.Scene {
     this.refreshBoxes();
     this.refreshHud();
     this.startTutorial();
+    this.startCoach();
 
     // ⚠ Analytics starts **here**, on reaching a board, not at boot — the script is 145 KB from
     // another origin and time-to-gameplay is graded. And not for a hand-built board: the editor's
@@ -772,6 +777,7 @@ export class GameScene extends Phaser.Scene {
     // Only after the pour actually happened — every early return above is a tap the player made
     // and the board refused, which is not the thing step 1 is waiting to see.
     this.tutorial?.noteTap();
+    this.coach?.noteTap();
   }
 
   private onTapColumn(j: number) {
@@ -2131,10 +2137,45 @@ export class GameScene extends Phaser.Scene {
       x: gm.x + (idx % this.board.cols) * gm.pitch + gm.cell / 2,
       y: gm.y + ((idx / this.board.cols) | 0) * gm.pitch + gm.cell / 2,
     };
+    this.tutorial = new Tutorial(this, this.coachLayer());
+    this.tutorial.start(at);
+  }
+
+  /**
+   * The first unexplained piece on this board gets one card.
+   *
+   * ⚠ Never at the same time as the level-1 walkthrough. That runs four steps deep and owns the
+   * same strip of chute, so two plates would sit on top of each other — and level 1 carries none
+   * of these pieces anyway, so the guard costs nothing and only ever fires if the ladder is
+   * rebuilt with a mechanic on the first board.
+   */
+  private startCoach() {
+    this.coach?.destroy();
+    this.coach = null;
+    if (this.custom || this.preview || this.tutorial) return;
+    if (!Coach.wanted(this.board)) return;
+
+    // `off` is in cells, so a piece covering 2x2 rings its middle rather than its top-left corner.
+    const locate = (cell: number, off?: { x: number; y: number }) => {
+      const gm = this.gm;
+      return {
+        x: gm.x + ((cell % this.board.cols) + (off?.x ?? 0)) * gm.pitch + gm.cell / 2,
+        y: gm.y + (((cell / this.board.cols) | 0) + (off?.y ?? 0)) * gm.pitch + gm.cell / 2,
+      };
+    };
+    this.coach = new Coach(this, this.coachLayer(), this.board, locate);
+    this.coach.start();
+  }
+
+  /**
+   * A layer of its own, added last.
+   *
+   * ⚠ After `uiLayer`, so the ring and the caption sit over the HUD rather than under it.
+   */
+  private coachLayer(): Phaser.GameObjects.Container {
     const layer = this.add.container(0, 0);
     this.root.add(layer);
-    this.tutorial = new Tutorial(this, layer);
-    this.tutorial.start(at);
+    return layer;
   }
 
   private toast(msg: string) {

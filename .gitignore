@@ -61,4 +61,4 @@ playlog.jsonl
 # Generator scratch output (level blocks, shuffle maps) — the result is baked into
 # src/game/handmade.ts, these are the working notes that produced it.
 scripts/.*.txt
-scripts/.shuffle-map.json
+scripts/.*.json

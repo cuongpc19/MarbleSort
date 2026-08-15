@@ -31,7 +31,24 @@ const arg = (name, dflt) => {
   return i > 0 && process.argv[i + 1] && !process.argv[i + 1].startsWith("--") ? process.argv[i + 1] : dflt;
 };
 const RANGE = (process.argv[2] || "86-115").split("-").map(Number);
+/**
+ * `--levels 32,33,41`: build exactly these, instead of a contiguous range.
+ *
+ * ⚠ For rebuilding a scatter of levels inside a finished ladder. The 19 boards that came out
+ * under 15 trays are not contiguous, and running the range form over 32-71 would rebuild the 21
+ * levels in between that were never asked about.
+ */
+const LEVELS = arg("levels", "") ? arg("levels", "").split(",").map(Number) : null;
 const FLOOR = Number(arg("floor", 0.9));
+/**
+ * `--target X`: aim **at** X rather than above `--floor`.
+ *
+ * ⚠ A floor and a target are different jobs and the cost function has to say which. A floor is
+ * one-sided — anything above it is free — which is right for an easy run and wrong for a rebuild:
+ * asked to lift a 100% board to "around 85%", a floor of 0.85 accepts the 100% board unchanged and
+ * reports success. Overshooting has to cost as much as falling short.
+ */
+const TARGET = Number(arg("target", 0));
 const TRIES = Number(process.env.TRIES || 140);
 const SCREEN = Number(process.env.SCREEN || 16);
 const CONFIRM = Number(process.env.CONFIRM || 80);
@@ -57,6 +74,15 @@ const GAP_OK = 0.15;
 const NO_HATCH = process.argv.includes("--nohatch");
 /** `--trays N`: aim the size tiebreak at N trays (grid + hatch queues) instead of at the smallest. */
 const WANT_TRAYS = Number(arg("trays", 0));
+/**
+ * `--big` swaps in the heavy silhouettes.
+ *
+ * ⚠ The default maps top out around 16 trays **on purpose** — a tray is `TRAY_N` marbles against a
+ * belt of 30, so the easy run needs a board that is mostly casing. Asking those maps for 24 trays
+ * cannot work: `--trays` only moves the size tiebreak, it cannot conjure cells the drawing does not
+ * have, and the request comes back with the biggest board on file and no warning that it missed.
+ */
+const BIG = process.argv.includes("--big");
 
 function rng32(seed) {
   let a = seed >>> 0;
@@ -97,7 +123,7 @@ const shuffled = (r, a) => {
  * Grid trays plus hatch queues wants to land around 9-16 here, which is why a 6x6 board is mostly
  * casing. The size pair is the coarse difficulty knob; colour count is the fine one.
  */
-const MAPS = [
+const MAPS_LIGHT = [
   // Khối — a solid slab with the corners taken off. The plainest shape and the densest: the
   // baseline the other four are read against.
   // ⚠ Every shape **sits on the grid's last row**. Blank rows go at the top, never the bottom:
@@ -149,6 +175,64 @@ const MAPS = [
     ],
   },
 ];
+
+/**
+ * The heavy set (`--big`): packed 6x6 and 7x6, 21-24 trays before the hatch queue.
+ *
+ * ⚠ These exist because a *rebuild* is not a fresh easy run. The light set above is deliberately
+ * mostly casing; asked for 24 trays it can only hand back its largest board, which is 16. Density
+ * is the whole point here — the complaint these answer is boards that *look* empty, and a board
+ * whose trays are hidden in a hatch queue looks exactly as empty as before however the total reads.
+ *
+ * ⚠ Still packed, still sitting on the grid's last row. A heavier board is a *bigger slab*, never
+ * the same slab with holes punched in it: gaps make every tray tappable from the first frame,
+ * which is the same tray count and none of the game.
+ */
+const MAPS_HEAVY = [
+  // Khối nặng — the plain slab, and the densest thing here.
+  {
+    style: "khoi-nang",
+    sizes: [
+      ["......", ".H###.", ".<####", ".#####", ".<####", "..###."],
+      [".......", ".H####.", ".<#####", ".######", ".<#####", "..####."],
+    ],
+  },
+  // Bậc nặng — a staircase widening downward; only the step ends open.
+  {
+    style: "bac-nang",
+    sizes: [
+      ["......", "...H##", "..<###", ".<####", "######", "..####"],
+      [".......", "....H##", "..<####", ".<#####", "#######", "..#####"],
+    ],
+  },
+  // Thoi nặng — a diamond. Shoulders open first, the middle goes last.
+  {
+    style: "thoi-nang",
+    sizes: [
+      ["..H#..", ".<###.", "######", "#<####", ".<###.", "..##.."],
+      ["...H#..", "..<####", ".<#####", "#######", ".<#####", "..####."],
+    ],
+  },
+  // Khung nặng — a slab with a cavity through it, the one place `_` earns its keep.
+  {
+    style: "khung-nang",
+    sizes: [
+      ["......", ".H###.", ".<####", ".#__##", ".<####", ".#####"],
+      [".......", ".H####.", ".<#####", ".#__###", ".<#####", ".######"],
+    ],
+  },
+  // Hai tháp nặng — two blocks split by a casing column. Nothing crosses, so a colour in the
+  // wrong tower stays there. ⚠ Both towers reach the last row or the short one is sealed.
+  {
+    style: "thap-nang",
+    sizes: [
+      ["......", "H###.#", "<###.#", "####.#", "<###.#", ".###.#"],
+      [".......", "H####.#", "<####.#", "#####.#", "<####.#", ".####.#"],
+    ],
+  },
+];
+
+const MAPS = BIG ? MAPS_HEAVY : MAPS_LIGHT;
 
 // ── Map validation ───────────────────────────────────────────────────────────
 // Done on the drawing rather than left to the line search. A cell the escape rule can never open
@@ -409,8 +493,15 @@ function keeps(def, feature) {
 // ── Build ────────────────────────────────────────────────────────────────────
 
 const [lo, hi] = RANGE;
-const COUNT = hi - lo + 1;
-console.log(`De: ${COUNT} level ${lo}-${hi}, san Cuongxs1 >= ${Math.round(FLOOR * 100)}%, ${TRIES} bien the/level.`);
+const TODO = LEVELS ?? Array.from({ length: hi - lo + 1 }, (_, k) => lo + k);
+const COUNT = TODO.length;
+/** How close to `--target` still counts as landed. Beyond it the search keeps looking. */
+const GOOD = TARGET ? 0.04 : 0;
+console.log(
+  TARGET
+    ? `Dung ${COUNT} level (${TODO.join(",")}), dich Cuongxs1 ${Math.round(TARGET * 100)}%±${Math.round(GOOD * 100)}, ${TRIES} bien the/level.`
+    : `De: ${COUNT} level ${lo}-${hi}, san Cuongxs1 >= ${Math.round(FLOOR * 100)}%, ${TRIES} bien the/level.`,
+);
 if (COUNT === MIX.length) {
   const tally = MIX.reduce((a, k) => ((a[k] = (a[k] || 0) + 1), a), {});
   console.log(`Mix: ${Object.entries(tally).map(([k, v]) => `${k} ${v}`).join("  ")}  (moi board deu co cua xa)`);
@@ -419,8 +510,8 @@ console.log("");
 
 const out = {};
 const rows = [];
-for (let level = lo; level <= hi; level++) {
-  const idx = level - lo;
+for (const level of TODO) {
+  const idx = TODO.indexOf(level);
   const feature = COUNT === MIX.length ? MIX[idx] : arg("feature", "hidden");
   let picked = null;
   let built = 0;
@@ -474,7 +565,7 @@ for (let level = lo; level <= hi; level++) {
 
     // Two-stage, or the winner's curse eats the result: screen cheaply, re-measure the survivors.
     const quick = scoreAll(def, SCREEN);
-    if (picked && quick.CX < FLOOR - 0.1) continue;
+    if (picked && (TARGET ? Math.abs(quick.CX - TARGET) > 0.28 : quick.CX < FLOOR - 0.1)) continue;
     const s = scoreAll(def, CONFIRM);
     // ⚠ A ceiling on the *other* ruler's distance below this one. A board Cuongxs1 clears 95% of
     // the time while best play manages 60% is not an easy level, it is a level one model happens
@@ -482,7 +573,8 @@ for (let level = lo; level <= hi; level++) {
     if (s.BD < s.CX - GAP_OK) continue;
     // The floor is one-sided: below it costs, above it is free. Ties break toward the *smaller*
     // board, because on an easy run a shorter level is a better one.
-    const err = Math.max(0, FLOOR - s.CX);
+    // ⚠ Two-sided under `--target`, one-sided under `--floor`. See the note on TARGET.
+    const err = TARGET ? Math.abs(s.CX - TARGET) : Math.max(0, FLOOR - s.CX);
     // ⚠ The floor is one-sided, so among boards that clear it the tiebreak decides everything —
     // and what it should prefer depends on the job. A fresh easy run wants the *smallest* board
     // that clears; a level being rebuilt inside an existing ladder wants one that still looks like
@@ -495,13 +587,13 @@ for (let level = lo; level <= hi; level++) {
     const size = WANT_TRAYS ? Math.abs(map.total - WANT_TRAYS) : wantBig ? -map.total : map.total;
     const cost = err + 0.002 * size;
     if (!picked || cost < picked.cost) picked = { bp, def, s, cost, err, opt, map, style: style.style };
-    if (err === 0 && !WANT_TRAYS && !wantBig && map === style.sizes[0]) break;
+    if (err <= GOOD && !WANT_TRAYS && !wantBig && map === style.sizes[0]) break;
    }
    // Only fall through to the next silhouette if this one gave nothing that clears the floor —
    // ⚠ unless a size is being aimed at, in which case every style has to be weighed. Breaking at
    // the first style that merely clears the floor is how a `--trays 14` request kept returning an
    // 11-tray board: the size target was never allowed to reach the silhouette that could hit it.
-   if (picked && picked.err === 0 && !WANT_TRAYS) break;
+   if (picked && picked.err <= GOOD && !WANT_TRAYS) break;
   }
 
   if (!picked) {
@@ -517,7 +609,12 @@ for (let level = lo; level <= hi; level++) {
   const s = picked.s;
   const h = has(picked.def);
   const marbles = (h.pairs * 2 + picked.def.tiles.filter((t) => t && !t.wide).length) * TRAY_N;
-  const flag = picked.err > 0 ? `  <-- duoi san ${Math.round(picked.err * 100)} diem` : "";
+  // ⚠ Names the ruler it actually missed. Under `--target` a board can sit three points *above*
+  // the aim and still be flagged, and calling that "below the floor" reads as the opposite failure.
+  const flag =
+    picked.err > GOOD
+      ? `  <-- ${TARGET ? "lech dich" : "duoi san"} ${Math.round(picked.err * 100)} diem`
+      : "";
   console.log(
     `L${level}: ${picked.style} ${picked.bp.cols}x${picked.bp.rows} [${feature}] ` +
       `${h.pairs}doi ${h.hidden}? ${h.crates}go ${h.choc}choc ${h.hatch}xa | ` +
@@ -526,8 +623,12 @@ for (let level = lo; level <= hi; level++) {
 }
 
 console.log("");
-const ok = rows.filter((r) => r.picked.err === 0).length;
-console.log(`${ok}/${rows.length} level dat san ${Math.round(FLOOR * 100)}%.`);
+const ok = rows.filter((r) => r.picked.err <= GOOD).length;
+console.log(
+  TARGET
+    ? `${ok}/${rows.length} level trong ±${Math.round(GOOD * 100)} diem quanh dich ${Math.round(TARGET * 100)}%.`
+    : `${ok}/${rows.length} level dat san ${Math.round(FLOOR * 100)}%.`,
+);
 if (rows.length) {
   const tally = rows.reduce((a, r) => ((a[r.feature] = (a[r.feature] || 0) + 1), a), {});
   console.log(`Da build: ${Object.entries(tally).map(([k, v]) => `${k} ${v}`).join("  ")}`);
