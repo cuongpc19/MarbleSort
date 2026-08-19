@@ -84,8 +84,19 @@ if (!raw) {
 }
 
 // RTDB returns { "<push-id>": {…} } — keep the push id as the de-duplication key.
-const rows = Object.entries(raw).map(([id, v]) => ({ id, ...v }));
-console.log(`Tai ve ${rows.length} van.`);
+const all = Object.entries(raw).map(([id, v]) => ({ id, ...v }));
+// ⚠ Two kinds of row. A start row is written when the player reaches the board and has no result,
+// so counting it as a game halves every winrate here. Rows from builds before start-logging carry
+// no `ev` at all — those are ends, and reading a missing field as "start" would throw away the
+// entire history instead.
+const rows = all.filter((r) => r.ev !== "start");
+const starts = all.filter((r) => r.ev === "start");
+// A start whose `run` never came back as an end is someone who walked away mid-level. Only starts
+// carrying a `run` can be judged: the id is what pairs the two, and a start from an older build
+// has none.
+const ended = new Set(rows.map((r) => r.run).filter(Boolean));
+const quit = starts.filter((r) => r.run && !ended.has(r.run)).length;
+console.log(`Tai ve ${rows.length} van` + (starts.length ? `, ${starts.length} luot vao man (${quit} bo giua chung).` : "."));
 
 const isTest = (r) => /^localhost$|^127\.|^192\.168\.|^\[::1\]$/.test(r.from ?? "");
 const scored = ALL ? rows : rows.filter((r) => !isTest(r));

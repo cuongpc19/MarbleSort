@@ -117,6 +117,21 @@ export interface Blueprint {
    * reference line, which every tool reports as "unsolvable".
    */
   columns?: Color[][];
+  /**
+   * Warn the player before they start: this board is far harder than its neighbours.
+   *
+   * ⚠ **On the drawing, not in a table of level numbers.** A `const SUPER_HARD = [15]` somewhere is
+   * a second copy of the ladder, and the ladder moves — a level was inserted at slot 2 and another
+   * deleted at 13 in a single day, and levels 15 and 85 traded places an hour later. The flag has
+   * to travel with the board it describes, exactly like `columns` and `refTaps`, or it ends up
+   * pointing at whatever board happens to have inherited the number. `coach.ts` and
+   * `featureProgress` avoid the same trap by reading the board rather than a list.
+   *
+   * It says nothing about how hard the board *is* — it is a label a person applies deliberately.
+   * There is no runtime difficulty number to derive it from: every winrate in this project comes
+   * from bots run offline.
+   */
+  hard?: boolean;
 }
 
 /** The drawing currently open in the editor. One slot, overwritten as you draw. */
@@ -710,6 +725,7 @@ export function toLevelDef(bp: Blueprint, level = 0, target = 1): LevelDef {
   //
   // A line stored on the drawing wins only if it still clears the board — see `Blueprint.refTaps`.
   def.refTaps = bp.refTaps?.length && replayWins(def, bp.refTaps) ? [...bp.refTaps] : line;
+  def.hard = bp.hard;
   return def;
 }
 

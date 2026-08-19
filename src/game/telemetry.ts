@@ -60,14 +60,45 @@ function whereFrom(): string {
 }
 
 /**
- * Send one finished game. **Fire and forget**: never awaited, never surfaced, never allowed to
- * throw. A player must not be able to tell that telemetry is broken.
+ * The attempt currently open, so its start row and its end row can be paired.
  *
- * ⚠ `keepalive` matters here specifically. This fires on the win/lose card, which is exactly when
- * a player closes the tab — without it the browser cancels the request as the page goes away and
+ * ⚠ Regenerated on every entry to a level, including a restart. Two attempts at the same level by
+ * the same device on the same day are two different things, and a start with no matching end is
+ * precisely the abandonment this exists to count — pairing them by `dev + lvl` would merge them
+ * and the count would come out zero.
+ */
+let attempt = "";
+
+/**
+ * The player reached a board. Sent **as well as** the end row, not instead of it.
+ *
+ * Why it did not exist before: the log was built to calibrate winrate, and winrate is a function
+ * of outcomes — a player who quits mid-level has no outcome to feed the curve. But that also made
+ * them invisible, so `stats.html` could only ever report "players with at least one finished
+ * attempt", which reads like a count of openings and is not one.
+ *
+ * ⚠ This is the row that makes drop-off measurable: a start with no end is someone who walked
+ * away from that board, which is the number a difficulty spike shows up in first.
+ */
+export function sendStart(row: Record<string, unknown>) {
+  attempt = Math.random().toString(36).slice(2, 10);
+  send({ ...row, ev: "start", run: attempt });
+}
+
+/** A finished attempt. Carries the same `run` as the start row it closes. */
+export function sendRun(row: Record<string, unknown>) {
+  send({ ...row, ev: "end", run: attempt });
+}
+
+/**
+ * The one writer. **Fire and forget**: never awaited, never surfaced, never allowed to throw. A
+ * player must not be able to tell that telemetry is broken.
+ *
+ * ⚠ `keepalive` is what gets the end row out. It fires on the win/lose card, which is exactly when
+ * a player closes the tab — without it the browser cancels the request as the page goes away, and
  * the most interesting rows are the ones that never arrive.
  */
-export function sendRun(row: Record<string, unknown>) {
+function send(row: Record<string, unknown>) {
   if (!ENDPOINT) return;
   try {
     const body = {

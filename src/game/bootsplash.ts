@@ -15,6 +15,26 @@
  *
  * Idempotent, so calling it from a scene that restarts costs nothing.
  */
+/**
+ * Paint the page behind the canvas.
+ *
+ * ⚠ Not decoration. Phaser's FIT scaler keeps the 540-wide design box's aspect, so on a 16:9 desktop
+ * frame roughly three quarters of the window is page rather than canvas — the bars are the larger
+ * surface, and a colour that disagrees with the scene reads as the game sitting in a hole.
+ *
+ * ⚠ Per scene, because the two screens do not share a background: Home is flat dark violet, the
+ * board runs a gradient into a much lighter violet at its foot. One CSS value has to be wrong on one
+ * of them, and the wrongness lands exactly where the eye checks — the corner where bar meets canvas.
+ */
+export function setPageBackground(css: string): void {
+  try {
+    document.documentElement.style.background = css;
+    document.body.style.background = css;
+  } catch {
+    /* no DOM — the headless sim never calls this */
+  }
+}
+
 export function dismissBootSplash(): void {
   const boot = document.getElementById("boot");
   if (!boot) return;

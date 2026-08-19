@@ -1,12 +1,54 @@
 // Every tunable number the game is built on. Layout lives here too, in *design units*
-// (a 540x1160 portrait box); GameScene draws into a container scaled to the real canvas,
+// (a 540-wide portrait box); GameScene draws into a container scaled to the real canvas,
 // so nothing below ever has to know the device pixel ratio.
 //
 // The one rule: logic.ts and level.ts must stay importable from plain Node (the headless
 // sim drives them), so this file must never import Phaser.
 
 export const GAME_W = 540;
-export const GAME_H = 1160;
+
+/**
+ * The design box is 540 wide and **flexes in height** to the frame it is running in.
+ *
+ * Why it cannot stay a constant: Phaser's FIT scaler grows the design box until one axis fills
+ * the frame, and in any 16:9 frame — which is every iframe size the host uses — that axis is the
+ * height. The width is then whatever the ratio leaves: `width = height × (GAME_W / GAME_H)`. At a
+ * fixed 1160 that is 0.466, so the game rendered as a 298px ribbon down the middle of a 1243px
+ * page while three quarters of the frame sat empty. Nothing had shrunk; a taller, thinner box
+ * scaled to the same height is simply narrower.
+ *
+ * ⚠ **The clamp is what makes it safe, and both ends are measured, not chosen.**
+ *
+ * `MAX` is today's shape, so a tall phone gets exactly the layout every art decision was made
+ * against — this must not become a redesign of the phone build.
+ *
+ * `MIN` is where the machine physically ends: `L.machine.y + L.machine.h` = 1066, plus a 14px
+ * skirt. Everything below that was empty violet. Going tighter would mean cutting real content,
+ * and the only content left to cut is load-bearing — the chute is 186px at a 33° cone and
+ * shortening it stops the marbles sliding (see the note on `funnel`), and the grid is five rows
+ * at pitch 71.
+ *
+ * ⚠ So the flex is 1080…1160, worth about 7% on a desktop frame and nothing at all on a phone.
+ * Matching the sibling project's 0.625 would need `GAME_H` near 864, which is less than the grid
+ * and the chute alone — that is a second layout (the box well beside the machine rather than
+ * under it), not a number.
+ *
+ * ⚠ Read **once**, at module load. A mid-session resize does not re-run it: the Phaser canvas is
+ * built from this value, so changing it later would mean rebuilding the game. Rotating a phone
+ * keeps the shape it booted with, which is the same behaviour the sibling project ships.
+ *
+ * ⚠ The `typeof window` guard is not defensive dressing — `logic.ts` and `level.ts` import this
+ * file and the headless sim runs them in plain Node. Without it every script dies at import.
+ */
+const H_MAX = 1160;
+const H_MIN = 1080;
+const _aspect =
+  typeof window !== "undefined" && window.innerWidth > 0
+    ? window.innerHeight / window.innerWidth
+    : H_MAX / GAME_W;
+export const GAME_H = Math.round(
+  GAME_W * Math.min(Math.max(_aspect, H_MIN / GAME_W), H_MAX / GAME_W),
+);
 
 // ── Core rules ───────────────────────────────────────────────────────────────
 /**
@@ -48,6 +90,18 @@ export const BELT_SLOTS = 30;
  * to 67% and 48%.
  */
 export const CHUTE_CAP = 27;
+
+/**
+ * Up to and including this level, **winning is three stars**, however it was won.
+ *
+ * The opening run is where a player is still learning what the machine does, and a star rating
+ * that judges them while they are learning is a rating of the tutorial, not of them.
+ */
+export const STAR_ALWAYS_TO = 20;
+/**
+ * Past `STAR_ALWAYS_TO`: first go is three stars, up to this many goes is two, after that one.
+ */
+export const STAR_TWO_TRIES = 5;
 
 /** Rows in the tray grid. Columns vary by level. */
 export const GRID_ROWS = 5;

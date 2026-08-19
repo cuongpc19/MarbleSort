@@ -33,7 +33,10 @@
       // A cheap shape check. It will not stop a determined flood, but it does reject anything
       // that is not at least the row this game sends, which is what accidental noise looks like.
       "$row": {
-        ".validate": "newData.hasChildren(['lvl', 'at', 'result'])"
+        // ⚠ `result` cannot be required any more: a start row is written when the player reaches
+        // the board and has no outcome yet. Requiring it rejected every start row silently —
+        // the write is fire-and-forget, so nothing on screen or in the console would have said so.
+        ".validate": "newData.hasChildren(['lvl', 'at']) && (newData.hasChild('result') || newData.child('ev').val() === 'start')"
       }
     }
   }

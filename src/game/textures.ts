@@ -95,6 +95,10 @@ export const K = {
   icon: (kind: string) => `ic_${kind}`,
   star: (on: boolean) => (on ? "starOn" : "starOff"),
   coin: "coin",
+  /** The home screen's daily-reward button: a tear-off calendar with a coin on it. */
+  calendar: "cal",
+  /** Day seven's prize. Bigger than a coin because it has to look like more than a coin. */
+  chest: "chest",
 };
 
 // ── The bakery ───────────────────────────────────────────────────────────────
@@ -777,6 +781,75 @@ function bakeChrome(scene: Phaser.Scene) {
     ctx.lineWidth = 3;
     ctx.strokeStyle = "#5a6480";
     ctx.stroke();
+  });
+
+  // The daily-reward calendar. Same construction as everything else here — flat blocks of colour
+  // with one darker edge underneath, no gradients past a single highlight, so it sits beside the
+  // trays and the boxes rather than looking imported from another game.
+  //
+  // ⚠ A **tear-off** calendar: rings across the top and a red header. A plain rounded square with
+  // a coin on it is a wallet, not a day, and the whole point of the icon is that it means "today".
+  bake(scene, K.calendar, 64, 64, (ctx) => {
+    ctx.fillStyle = "#c2410c";
+    rr(ctx, 6, 12, 52, 48, 10);
+    ctx.fill();
+    ctx.fillStyle = "#f97316";              // red header band
+    rr(ctx, 6, 12, 52, 18, 10);
+    ctx.fill();
+    ctx.fillStyle = "#fff7ed";              // the page
+    rr(ctx, 9, 28, 46, 28, 7);
+    ctx.fill();
+    // Two rings biting over the header, which is what makes it read as a calendar at 40px.
+    ctx.fillStyle = "#cbd5e1";
+    for (const x of [22, 42]) {
+      rr(ctx, x - 4, 5, 8, 16, 4);
+      ctx.fill();
+    }
+    // A coin on the page — the reward, in the same gold as the wallet counter.
+    ctx.fillStyle = "#c67a06";
+    ctx.beginPath();
+    ctx.arc(32, 43, 12, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#ffc21e";
+    ctx.beginPath();
+    ctx.arc(32, 42, 10, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#ffe07a";
+    ctx.beginPath();
+    ctx.arc(32, 42, 6, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  // Day seven. ⚠ Drawn open with coins spilling out rather than shut: a closed box is the
+  // chocolate obstacle, which the player has been taught means "in your way".
+  bake(scene, K.chest, 56, 48, (ctx) => {
+    ctx.fillStyle = "#7c3f12";              // the body
+    rr(ctx, 4, 20, 48, 26, 6);
+    ctx.fill();
+    ctx.fillStyle = "#a45a1c";
+    rr(ctx, 7, 23, 42, 20, 4);
+    ctx.fill();
+    ctx.fillStyle = "#7c3f12";              // the lid, thrown back
+    rr(ctx, 6, 4, 44, 14, 6);
+    ctx.fill();
+    ctx.fillStyle = "#a45a1c";
+    rr(ctx, 9, 6, 38, 9, 4);
+    ctx.fill();
+    ctx.fillStyle = "#ffc21e";              // the coins, between lid and body
+    for (const [x, y, r] of [[18, 20, 7], [30, 18, 8], [41, 21, 6]]) {
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.fillStyle = "#ffe07a";
+    for (const [x, y, r] of [[18, 19, 3], [30, 17, 4], [41, 20, 3]]) {
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.fillStyle = "#ffd964";              // the clasp
+    rr(ctx, 24, 26, 8, 10, 2);
+    ctx.fill();
   });
 
   bake(scene, K.coin, 34, 34, (ctx) => {

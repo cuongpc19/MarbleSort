@@ -27,7 +27,9 @@ export async function loadGame() {
         'export * from "./config";\n' +
         'export * from "./board";\n' +
         'export * from "./custom";\n' +
-        'export * from "./handmade";\n',
+        'export * from "./handmade";\n' +
+        // The replay parser lives with the recorder, so the wire format cannot drift apart.
+        'export * from "./replay";\n',
       resolveDir: src,
       loader: "ts",
     },

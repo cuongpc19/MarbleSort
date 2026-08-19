@@ -75,6 +75,24 @@ const NO_HATCH = process.argv.includes("--nohatch");
 /** `--trays N`: aim the size tiebreak at N trays (grid + hatch queues) instead of at the smallest. */
 const WANT_TRAYS = Number(arg("trays", 0));
 /**
+ * `--colors N`: pin the palette size instead of letting the sweep pick 3, 4 or 5.
+ *
+ * ⚠ For a level being slotted into an existing ladder, where the neighbours' colour count is part
+ * of the design rather than something to be searched. The sweep is free to hand back a 3-colour
+ * board because 3 colours score well against a floor — and a board that is easier than the level
+ * *before* it is a step backwards in the run however good its winrate looks.
+ */
+const WANT_COLORS = Number(arg("colors", 0));
+/**
+ * `--style khoi`: use one silhouette instead of trying all of them in rotation.
+ *
+ * ⚠ For a level whose *shape* is the thing being specified. The rotation stops at the first style
+ * that clears the floor, and "clears the floor" says nothing about how the board reads: a two-tower
+ * board opens exactly one tray per tower, so it scores 100% while offering the player no choice at
+ * all. That is a fine board and a poor level-2, and no winrate can tell the two apart.
+ */
+const WANT_STYLE = arg("style", "");
+/**
  * `--big` swaps in the heavy silhouettes.
  *
  * ⚠ The default maps top out around 16 trays **on purpose** — a tray is `TRAY_N` marbles against a
@@ -522,7 +540,10 @@ for (const level of TODO) {
   // silhouette offers them — pinned to one style, a level whose feature its shape cannot host
   // produces nothing at all and the run comes back with a hole in it. Starting at `level % 5`
   // keeps the variety; falling through keeps the level.
-  const order = MAPS.map((_, k) => MAPS[(level + k) % MAPS.length]);
+  const order = WANT_STYLE
+    ? MAPS.filter((m) => m.style === WANT_STYLE)
+    : MAPS.map((_, k) => MAPS[(level + k) % MAPS.length]);
+  if (WANT_STYLE && !order.length) throw new Error(`--style ${WANT_STYLE}: khong co silhouette nao ten vay`);
   for (const style of order) {
    for (let t = 0; t < TRIES; t++) {
     const r = rng32(level * 7919 + t * 104729 + 11);
@@ -537,7 +558,7 @@ for (const level of TODO) {
     };
     // Colour count is the fine difficulty knob and the strongest one left once size is fixed:
     // fewer colours means more of the belt can drain into the four open boxes at any moment.
-    const pool = shuffled(r, PALETTE.map((_, i) => i)).slice(0, 3 + (t % 3));
+    const pool = shuffled(r, PALETTE.map((_, i) => i)).slice(0, WANT_COLORS || 3 + (t % 3));
     const bp = draw(map, level * 31 + t, pool, opt);
     if (!bp) {
       why.threw++;

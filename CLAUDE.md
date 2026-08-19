@@ -307,6 +307,21 @@ is false (`bf_tutor`).
 - ⚠ The tray it points at comes from `hint()`, the engine's own next-best tap — **not** a hardcoded
   cell. Level 1 is generated, so its board changes whenever the ladder is retuned and a fixed index
   would eventually point at an empty cell.
+- **The idle nudge**: `IDLE_MS` = 5s after the last pour with nothing tapped, the hand and ring come
+  back on the next tray `hint()` picks. It re-arms rather than firing once — a player who stalls
+  twice needs the same help the second time.
+  ⚠ **The clock only starts once the four captions are done.** Armed from the first pour it fires
+  in the middle of them (the belt caption alone runs 2.2s, the box caption 2.8s) and the nudge
+  draws on the same plate, so the two take turns overwriting each other while the player watches.
+  ⚠ **`tutorialDone` is still written when the captions finish**, not after the nudges. The
+  walkthrough is the four cards; the nudge is a safety net that may go on firing all level.
+  ⚠ The position is asked of the **scene**, fresh, every time (`GameScene.nextTrayMark`) — it
+  returns null while the game is paused or over, because a hand bouncing on a tray under the
+  dimmed results card is worse than no hand. A position captured at `start()` would also be a tray
+  that is long gone by the time the nudge fires.
+  `npm run shot -- --level 1 --tutor` drives it: pours once, waits out the captions, then sits
+  still for the five seconds — which is the one thing a normal `--taps` run never reproduces, and
+  the exact failure mode of a mis-wired timer, since doing nothing looks like not being there.
 - ⚠ **English.** `public/fonts/LilitaOne.ttf` is a Latin-only subset, so Vietnamese copy here falls
   back to Arial glyph-by-glyph and looks broken — the same constraint as the rest of the UI.
 - The caption sits at `funnel.shoulder + 44`, in the throat of the chute. Above that is the board:
@@ -661,6 +676,42 @@ fingerprint are discarded, not guessed at.
 ⚠ Keep `A_CAL`/`B_CAL` in exactly one place (`scripts/winrate.mjs`). Pixel Flow's note about
 this is blunt: coefficients copied into two files drift, and the tuner ends up optimising a
 curve the report is not showing.
+
+## The live dashboard — `public/stats.html`
+
+Every finished game is also posted to a Realtime Database (`telemetry.ts`), and this page reads it
+back: summary cards, a by-day table and a by-level table. Behind a Google sign-in, and shipped in
+`public/` for exactly one reason — Firebase Hosting serves it. ⚠ `build-target.mjs` **deletes it
+from every build**, so it can never ride into an upload; anything else dropped in `public/` for a
+dev purpose needs the same treatment or it ships.
+
+- **Winrate** appears three ways and they are not interchangeable. Per game, per player (did this
+  person ever clear it), and **clean winrate** — games with no booster and no revive. Clean is the
+  one to compare against a bot, for the same reason `PURE=1` exists: a level bought with coins is
+  not a game any bot could have played, and the whole ladder is tuned against them.
+- **D1 retention** is a **cohort**: of the players whose *first* game was that day, the share who
+  came back on **exactly** the next day. This is the number CrazyGames reports.
+  ⚠ **It is not the "% returning" column beside it**, and reading one as the other is the whole
+  reason both are on screen. "% returning" is the share of that day's players who had ever played
+  before — it counts someone last seen a fortnight ago, so it climbs as the game ages whatever
+  happens to new players. Ported from Pixel Flow, which learned the distinction the same way.
+  - ⚠ **Two decimals, unlike every other percentage on the page.** D1 sits in the low single
+    digits over a cohort of a few hundred, and whole percent prints 5/247 and 6/247 as the same
+    "2%" — two different days reading identically is worse than no column.
+  - ⚠ **Blank, never 0%, where there is no answer.** The newest cohort has not had its next day
+    yet, and an hour bucket has no next day at all. A zero there reads as a collapse and it is the
+    row the eye lands on first.
+  - ⚠ **Both are computed only from the loaded window.** Someone who played before it counts as
+    new, so early rows understate returning and put strangers in the cohort. To read one day's D1,
+    load a window starting several days earlier.
+- **Median *and* mean** time per player. Measured on Pixel Flow's real log the two came out 2:54
+  against 13:20 — a handful of players who sit down for an hour drag the mean up, and the mean
+  alone says the game is four times stickier than it is.
+- ⚠ The **fingerprint column** in the by-level table is why winrate is not read out of Google
+  Analytics: two fingerprints under one level number means two different boards averaged into one
+  convincing-looking figure.
+- The device code is a random 16-bit number, so strangers collide; and a row is only written when
+  a game **ends**, so anyone who opens the game and quits mid-level is invisible here.
 
 ## Measuring — do this before tuning anything
 

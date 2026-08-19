@@ -5,12 +5,15 @@
 // to tune difficulty — driving the real scene costs ~30s per data point, which is far too
 // slow to sample more than once or twice.
 
+import type { Rec } from "./replay";
 import {
   BELT_SLOTS,
   CHUTE_CAP,
   BOX_COLS,
   BOX_SLOTS,
   SLOT_COLUMN,
+  STAR_ALWAYS_TO,
+  STAR_TWO_TRIES,
   TRAY_N,
   type Color,
 } from "./config";
@@ -153,6 +156,11 @@ export interface LevelDef {
   columns: Color[][];
   /** palette indices this level draws from */
   colors: Color[];
+  /**
+   * Hand-marked as far harder than its neighbours — see `Blueprint.hard`. Presentation only; no
+   * rule reads it, and the headless sim is unaffected.
+   */
+  hard?: boolean;
   /** silhouette the board was built from — reporting only, the engine never reads it */
   shape?: string;
   /** the tap order the generator solved it with — proof it is winnable, and the hint source */
@@ -234,6 +242,26 @@ export class Game {
 
   status: Status = "play";
   taps = 0;
+  /**
+   * Ticks since the level began.
+   *
+   * ⚠ **Monotonic — deliberately not in `Snapshot`, so undo does not rewind it.** It timestamps
+   * the replay log, and a replay is a record of what the player did in the order they did it. A
+   * counter that went backwards on undo would stamp two different moves with the same tick and
+   * the log could no longer be replayed at all.
+   */
+  ticks = 0;
+  /**
+   * Optional move recorder. Null in the headless sim and in every bot — only the real game attaches
+   * one.
+   *
+   * ⚠ **Hooked here, inside the engine, not at the call sites in `GameScene`.** Three separate
+   * paths call `arrive()` (the neck, the timeout backstop, and the marble that escaped the chute)
+   * and a fourth would be added the next time the physics needed one. Recording from the mutator
+   * means the fourth is covered for free — the same reasoning as the `paused` setter emitting the
+   * gameplay signal.
+   */
+  rec: Rec | null = null;
   /** Peak belt occupancy over the run — the metric the star rating is scored on. */
   maxBelt = 0;
   /**
@@ -507,19 +535,6 @@ export class Game {
     return this.def.columns.reduce((a, s) => a + s.length, 0) * BOX_SLOTS;
   }
 
-  /**
-   * Scored on how full the belt ever got, because belt headroom is the only thing skill
-   * actually buys here — every level takes exactly one tap per tray, so counting moves
-   * would score nothing at all. Thresholds sit either side of what the greedy bot manages
-   * across the curve (53% on the gentlest board, 93% on the hardest).
-   */
-  stars(): number {
-    const peak = this.maxBelt / BELT_SLOTS;
-    if (peak <= 0.65) return 3;
-    if (peak <= 0.85) return 2;
-    return 1;
-  }
-
   // ── Player actions ─────────────────────────────────────────────────────────
 
   /** Empty a tray onto the funnel. Returns its colour, or null if the tap was illegal. */
@@ -535,6 +550,7 @@ export class Game {
     for (let i = 0; i < half; i++) this.inFlight.push(t.color);
     if (t.wide) for (let i = 0; i < half; i++) this.inFlight.push(t.mate ?? t.color);
     this.taps++;
+    this.rec?.ev(this.ticks, "t", String(idx));
     this.creditLids(t.wide ? [t.color, t.mate ?? t.color] : [t.color]);
     // Chocolate boxes this tap burst, for the scene to animate. A field rather than a return
     // value because every caller of `tap` wants the colour and only one wants this.
@@ -548,6 +564,10 @@ export class Game {
     if (i < 0) return;
     this.inFlight.splice(i, 1);
     this.pending.push(color);
+    // ⚠ Recorded because a real game's marbles arrive on physics time, not all at once like
+    // `arriveAll()`. Which marble reaches the belt entry first decides the rest of the game, so a
+    // replay without these is a different game that happens to start the same way.
+    this.rec?.ev(this.ticks, "a", color.toString(36));
   }
 
   /** Drop every in-flight marble straight into the queue — what the headless sim uses. */
@@ -591,6 +611,7 @@ export class Game {
       }
     }
     this.magnet.push(...taken);
+    if (taken.length) this.rec?.ev(this.ticks, "m");
     return taken;
   }
 
@@ -607,6 +628,7 @@ export class Game {
     // The mask travels with the box, or cycling a column would reveal colours for free.
     const h = this.boxHidden[j];
     if (h?.length) h.push(h.shift()!);
+    this.rec?.ev(this.ticks, "w", String(j));
     return true;
   }
 
@@ -695,6 +717,7 @@ export class Game {
       this.boxHidden[p.col]?.splice(p.idx, 1);
     }
     this.status = "play";
+    this.rec?.ev(this.ticks, "r");
     return picks;
   }
 
@@ -711,6 +734,7 @@ export class Game {
       opened: [],
     };
     if (this.status !== "play") return ev;
+    this.ticks++;
 
     // Advance the belt one slot: whatever sat in i now sits in i+1, and the marble that
     // ran off the end comes back round to the entry.
@@ -907,6 +931,10 @@ export class Game {
   }
 
   restore(s: Snapshot): void {
+    // ⚠ Before the state is replaced, so the tick stamp is the one the undo happened on. After the
+    // restore it would still be right — `ticks` is not in the snapshot — but reading it here says
+    // out loud that it is deliberately outside the rewind.
+    this.rec?.ev(this.ticks, "u");
     this.lids = JSON.parse(s.lids);
     this.boxHidden = JSON.parse(s.boxHidden);
     this.tiles = JSON.parse(s.tiles);
@@ -954,6 +982,31 @@ export function levelFingerprint(d: LevelDef): string {
     h = Math.imul(h, 0x01000193) >>> 0;
   }
   return h.toString(36);
+}
+
+/**
+ * Stars for clearing `level` on attempt number `attempt` (1 = won it first go).
+ *
+ *   levels 1..STAR_ALWAYS_TO   any win is three stars
+ *   after that                 1 go = 3, 2..STAR_TWO_TRIES goes = 2, more = 1
+ *
+ * ⚠ **Not a property of the board any more.** This used to be `Game.stars()`, scored on peak belt
+ * occupancy — the reasoning being that belt headroom is the only thing skill buys, since every
+ * level takes exactly one tap per tray and a move count would score nothing. That reasoning still
+ * holds for *measuring a board*, and the play log still carries `peak` and `belt` for exactly
+ * that. What it does not do is tell the player anything they can act on: nobody watches the rail's
+ * high-water mark, so the rating arrived unexplained. Persistence is what makes attempts legible
+ * instead — "you got it first try" is a sentence the player can check against their own memory.
+ *
+ * ⚠ Which means it needs a **counter that outlives the `Game` object**, so this takes the count as
+ * an argument and stays pure. `Game` has no idea how many times the level has been opened, and
+ * giving it one would put a save-file concern inside the headless sim.
+ */
+export function starsFor(level: number, attempt: number): number {
+  if (level <= STAR_ALWAYS_TO) return 3;
+  if (attempt <= 1) return 3;
+  if (attempt <= STAR_TWO_TRIES) return 2;
+  return 1;
 }
 
 /** Cell index of the tap the reference solution would make next, or -1. */

@@ -18,6 +18,7 @@
     "sheet": "node scripts/sheet.mjs",
     "cuongxs1": "node scripts/cuongxs1.mjs",
     "revive": "node scripts/revive.mjs",
+    "replay": "node scripts/replay.mjs",
     "table": "node scripts/table.mjs",
     "editor": "vite --open /editor.html",
     "build:crazy": "node scripts/build-target.mjs crazy",

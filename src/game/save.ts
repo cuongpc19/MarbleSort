@@ -27,6 +27,24 @@ const K_TUTOR = "bf_tutor";
  * one and wipes the player out. Adding keys is free; renaming them is not.
  */
 const K_COACH = "bf_coach";
+/**
+ * How many times each level has been started. The star rating past level `STAR_ALWAYS_TO` is read
+ * off this, so it has to survive a reload — a counter held in the scene would reset every time the
+ * player closed the tab and hand back a free three stars.
+ *
+ * ⚠ A **new** key, never a rename of an existing one. CrazyGames' Automatic Progress Save backs
+ * localStorage up verbatim, so renaming a key after launch restores old names into a game that
+ * reads new ones and every player loses that progress.
+ */
+const K_TRIES = "bf_tries";
+/**
+ * The login streak: `{ streak, last }`, where `last` is a local `YYYY-MM-DD`.
+ *
+ * ⚠ A **new** key. CrazyGames' Automatic Progress Save mirrors localStorage verbatim, so renaming
+ * one after launch restores the old name into a game that reads the new one and the player loses
+ * whatever it held.
+ */
+const K_DAILY = "bf_daily";
 
 function read<T>(key: string, fallback: T): T {
   try {
@@ -52,6 +70,34 @@ export const save = {
   },
   set unlocked(v: number) {
     write(K_LEVEL, Math.max(this.unlocked, v));
+  },
+
+  /** How many times level `n` has been started, 0 if never. */
+  tries(n: number): number {
+    return read<Record<string, number>>(K_TRIES, {})[String(n)] ?? 0;
+  },
+  /**
+   * Count one more go at level `n` and return the new total.
+   *
+   * ⚠ Counted when the level **starts**, not when it ends. Counting on finish would let a player
+   * who is losing hit RESTART before the board dies and come back to "first try" — the boards are
+   * deterministic, so a second look at one is real information. The cost is that opening a level
+   * to peek at it spends a go, which is the cheaper of the two mistakes.
+   */
+  noteTry(n: number): number {
+    const all = read<Record<string, number>>(K_TRIES, {});
+    all[String(n)] = (all[String(n)] ?? 0) + 1;
+    write(K_TRIES, all);
+    return all[String(n)];
+  },
+
+  /** Login streak state. `last` empty means the player has never claimed. */
+  get daily(): { streak: number; last: string } {
+    const v = read<{ streak?: number; last?: string }>(K_DAILY, {});
+    return { streak: Math.max(0, v.streak ?? 0), last: v.last ?? "" };
+  },
+  set daily(v: { streak: number; last: string }) {
+    write(K_DAILY, v);
   },
 
   stars(n: number): number {

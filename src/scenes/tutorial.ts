@@ -34,6 +34,16 @@ const FONT = '"Lilita One", Arial, sans-serif';
 const INK = Phaser.Display.Color.HexStringToColor(UI.ink).color;
 
 /**
+ * How long the player may sit doing nothing before the walkthrough points at another tray.
+ *
+ * ⚠ The clock only runs **after the four captions are done**. Started at the first pour it would
+ * fire in the middle of them — the belt caption alone runs 2.2s and the box caption 2.8s — and the
+ * nudge draws on the same plate, so the two would take turns overwriting each other while the
+ * player watched. The walkthrough has to finish saying its piece before it starts nagging.
+ */
+const IDLE_MS = 5000;
+
+/**
  * The pulsing ring that marks a thing on the board.
  *
  * ⚠ Sized to ring the target, not to sit inside it. `img` already applies 1/TS, so these are
@@ -110,6 +120,10 @@ export class Tutorial {
   private label: Phaser.GameObjects.Text | null = null;
   private plate: Phaser.GameObjects.Graphics | null = null;
   private timer: Phaser.Time.TimerEvent | null = null;
+  /** Kept apart from `timer`, which belongs to the step sequence and is cleared with the marks. */
+  private idle: Phaser.Time.TimerEvent | null = null;
+  /** Asked for a fresh tray to point at; null while there is nothing worth pointing at. */
+  private nextTray: (() => { x: number; y: number } | null) | null = null;
   private steps: Step[] = [];
   private at = -1;
   private done = false;
@@ -128,7 +142,8 @@ export class Tutorial {
    * `tray` is where the first pour should be pointed — the scene knows the grid metrics, this
    * does not. Passing it in beats recomputing the layout here and drifting from `gridMetrics`.
    */
-  start(tray: { x: number; y: number }) {
+  start(tray: { x: number; y: number }, nextTray?: () => { x: number; y: number } | null) {
+    this.nextTray = nextTray ?? null;
     this.steps = [
       { text: "Tap a tray to pour its marbles", at: tray },
       // The bottom run is the one that matters: it is the only stretch that passes over the boxes.
@@ -139,9 +154,18 @@ export class Tutorial {
     this.show(0);
   }
 
-  /** The player poured a tray. Only the first step is waiting on that. */
+  /** The player poured a tray. The first step is waiting on that; afterwards it resets the clock. */
   noteTap() {
-    if (this.at === 0) this.show(1);
+    if (this.at === 0) {
+      this.show(1);
+      return;
+    }
+    // ⚠ Only once the captions are finished. A pour during them must not clear the caption the
+    // player is in the middle of reading — the tap they just made is what it was telling them to do.
+    if (this.done) {
+      this.clear();
+      this.armIdle();
+    }
   }
 
   private show(i: number) {
@@ -149,6 +173,19 @@ export class Tutorial {
     const step = this.steps[i];
     if (!step) return this.finish();
     this.at = i;
+    this.draw(step.text, step.at ?? null);
+    if (step.after) {
+      this.timer = this.scene.time.delayedCall(step.after, () => this.show(i + 1));
+    }
+  }
+
+  /**
+   * Put a mark and a caption on screen. Split out of `show` because the idle nudge draws exactly
+   * the same thing off a different trigger — a second copy would be a second visual language for
+   * "look here", which is the thing `coachRing` exists to prevent.
+   */
+  private draw(text: string, at: { x: number; y: number } | null) {
+    const step = { text, at };
 
     if (step.at) {
       // ⚠ Ring first, then hand: the hand has to read *on top of* the ring, and a container draws
@@ -173,10 +210,33 @@ export class Tutorial {
     this.plate = plate;
     this.label = label;
     this.layer.add([plate, label]);
+  }
 
-    if (step.after) {
-      this.timer = this.scene.time.delayedCall(step.after, () => this.show(i + 1));
-    }
+  /**
+   * Start the idle clock. Re-arming rather than firing once: a player who stalls twice needs the
+   * same help the second time, and a nudge that is spent after one use leaves them exactly where
+   * they were. It costs nothing while they are playing, because every pour resets it.
+   */
+  private armIdle() {
+    this.idle?.remove();
+    this.idle = this.scene.time.delayedCall(IDLE_MS, () => this.showNudge());
+  }
+
+  /**
+   * Five seconds without a pour: point at the next tray worth tapping.
+   *
+   * ⚠ The tray comes from the scene, freshly, every time — never from a position captured at
+   * `start()`. The board has moved on by now: the tray the walkthrough opened with is gone, and
+   * hatches and reveals will have changed which cells are even tappable.
+   */
+  private showNudge() {
+    const at = this.nextTray?.() ?? null;
+    // Nothing to point at — paused, or the level is over, or no tray can move yet. Ask again
+    // rather than giving up, since all three of those are temporary.
+    if (!at) return this.armIdle();
+    this.clear();
+    this.at = -1;
+    this.draw("Tap another tray to keep going", at);
   }
 
   private clear() {
@@ -201,10 +261,17 @@ export class Tutorial {
     // comes back gets the walkthrough again — they are precisely the player it exists for.
     // ⚠ Never while replaying (`?teach=`): looking at the walkthrough must not consume it.
     if (!teachAll()) save.tutorialDone = true;
+    // ⚠ `tutorialDone` is still written **here**, not after the nudges. The four captions are the
+    // walkthrough; the nudge is a safety net under a player who has stalled, and it can go on
+    // firing for the rest of the level without that meaning the walkthrough is unfinished.
+    this.armIdle();
   }
 
   /** Tear-down for a scene shutdown or a level restart mid-walkthrough. */
   destroy() {
+    this.idle?.remove();
+    this.idle = null;
+    this.nextTray = null;
     this.clear();
   }
 }

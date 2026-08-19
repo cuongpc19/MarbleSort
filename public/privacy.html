@@ -73,12 +73,23 @@
 
         <h2>Gameplay statistics</h2>
         <p>
-          When a level ends, the game sends one short record so we can tell which levels are too
-          hard or too easy and rebalance them. That record contains the level number and a
+          When a level starts, and again when it ends, the game sends one short record so we can
+          tell which levels are too hard or too easy and rebalance them. The record sent at the
+          start carries only the level number, its design fingerprint, and the device code below —
+          it is what lets us see that a level was reached but never finished. The record sent at
+          the end contains the level number and a
           fingerprint of that level's design, whether you won or lost, how long the attempt took,
           how many trays you tipped, how full the conveyor ever got, the stars awarded, which
           boosters the attempt used, a random device code, the platform and game version, and the
           name of the site the game was played on.
+        </p>
+        <p>
+          The record also contains <strong>the moves you made in that level</strong> &mdash; which
+          trays you tapped and in what order, when each ball reached the conveyor, and any boosters
+          or undos, all measured in the game&rsquo;s own clock ticks rather than in real time. This
+          lets us play a lost attempt back and see <em>why</em> a level is too hard, instead of
+          only knowing that it was. It is a list of taps on a game board and nothing else: no text,
+          no input from your keyboard, and nothing about anything outside the level.
         </p>
         <p>
           The device code is <strong>generated at random</strong> and is not derived from anything

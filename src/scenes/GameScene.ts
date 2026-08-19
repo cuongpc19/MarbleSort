@@ -29,20 +29,22 @@ import {
   slotPos,
   type Color,
 } from "../game/config";
-import { Game, hint, levelFingerprint, type RevivePick, type TickEvents } from "../game/logic";
+import { Game, hint, levelFingerprint, starsFor, type RevivePick, type TickEvents } from "../game/logic";
 import { Tutorial } from "./tutorial";
 import { Coach } from "./coach";
-import { levelDefFor } from "../game/board";
+import { featureProgress, levelDefFor, type FeatureProgress } from "../game/board";
+import { DAILY_FROM, DAILY_ON } from "../game/daily";
 import { platform } from "../platform";
 import { loadCustom, toLevelDef } from "../game/custom";
 import { save } from "../game/save";
 import { clearRuns, copyToClipboard, exportJsonl, saveRun, summary, uploadRuns } from "../game/playlog";
 import { openPrivacyPolicy } from "../game/privacy";
-import { sendRun } from "../game/telemetry";
+import { sendRun, sendStart } from "../game/telemetry";
+import { Replay } from "../game/replay";
 import { startAnalytics, track } from "../game/analytics";
 import { sfx } from "../game/audio";
 import { HOLE_STEP, K, TS, bakeAll, img } from "../game/textures";
-import { dismissBootSplash } from "../game/bootsplash";
+import { dismissBootSplash, setPageBackground } from "../game/bootsplash";
 
 export { GAME_W, GAME_H };
 
@@ -112,6 +114,9 @@ const CONE_DRAG = 0.09;
 /** Contact friction down there too, so they slide off the cone walls rather than stick. */
 const CONE_FRICTION = 0.008;
 
+/** `0x2f2c63` -> `#2f2c63`, so CSS and the canvas quote the same palette entry. */
+const hexOf = (n: number) => "#" + n.toString(16).padStart(6, "0");
+
 export class GameScene extends Phaser.Scene {
   private level = 1;
   /** playing the editor's scratch board rather than a level */
@@ -144,8 +149,23 @@ export class GameScene extends Phaser.Scene {
   private tickMs = TICK_MS;
   private lastClackAt = 0;
   private levelStart = 0;
+  /**
+   * Which go at this level this is, 1 for the first. Read from the save at level start and held
+   * here so `finish()` cannot count itself — it is the number of goes *including* this one.
+   */
+  private tries = 1;
   /** boosters spent this level — a win bought with coins is not a win on skill */
   private boostersUsed: string[] = [];
+  /**
+   * Every move of this attempt, in order, for `npm run replay`.
+   *
+   * ⚠ Attached to the `Game`, not driven from here. The engine records from its own mutators, so
+   * a path through `window.__ms`, a booster, or a physics backstop is logged exactly like a finger
+   * on the glass — see the note on `Game.rec`.
+   */
+  private replay = new Replay();
+  /** Scene clock reading at which the SUPER HARD plate is gone and the chute strip is free again. */
+  private hardWarnUntil = 0;
   /**
    * Cell size and origin for the board in play.
    *
@@ -213,6 +233,12 @@ export class GameScene extends Phaser.Scene {
     // ⚠ Here as well as in `HomeScene`. `?level=N` and `?custom=1` make this the *first* scene,
     // and the poster is a full-screen div over the canvas — miss it and the board is invisible.
     dismissBootSplash();
+    // The bars either side of the canvas, matched to the board's own gradient. ⚠ Same two colours
+    // the scene paints with, read from `UI` rather than typed again — a hex copied into CSS is a
+    // second definition of a colour, and it drifts the first time the palette is touched.
+    setPageBackground(
+      `linear-gradient(${hexOf(UI.bgTop)} 0%, ${hexOf(UI.bgBottom)} 100%)`,
+    );
     // ⚠ Leaving the level is hooked **once, here**, rather than at every route out. There are
     // several ways off this scene — the win card, the lose card, the pause menu, the home
     // button — and the one that gets missed leaves the host believing a turn is still running,
@@ -227,7 +253,131 @@ export class GameScene extends Phaser.Scene {
       this.coach = null;
     });
     this.resetLevel();
+    this.devAutoWin();
   }
+
+  /**
+   * "SUPER HARD" — shown on entry to a board a person has marked as far harder than its
+   * neighbours (`Blueprint.hard`).
+   *
+   * Why warn at all: the ladder is not monotonic on purpose, and a board that wins 16% sitting
+   * between boards that win 60% reads as the game breaking rather than as a spike. A player who
+   * loses four times without being told anything concludes they have hit the end of what they can
+   * do; a player who was told it is a hard one is playing a hard one.
+   *
+   * ⚠ **It never blocks a tap.** Same rule as the level-1 walkthrough: a card that swallows input
+   * also swallows `window.__ms.tap()` and every `npm run shot` run, so the one screen a reviewer is
+   * most likely to look at becomes the one nothing can drive. It sits above the chute, fades in,
+   * holds, and leaves on its own.
+   *
+   * ⚠ **Every level, not just the first attempt.** The temptation is to show it once and mark it
+   * seen, as `coach` and the walkthrough do. But those teach something that stays learned, and this
+   * is a warning about the board in front of you — a player coming back to it a week later needs it
+   * more than they did the first time, not less.
+   */
+  private hardWarning() {
+    this.hardWarnUntil = 0;
+    if (!this.board.def.hard) return;
+    // Below the board's own lowest row, in the throat of the chute.
+    //
+    // ⚠ **Measured off the board, not pinned to `funnel.shoulder`.** A fixed offset is right for a
+    // 5-row board and wrong for a 6-row one: the extra row reaches down to the funnel and the plate
+    // then rests on its trays. Seen on level 30, where three trays in the bottom row sat half
+    // behind the warning. Covering a tray is not cosmetic here — raised-or-flat eggs are how the
+    // board says whether a tray can move, so the plate was hiding the thing the player has to read
+    // to pick a first move. Exactly the trap the level-1 caption already hit from the other side,
+    // where `shoulder + 26` landed on the bottom row of a `cross`.
+    //
+    // ⚠ Lowest row **of the board**, not of the grid: a 4-row shape drawn on a 6-row grid must not
+    // push the plate down past two empty rows of casing.
+    const b = this.board;
+    let lowest = 0;
+    for (let ry = b.rows - 1; ry >= 0; ry--) {
+      let any = false;
+      for (let x = 0; x < b.cols; x++) if (!b.wall[ry * b.cols + x]) any = true;
+      if (any) {
+        lowest = ry;
+        break;
+      }
+    }
+    // One cell below the last row, then clear of the rim the cavity draws around it.
+    const y = Math.max(L.funnel.shoulder + 44, this.gm.y + (lowest + 1) * this.gm.pitch + 40);
+    const label = "SUPER HARD";
+    const txt = this.add
+      .text(270, y, label, { fontFamily: FONT, fontSize: "40px", color: "#ffffff" })
+      .setOrigin(0.5)
+      .setStroke("#7a1220", 9);
+    const w = txt.width + 56;
+    const plate = this.add.graphics();
+    plate.fillStyle(0x7a1220, 1).fillRoundedRect(270 - w / 2, y - 34, w, 62, 18);
+    plate.fillStyle(0xd2452f, 1).fillRoundedRect(270 - w / 2 + 4, y - 30, w - 8, 54, 15);
+
+    const c = this.add.container(0, 0, [plate, txt]).setAlpha(0);
+    // Above the HUD, like the walkthrough's own layer — under it, the coin counter and the level
+    // pill draw over the warning.
+    this.uiLayer.add(c);
+
+    // Drops in, holds long enough to read twice, leaves. 2.4s total: long enough that a player
+    // looking at the board still catches it, short enough that it is gone before the first pour
+    // lands at the neck and the marbles need that strip.
+    c.setScale(0.7);
+    this.tweens.add({ targets: c, alpha: 1, scale: 1, duration: 260, ease: "Back.easeOut" });
+    // When the strip is free again, so `startCoach` knows how long to hold off.
+    this.hardWarnUntil = this.time.now + 2400 + 380;
+    this.time.delayedCall(2400, () => {
+      this.tweens.add({
+        targets: c,
+        alpha: 0,
+        y: -26,
+        duration: 380,
+        onComplete: () => c.destroy(),
+      });
+    });
+  }
+
+  /**
+   * `?win=1` — clear the level on sight. For reaching a screen that only exists after a win, which
+   * is otherwise several minutes of real play away and, on a level tuned to 32%, several attempts.
+   *
+   * ⚠ **Dev server only.** `import.meta.env.DEV` is false in every build, so Vite drops the branch
+   * entirely — the same gate `main.ts` puts on `window.__game`. Unguarded this ships, and a URL that
+   * clears a level is the first thing a reviewer tries and the last thing the play log survives:
+   * every use writes a "win" into the row the difficulty curve is calibrated from.
+   *
+   * ⚠ **Fires once per page load, not once per level.** Firing on every `create` would auto-win
+   * whatever NEXT LEVEL lands on, and then the button that exists to let you keep playing is the
+   * one thing that stops you.
+   */
+  private devAutoWin() {
+    if (!import.meta.env.DEV) return;
+    // ⚠ The URL is read **inside** the guard, not in a static initialiser. A static field runs at
+    // class-definition time whatever the build, so the first version shipped a live
+    // `URLSearchParams(location.search).get("win")` into the production bundle. The method body
+    // was empty there and the cheat was dead — but anyone reading the bundle finds a game that
+    // looks for `?win` at boot, and "it is harmless, trust the minifier" is not something a
+    // reviewer can check. Nothing about the cheat should exist outside the dev server.
+    if (GameScene.autoWinUsed) return;
+    let want = false;
+    try {
+      want = !!new URLSearchParams(location.search).get("win");
+    } catch {
+      /* no URL API — nothing to do */
+    }
+    if (!want) return;
+    GameScene.autoWinUsed = true;
+    // After a beat, so the board is on screen behind the card rather than the card arriving over
+    // a blank machine — this is used to look at the win screen, and its backdrop is part of it.
+    this.time.delayedCall(400, () => this.finish(true));
+  }
+
+  /**
+   * Whether `?win=1` has already been spent this page load.
+   *
+   * Static, because `create` runs again on every restart and an instance field would be rebuilt
+   * along with the scene — which is exactly the once-per-level behaviour the note above rejects.
+   * A bare `false` is all that reaches a production bundle.
+   */
+  private static autoWinUsed = false;
 
   // ── Build ──────────────────────────────────────────────────────────────────
 
@@ -269,6 +419,8 @@ export class GameScene extends Phaser.Scene {
     // was being served a hand-built one.
     const scratch = this.custom ? loadCustom() : null;
     this.board = new Game(scratch ? toLevelDef(scratch, this.level) : levelDefFor(this.level));
+    this.replay = new Replay();
+    this.board.rec = this.replay;
     this.gm = gridMetrics(this.board.cols, this.board.rows);
 
     this.cameras.main.setBackgroundColor(UI.bg);
@@ -303,6 +455,7 @@ export class GameScene extends Phaser.Scene {
     this.refreshBoxes();
     this.refreshHud();
     this.startTutorial();
+    this.hardWarning();
     this.startCoach();
 
     // ⚠ Analytics starts **here**, on reaching a board, not at boot — the script is 145 KB from
@@ -312,10 +465,17 @@ export class GameScene extends Phaser.Scene {
     if (!this.custom && !this.preview) {
       startAnalytics();
       track("level_start", { level: this.level });
+      // ⚠ The same fingerprint the end row carries. Without it a start cannot be attributed to a
+      // board, and this generator gets retuned constantly — "level 34" is a different level from
+      // one week to the next.
+      sendStart({ lvl: this.level, sig: levelFingerprint(this.board.def) });
     }
 
     this.lastTickAt = this.time.now;
     this.levelStart = this.time.now;
+    // ⚠ Not for the editor's scratch board or a preview: neither is a level anyone is scored on,
+    // and `preview` in particular is opened over and over from the editor while drawing.
+    this.tries = this.custom || this.preview ? 1 : save.noteTry(this.level);
     this.boostersUsed = [];
     this.tickMs = TICK_MS;
     // Driven from update() rather than a TimerEvent: the interval has to change partway
@@ -1796,8 +1956,11 @@ export class GameScene extends Phaser.Scene {
         taps: this.board.taps,
         peak: this.board.maxBelt,
         belt: BELT_SLOTS,
-        stars: won ? this.board.stars() : 0,
+        stars: won ? starsFor(this.level, this.tries) : 0,
         used: [...this.boostersUsed],
+        // ⚠ The moves, so a losing row can be watched rather than guessed at. Sent as one string
+        // because RTDB charges by the byte and an array of 200 objects is mostly punctuation.
+        rep: this.replay.toString(),
       };
       saveRun(run); // the copy on this device, which Settings can export by hand…
       sendRun(run); // …and the copy that actually reaches us from a stranger
@@ -1807,28 +1970,35 @@ export class GameScene extends Phaser.Scene {
       track("level_end", { level: this.level, result: run.result, seconds: Math.round(run.ms / 1000) });
     }
     if (this.custom) {
-      const stars = won ? this.board.stars() : 0;
+      // The editor's scratch board has no level number and no history, so a first-try win is the
+      // only thing it can honestly say.
+      const stars = won ? 3 : 0;
       if (won) sfx.win();
       else sfx.deny();
       this.overlay(won ? "LEVEL CLEAR!" : "JAMMED!", stars, 0);
       return;
     }
     if (won) {
-      const stars = this.board.stars();
+      const stars = starsFor(this.level, this.tries);
+      // Only ever raises, so replaying a level to look at it cannot take a star back off it.
       save.setStars(this.level, stars);
       save.unlocked = this.level + 1;
       save.coins = save.coins + WIN_COINS;
       sfx.win();
-      this.overlay("LEVEL CLEAR!", stars, WIN_COINS);
+      // ⚠ Asked for `this.level`, the level just cleared — the bar is the reward for *this* game.
+      this.overlay("LEVEL CLEAR!", stars, WIN_COINS, featureProgress(this.level));
     } else {
       sfx.deny();
       this.overlay("JAMMED!", 0, 0);
     }
   }
 
-  private overlay(title: string, stars: number, coins: number) {
+  private overlay(title: string, stars: number, coins: number, feat: FeatureProgress | null = null) {
     const c = this.add.container(0, 0);
     const midY = GAME_H / 2 - 40;
+    // Everything below the stars slides down to make room for the bar. One number rather than two
+    // sets of coordinates, so the card without a bar stays exactly the card it has always been.
+    const dy = feat ? 66 : 0;
     c.add(this.add.rectangle(GAME_W / 2, GAME_H / 2, GAME_W, GAME_H, 0x0d0a2a, 0.78));
 
     if (stars) {
@@ -1850,9 +2020,9 @@ export class GameScene extends Phaser.Scene {
     }
 
     const panel = this.add.graphics();
-    panel.fillStyle(0x1d1a45, 0.55).fillRoundedRect(58, midY - 172, 424, 408, 36);
-    panel.fillStyle(UI.machineEdge, 1).fillRoundedRect(60, midY - 178, 420, 400, 34);
-    panel.fillStyle(UI.machine, 1).fillRoundedRect(66, midY - 184, 408, 392, 32);
+    panel.fillStyle(0x1d1a45, 0.55).fillRoundedRect(58, midY - 172, 424, 408 + dy, 36);
+    panel.fillStyle(UI.machineEdge, 1).fillRoundedRect(60, midY - 178, 420, 400 + dy, 34);
+    panel.fillStyle(UI.machine, 1).fillRoundedRect(66, midY - 184, 408, 392 + dy, 32);
     panel.fillStyle(stars ? 0x4bc84b : 0xd8556a, 1).fillRoundedRect(66, midY - 184, 408, 84, 32);
     panel.fillStyle(stars ? 0x4bc84b : 0xd8556a, 1).fillRect(66, midY - 130, 408, 30);
     c.add(panel);
@@ -1912,9 +2082,11 @@ export class GameScene extends Phaser.Scene {
         });
       }
 
-      const coin = img(this, K.coin, 232, midY + 62).setScale(1.1 / TS);
+      if (feat) this.featureBar(c, midY + 24, feat);
+
+      const coin = img(this, K.coin, 232, midY + 62 + dy).setScale(1.1 / TS);
       const txt = this.add
-        .text(258, midY + 60, `+${coins}`, {
+        .text(258, midY + 60 + dy, `+${coins}`, {
           fontFamily: FONT,
           fontSize: "30px",
           color: "#ffd964",
@@ -1946,16 +2118,115 @@ export class GameScene extends Phaser.Scene {
       );
     }
 
-    const primary = stars ? "NEXT LEVEL" : "TRY AGAIN";
+    // ⚠ Clearing the level that unlocks the daily reward sends the player **home**, not on to the
+    // next board. The reward is on the home screen and they have never seen it; handing them
+    // "NEXT LEVEL" here means the first thing the feature does is get skipped. Only on the win
+    // that crosses the line — replaying the level later goes on as normal, because by then the
+    // icon is on their home screen and they know what it is.
+    const toDaily = DAILY_ON && stars && !this.custom && this.level === DAILY_FROM;
+    const primary = toDaily ? "CLAIM REWARD" : stars ? "NEXT LEVEL" : "TRY AGAIN";
     c.add(
-      this.button(270, midY + 130, primary, "wide", () => {
+      this.button(270, midY + 130 + dy, primary, "wide", () => {
+        if (toDaily) {
+          this.scene.start("Home", { daily: true });
+          return;
+        }
         if (stars) this.level++;
         this.scene.restart({ level: this.level });
       }),
     );
-    c.add(this.button(270, midY + 212, "HOME", "wideBlue", () => this.scene.start("Home")));
+    c.add(this.button(270, midY + 212 + dy, "HOME", "wideBlue", () => this.scene.start("Home")));
 
     this.uiLayer.add(c);
+  }
+
+  /**
+   * "You are this far from something new."
+   *
+   * ⚠ It **animates from where the player was**, not from zero and not straight to the answer. A
+   * bar that is simply drawn at 63% is a fact; a bar that visibly moves from 56% to 63% is the
+   * reward for the level they just played, which is the only reason it is on this card at all.
+   * When the last level crossed a milestone the previous value belongs to a different piece, so it
+   * starts at empty instead of jumping backwards.
+   */
+  private featureBar(into: Phaser.GameObjects.Container, y: number, feat: FeatureProgress) {
+    const X0 = 92;
+    const W = 300;
+    const H = 26;
+    const before = featureProgress(this.level - 1);
+    const from = before && before.id === feat.id ? before.pct : 0;
+
+    const track = this.add.graphics();
+    track.fillStyle(0x2f3550, 1).fillRoundedRect(X0, y - H / 2, W, H, H / 2);
+    into.add(track);
+
+    // Redrawn every frame of the tween rather than scaled: a scaled rounded rect squashes its own
+    // end caps, so a bar at 10% comes out as a flat sliver with one round end.
+    const fill = this.add.graphics();
+    into.add(fill);
+    const paint = (p: number) => {
+      fill.clear();
+      const w = Math.max(H, W * p);
+      if (p <= 0.001) return;
+      fill.fillStyle(0x5ecfe0, 1).fillRoundedRect(X0 + 3, y - H / 2 + 3, w - 6, H - 6, (H - 6) / 2);
+    };
+    paint(from);
+
+    // The prize on the end of the bar. A frame rather than a bare sprite: these are board pieces,
+    // and a tray floating on a results card reads as a stray sprite until something holds it.
+    const BX = 424;
+    const badge = this.add.graphics();
+    badge.fillStyle(0xb4801a, 1).fillRoundedRect(BX - 34, y - 34, 68, 68, 16);
+    badge.fillStyle(0xffc21e, 1).fillRoundedRect(BX - 30, y - 30, 60, 60, 13);
+    // ⚠ A slate plate inside the gold, and it is not decoration. Two of the three pieces are pale
+    // — the hatch housing is near-white — and sat straight on the gold they read as an empty
+    // frame. The board they come from is a light cavity in a slate rim, so this is the same
+    // ground they are legible against in play.
+    badge.fillStyle(UI.panelDeep, 1).fillRoundedRect(BX - 25, y - 25, 50, 50, 10);
+    into.add(badge);
+
+    // ⚠ Each piece drawn the way the board draws it. A linked pair is **two trays and a clip**,
+    // never one double-width face — using the old wide-tray texture here would teach the icon and
+    // then contradict it on the board fifteen levels later.
+    const icons: Phaser.GameObjects.Image[] =
+      feat.id === "pair"
+        ? [img(this, K.tray(2, true), BX - 12, y), img(this, K.link, BX, y), img(this, K.tray(5, true), BX + 12, y)]
+        : [img(this, feat.id === "hatch" ? K.dispenser : K.lid, BX, y)];
+    for (const ic of icons) {
+      // Fitted from the texture's own size — the pieces are baked at wildly different scales (a
+      // chocolate box is two cells across, the clip between a linked pair is a few pixels).
+      const fit = feat.id === "pair" ? 24 : 44;
+      ic.setScale(Math.min(fit / ic.width, fit / ic.height));
+      into.add(ic);
+    }
+
+    const label = this.add
+      .text(270, y + 30, `${Math.round(from * 100)}% TO NEXT FEATURE`, {
+        fontFamily: FONT,
+        fontSize: "20px",
+        color: "#b58a2b",
+      })
+      .setOrigin(0.5);
+    into.add(label);
+
+    const at = { p: from };
+    this.tweens.add({
+      targets: at,
+      p: feat.pct,
+      duration: 900,
+      delay: 700,
+      ease: "Cubic.easeOut",
+      onUpdate: () => {
+        paint(at.p);
+        label.setText(`${Math.round(at.p * 100)}% TO NEXT FEATURE`);
+      },
+      onComplete: () => {
+        if (feat.pct < 1) return;
+        // Full. Say what it unlocked rather than leaving the player to read the icon.
+        label.setText(`${feat.label} UNLOCKED!`);
+        this.tweens.add({ targets: [badge, ...icons], scale: "*=1.12", duration: 260, yoyo: true, repeat: 2 });
+      },
+    });
   }
 
   /** Paper falling past the results card. Plain tweened sprites — no emitter to tear down. */
@@ -2130,15 +2401,28 @@ export class GameScene extends Phaser.Scene {
     this.tutorial = null;
     if (this.custom || this.preview || !Tutorial.wanted(this.level)) return;
 
+    const at = this.nextTrayMark();
+    if (!at) return;
+    this.tutorial = new Tutorial(this, this.coachLayer());
+    this.tutorial.start(at, () => this.nextTrayMark());
+  }
+
+  /**
+   * Where the walkthrough should point, or null if pointing anywhere would be wrong.
+   *
+   * ⚠ The scene answers this, not the tutorial: grid metrics live here (`this.gm`), and so does
+   * the knowledge that the board is paused or the level already over — a hand bouncing on a tray
+   * under the dimmed results card is worse than no hand at all.
+   */
+  private nextTrayMark(): { x: number; y: number } | null {
+    if (this.paused || this.board.status !== "play") return null;
     const idx = hint(this.board);
-    if (idx < 0) return;
+    if (idx < 0) return null;
     const gm = this.gm;
-    const at = {
+    return {
       x: gm.x + (idx % this.board.cols) * gm.pitch + gm.cell / 2,
       y: gm.y + ((idx / this.board.cols) | 0) * gm.pitch + gm.cell / 2,
     };
-    this.tutorial = new Tutorial(this, this.coachLayer());
-    this.tutorial.start(at);
   }
 
   /**
@@ -2154,6 +2438,15 @@ export class GameScene extends Phaser.Scene {
     this.coach = null;
     if (this.custom || this.preview || this.tutorial) return;
     if (!Coach.wanted(this.board)) return;
+    // ⚠ **Takes its turn after the SUPER HARD warning.** Both draw on the same plate in the same
+    // strip of chute, and stacked they are two unreadable captions rather than one of each — seen
+    // in a screenshot of level 15, where "Crates never move and never clear" landed squarely on
+    // top of the warning. The warning goes first because it frames the level the player is about
+    // to start; the card explains a piece and keeps just as well a couple of seconds later.
+    if (this.hardWarnUntil > this.time.now) {
+      this.time.delayedCall(this.hardWarnUntil - this.time.now, () => this.startCoach());
+      return;
+    }
 
     // `off` is in cells, so a piece covering 2x2 rings its middle rather than its top-left corner.
     const locate = (cell: number, off?: { x: number; y: number }) => {

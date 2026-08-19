@@ -39,6 +39,14 @@ export interface PlayRun {
   stars: number;
   /** boosters spent, so a win bought with coins is not read as a win on skill */
   used: string[];
+  /**
+   * Every move of the game, in order — see `replay.ts` for the format.
+   *
+   * ⚠ Optional, and readers must cope with it missing: rows written before this existed have no
+   * `rep`, and they are the only games from the first weeks of real play. Treating absence as an
+   * error would throw away the data the whole log was built to collect.
+   */
+  rep?: string;
 }
 
 export function deviceId(): string {

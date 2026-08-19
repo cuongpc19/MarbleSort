@@ -31,7 +31,13 @@
   table { width:100%; border-collapse:collapse; }
   th, td { padding:6px 10px; border-bottom:1px solid var(--line); text-align:right; white-space:nowrap; }
   th:first-child, td:first-child { text-align:left; }
-  thead th { position:sticky; top:0; background:var(--panel); color:var(--soft); font-weight:600; }
+  thead th { position:sticky; top:0; background:var(--panel); color:var(--soft); font-weight:600; z-index:2; }
+  /* Level (and Day) stays put while the rest scrolls sideways — the tables are wider than any
+     screen, and a row of numbers with the level scrolled off is a row of numbers about nothing.
+     ⚠ Needs its own background: a sticky cell floats over the cells passing beneath it, and a
+     transparent one shows both at once. */
+  th:first-child, td:first-child { position:sticky; left:0; background:var(--panel); z-index:1; }
+  thead th:first-child { z-index:3; }
   .good { color:#2e9b57; } .warn { color:#c98a12; } .bad { color:#d2452f; }
   .spark { display:inline-block; height:9px; background:var(--accent); border-radius:2px; vertical-align:middle; }
   .spark.n2 { background:var(--line); }
@@ -55,7 +61,9 @@
     <div class="bar">
       <select id="days">
         <option value="0.25">last 6 hours</option>
+        <option value="0.5">last 12 hours</option>
         <option value="1">last 24 hours</option>
+        <option value="2">last 2 days</option>
         <option value="7" selected>last 7 days</option>
         <option value="30">last 30 days</option>
         <option value="9999">everything</option>
@@ -78,6 +86,10 @@
 
     <h2>By level</h2>
     <p class="note">
+      <b>Started</b> = distinct players with at least one <em>finished</em> attempt here;
+      <b>Completed</b> = how many of them ever cleared it.
+      <b>Quit</b> = attempts that reached the board and never came back with a result — someone who
+      walked away mid-level. ⚠ Blank for levels whose only rows predate start-logging.
       <b>Drop-off</b> = players who started this level and never started the next one.
       <b>Peak belt</b> is how full the conveyor ever got, averaged — the thing stars are scored on,
       so a level near 100% is one nobody has slack on.
@@ -133,7 +145,8 @@ onAuthStateChanged(auth, (u) => {
 // ⚠ Only the window being viewed, never the whole node: /runs grows every day and one day it is
 // tens of megabytes. The `orderBy` query needs `.indexOn: ["at"]` in the rules — without it the
 // database rejects it outright and the only way left is pulling everything.
-let rows = [];
+let rows = [];      // finished attempts
+let starts = [];    // attempts that reached the board, finished or not
 async function load() {
   if (!user) return;
   const days = Number($("days").value);
@@ -152,7 +165,13 @@ async function load() {
     return;
   }
   const j = await res.json();
-  rows = Object.values(j || {}).filter((r) => r && r.at && r.lvl != null);
+  // ⚠ Two kinds of row now. A start row has no `result`, so counting them as games would double
+  // every total and halve every winrate. Rows written before start-logging existed carry no `ev`
+  // at all — those are ends, and treating a missing field as "start" would silently delete the
+  // entire history from every table.
+  const all = Object.values(j || {}).filter((r) => r && r.at && r.lvl != null);
+  starts = all.filter((r) => r.ev === "start");
+  rows = all.filter((r) => r.ev !== "start");
   const builds = [...new Set(rows.map((r) => r.build).filter(Boolean))].sort();
   const sel = $("build"), keep = sel.value;
   sel.innerHTML = '<option value="">all builds</option>' + builds.map((b) => `<option>${b}</option>`).join("");
@@ -170,6 +189,23 @@ const VN = 7 * 3600e3;                        // timestamps are epoch; bucket th
 const day = (ms) => new Date(ms + VN).toISOString().slice(0, 10);
 const pct = (a, b) => (b ? Math.round((100 * a) / b) : 0);
 const cls = (v, lo, hi) => (v < lo ? "bad" : v < hi ? "warn" : "good");
+/**
+ * Median as well as the mean, for time per player.
+ *
+ * ⚠ The two say different things and the mean alone flatters the game. Measured on the sibling
+ * project's real log they came out 2:54 against 13:20 — a factor of four, because a handful of
+ * players who sit down for an hour drag the mean up. A median needs the whole series kept, which
+ * is why `perDev` exists at all.
+ */
+const median = (a) => {
+  if (!a.length) return 0;
+  const v = [...a].sort((x, y) => x - y), m = v.length >> 1;
+  return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2;
+};
+const mmss = (ms) => {
+  const t = Math.round(ms / 1000);
+  return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`;
+};
 
 function filtered() {
   const ex = $("excl").checked, b = $("build").value;
@@ -199,40 +235,97 @@ function render() {
 
   // ---- by day, or BY HOUR when the window is a day or less. Picking "6 hours" and getting one
   // row saying "today" tells you nothing; over short windows the shape within the day is the point.
+  //
+  // ⚠ The hour bucket carries **its date**, even though the column usually prints only the clock.
+  // A 24h window starting at 15:00 covers two calendar dates, so an hour-only key merges yesterday
+  // 15:00 into today 15:00 and then sorts 00:00 to the top — the two busiest hours silently added
+  // together and the sequence broken across midnight. The label drops the date again below when
+  // every row shares one, which is the common case and the only reason to keep it short.
   const hourly = Number($("days").value) <= 1;
-  const bucket = hourly ? (ms) => new Date(ms + VN).toISOString().slice(11, 13) + ":00" : day;
+  const bucket = hourly
+    ? (ms) => new Date(ms + VN).toISOString().slice(0, 13).replace("T", " ") + ":00"
+    : day;
   const first = new Map();
   for (const r of g) if (!first.has(r.dev) || r.at < first.get(r.dev)) first.set(r.dev, r.at);
   const byDay = new Map();
   for (const r of g) {
     const d = bucket(r.at);
-    if (!byDay.has(d)) byDay.set(d, { devs: new Set(), n: 0, w: 0, ms: 0 });
+    if (!byDay.has(d)) byDay.set(d, { devs: new Set(), n: 0, w: 0, ms: 0, perDev: new Map() });
     const o = byDay.get(d);
     o.devs.add(r.dev); o.n++; if (r.result === "win") o.w++; o.ms += r.ms || 0;
+    // Per device, because a median needs the whole series — a running total only yields a mean.
+    o.perDev.set(r.dev, (o.perDev.get(r.dev) || 0) + (r.ms || 0));
   }
   const days = [...byDay.keys()].sort();
   const maxDev = Math.max(...days.map((d) => byDay.get(d).devs.size));
+  // "14:00" while the window sits inside one date, "08-19 14:00" once it straddles midnight.
+  const oneDate = new Set(days.map((d) => d.slice(0, 10))).size <= 1;
+  const label = (d) => (hourly ? (oneDate ? d.slice(11) : d.slice(5)) : d);
+
+  // ---- REAL D1: of the players whose FIRST day was d, how many came back on exactly d+1 -------
+  //
+  // ⚠ Not the same thing as the "% returning" column beside it, and the difference is the whole
+  // point of adding this. "% returning" asks how many of today's players had ever played before —
+  // it counts someone who last played a fortnight ago, so it drifts upward as the game ages
+  // whatever happens to new players. D1 fixes a cohort on the day it arrived and looks at the next
+  // day only. That is the number CrazyGames reports, and the only one worth holding up against
+  // another game's.
+  const dayOf = new Map();                       // dev -> the set of days they played
+  for (const r of g) {
+    if (!dayOf.has(r.dev)) dayOf.set(r.dev, new Set());
+    dayOf.get(r.dev).add(day(r.at));
+  }
+  const nextDay = (d) => new Date(Date.parse(d + "T00:00:00Z") + 864e5).toISOString().slice(0, 10);
+  const lastDay = days[days.length - 1];
+  const d1Of = (d) => {
+    // Two ways there is no honest answer, and both must return nothing rather than a zero.
+    if (hourly) return null;                     // an hour bucket has no "next day"
+    const cohort = [...first.entries()].filter(([, t]) => day(t) === d).map(([dev]) => dev);
+    // ⚠ The newest cohort has not had its next day yet. Printing 0% there reads as a collapse,
+    // and it is the row the eye lands on first.
+    if (!cohort.length || nextDay(d) > lastDay) return null;
+    const back = cohort.filter((x) => dayOf.get(x).has(nextDay(d))).length;
+    // ⚠ TWO DECIMALS, unlike every other percentage on this page. D1 lives in the low single
+    // digits over a cohort of a few hundred, so whole percent prints 5/247 and 6/247 as the same
+    // "2%" — two different days reading identically is worse than no column at all.
+    return { n: cohort.length, back, p: pct(back, cohort.length), p2: ((100 * back) / cohort.length).toFixed(2) };
+  };
+  // Pooled over every cohort old enough to have an answer — the headline figure.
+  const d1All = days.map(d1Of).filter(Boolean);
+  const d1n = d1All.reduce((a, x) => a + x.n, 0);
+  const d1b = d1All.reduce((a, x) => a + x.back, 0);
+
   const dayRows = days.map((d) => {
     const o = byDay.get(d);
     const nw = [...o.devs].filter((x) => bucket(first.get(x)) === d).length;
     const w = (n) => Math.round((n / maxDev) * 180);
-    return `<tr><td>${d}</td><td>${o.devs.size}</td><td>${nw}</td><td>${o.devs.size - nw}</td>
+    const r1 = d1Of(d);
+    return `<tr><td>${label(d)}</td><td>${o.devs.size}</td><td>${nw}</td><td>${o.devs.size - nw}</td>
       <td class="${cls(pct(o.devs.size - nw, o.devs.size), 5, 15)}">${pct(o.devs.size - nw, o.devs.size)}%</td>
+      <td title="${r1 ? `${r1.back} of the ${r1.n} players who arrived on ${d} came back on ${nextDay(d)}` : "the next day is not in the window yet"}">${r1 ? `${r1.back}/${r1.n}` : "—"}</td>
+      <td class="${r1 ? cls(r1.p, 3, 8) : ""}">${r1 ? r1.p2 + "%" : "—"}</td>
       <td>${o.n}</td><td>${(o.n / o.devs.size).toFixed(1)}</td>
       <td>${pct(o.w, o.n)}%</td><td>${Math.round(o.ms / o.n / 1000)}s</td>
+      <td>${mmss(median([...o.perDev.values()]))}</td><td>${mmss(o.ms / o.devs.size)}</td>
       <td style="text-align:left"><span class="spark" style="width:${w(nw)}px"></span><span class="spark n2" style="width:${w(o.devs.size - nw)}px"></span></td></tr>`;
   }).reverse().join("");
   $("tDay").innerHTML = `<thead><tr><th>${hourly ? "Hour" : "Day"}</th><th>Players</th><th>New</th><th>Returning</th>
-    <th>% returning</th><th>Games</th><th>Games/player</th><th>Winrate</th><th>Time/game</th>
+    <th>% returning</th><th>Back D1</th><th>D1</th><th>Games</th><th>Games/player</th><th>Winrate</th><th>Time/game</th>
+    <th>Median/player</th><th>Mean/player</th>
     <th style="text-align:left">new ▏returning</th></tr></thead><tbody>${dayRows}</tbody>`;
   // ⚠ "New" only means new *within the loaded window*: someone who played before it still counts
   // as new, because their earlier rows were never fetched. Say so rather than let the first rows
   // be read as a retention collapse.
-  $("hDay").textContent =
-    "“% returning” is the share of that row's players seen earlier. ⚠ Only within the loaded window — "
-    + "anyone who played before it still counts as new, so the FIRST row is always 0% and the early rows "
-    + "are always artificially low. "
-    + (hourly ? "Showing hours: over a few hours this column means almost nothing — widen the window." : "");
+  $("hDay").innerHTML =
+    "<b>D1</b> = of the players whose FIRST game was that day, the share who came back the NEXT day. "
+    + "This is the figure CrazyGames reports, so it is the one to hold up against another game. "
+    + "<b>% returning</b> answers a different question: the share of that day's players who had played "
+    + "before at all, however long ago. "
+    + "⚠ Both are computed only from the loaded window — anyone who played before it counts as new here, "
+    + "so the early rows understate returning and put strangers into the D1 cohort. To read one day's D1, "
+    + "load a window that starts several days before it. The last row's D1 is blank because its next day "
+    + "has not happened yet, and blank is the honest answer there rather than 0%. "
+    + (hourly ? "Showing hours, so the D1 column is blank — a cohort needs whole days." : "");
 
   // ---- summary cards
   const today = days[days.length - 1], t = byDay.get(today);
@@ -241,10 +334,18 @@ function render() {
   const revives = g.reduce((s, r) => s + usedOf(r).filter((u) => u === "revive").length, 0);
   const boosts = g.reduce((s, r) => s + usedOf(r).length, 0);
   const ret = [...devAll].filter((x) => new Set(g.filter((r) => r.dev === x).map((r) => day(r.at))).size > 1).length;
+  const cleanG = g.filter((r) => !usedOf(r).length);
+  const cleanW = cleanG.filter((r) => r.result === "win").length;
   $("cards").innerHTML = [
-    [devAll.size, "players", hourly ? `${t.devs.size} at ${today}` : `${t.devs.size} on ${today}`],
+    [devAll.size, "players", hourly ? `${t.devs.size} at ${label(today)}` : `${t.devs.size} on ${today}`],
     [g.length, "games", `${(g.length / devAll.size).toFixed(1)} per player`],
     [pct(wins, g.length) + "%", "winrate", `${wins} won`],
+    // ⚠ The winrate that can be compared with a bot. A level bought with a revive or a booster is
+    // not a game any bot could have played, and the whole ladder is tuned against them — same
+    // reason the offline model ranking runs with PURE=1.
+    [pct(cleanW, cleanG.length) + "%", "clean winrate", `${cleanG.length} games, no booster, no revive`],
+    [d1n ? ((100 * d1b) / d1n).toFixed(1) + "%" : "—", "D1 retention",
+      d1n ? `${d1b} of ${d1n} new players came back the next day` : "needs a second day of data"],
     [pct(ret, devAll.size) + "%", "returning", `${ret} played on 2+ days`],
     [revives, "revives", `${pct(g.filter((r) => usedOf(r).includes("revive")).length, g.length)}% of games`],
     [boosts, "booster uses", `${pct(g.filter((r) => usedOf(r).length).length, g.length)}% of games`],
@@ -261,13 +362,38 @@ function render() {
     if (r.result === "win") { o.w++; o.pass.add(r.dev); }
     for (const u of usedOf(r)) o.used[u] = (o.used[u] || 0) + 1;
   }
-  const nums = [...lv.keys()].sort((a, b) => a - b);
+  // Who reached each board, and which of those attempts never came back with a result.
+  const ex = $("excl").checked, bsel = $("build").value;
+  const st = starts.filter((r) => {
+    if (ex && /^localhost$|^127\.|^192\.168\.|^10\./.test(r.from || "")) return false;
+    if (bsel && r.build !== bsel) return false;
+    return r.at <= Date.now() + 36e5;
+  });
+  const ended = new Set(g.map((r) => r.run).filter(Boolean));
+  const reach = new Map();
+  for (const r of st) {
+    if (!reach.has(r.lvl)) reach.set(r.lvl, { devs: new Set(), n: 0, quit: 0 });
+    const o = reach.get(r.lvl);
+    o.devs.add(r.dev);
+    o.n++;
+    // ⚠ Only a start carrying a `run` can be judged: the id is what pairs the two rows, and a
+    // start from a build before it existed has none. Counting those as quits would report a
+    // walk-away for every attempt ever played on an older build.
+    if (r.run && !ended.has(r.run)) o.quit++;
+  }
+
+  const nums = [...new Set([...lv.keys(), ...reach.keys()])].sort((a, b) => a - b);
   const lvRows = nums.map((n) => {
-    const o = lv.get(n), nx = lv.get(n + 1);
+    const o = lv.get(n) ?? { devs:new Set(), pass:new Set(), n:0, w:0, ms:0, taps:0, peak:0, belt:0, used:{}, sigs:new Set() };
+    const rc = reach.get(n);
+    const nx = lv.get(n + 1);
     const drop = nx ? 100 - pct(nx.devs.size, o.devs.size) : null;
     const bs = Object.entries(o.used).map(([k, v]) => `${k}×${v}`).join(" ");
     const belt = o.belt ? pct(o.peak, o.belt) : 0;
-    return `<tr><td>L${n}</td><td>${o.devs.size}</td><td>${o.n}</td>
+    const quit = rc && rc.n ? pct(rc.quit, rc.n) : null;
+    return `<tr><td>L${n}</td><td>${rc ? rc.devs.size : o.devs.size}</td><td>${o.pass.size}</td>
+      <td class="${quit == null ? "" : quit > 40 ? "bad" : quit > 20 ? "warn" : ""}">${quit == null ? "—" : quit + "%"}</td>
+      <td>${o.n}</td>
       <td class="${cls(pct(o.w, o.n), 25, 50)}">${pct(o.w, o.n)}%</td>
       <td class="${cls(pct(o.pass.size, o.devs.size), 50, 80)}">${pct(o.pass.size, o.devs.size)}%</td>
       <td>${(o.n / o.devs.size).toFixed(1)}</td>
@@ -277,7 +403,7 @@ function render() {
       <td style="text-align:left">${bs}</td>
       <td class="${o.sigs.size > 1 ? "warn" : ""}" style="text-align:left">${[...o.sigs].join(" ")}</td></tr>`;
   }).join("");
-  $("tLv").innerHTML = `<thead><tr><th>Level</th><th>Players</th><th>Games</th><th>Winrate/game</th>
+  $("tLv").innerHTML = `<thead><tr><th>Level</th><th>Started</th><th>Completed</th><th>Quit</th><th>Games</th><th>Winrate/game</th>
     <th>Winrate/player</th><th>Games/player</th><th>Drop-off</th><th>Time</th><th>Taps</th><th>Peak belt</th>
     <th style="text-align:left">Boosters</th><th style="text-align:left">Fingerprint</th></tr></thead><tbody>${lvRows}</tbody>`;
 

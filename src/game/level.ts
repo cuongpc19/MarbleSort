@@ -287,16 +287,16 @@ export const SHEET: Spec[] = [
   // were levels that were not being worked on. Re-aim a level **when its board is rebuilt**, one
   // row at a time, not as a sweep.
   { trays: 10, colors: 4, hidden: 0, hatches: 0, crates: 0, win: 1.00 }, //  2
-  { trays: 12, colors: 4, hidden: 0, hatches: 0, crates: 0, win: 1.00 }, //  3
-  { trays: 14, colors: 5, hidden: 0, hatches: 0, crates: 0, win: 0.90 }, //  4
+  { trays: 10, colors: 4, hidden: 0, hatches: 0, crates: 0, win: 1.00 }, //  3
+  { trays: 12, colors: 4, hidden: 0, hatches: 0, crates: 0, win: 1.00 }, //  4
   { trays: 14, colors: 5, hidden: 0, hatches: 0, crates: 0, win: 0.90 }, //  5
   { trays: 14, colors: 5, hidden: 0, hatches: 0, crates: 0, win: 0.90 }, //  6
-  { trays: 14, colors: 6, hidden: 0, hatches: 0, crates: 0, win: 1.00 }, //  7
-  { trays: 14, colors: 6, hidden: 0, hatches: 1, crates: 0, win: 0.90 }, //  8
-  { trays: 14, colors: 6, hidden: 0, hatches: 1, crates: 0, win: 1.00 }, //  9
+  { trays: 14, colors: 5, hidden: 0, hatches: 0, crates: 0, win: 0.90 }, //  7
+  { trays: 14, colors: 6, hidden: 0, hatches: 0, crates: 0, win: 1.00 }, //  8
+  { trays: 14, colors: 6, hidden: 0, hatches: 1, crates: 0, win: 0.90 }, //  9
   { trays: 14, colors: 6, hidden: 0, hatches: 1, crates: 0, win: 1.00 }, // 10
-  { trays: 14, colors: 6, hidden: 2, hatches: 0, crates: 1, win: 0.80 }, // 11
-  { trays: 14, colors: 6, hidden: 2, hatches: 1, crates: 0, win: 0.80 }, // 12
+  { trays: 14, colors: 6, hidden: 0, hatches: 1, crates: 0, win: 1.00 }, // 11
+  { trays: 14, colors: 6, hidden: 2, hatches: 0, crates: 1, win: 0.80 }, // 12
   { trays: 14, colors: 6, hidden: 0, hatches: 0, crates: 0, win: 0.80 }, // 13
   { trays: 14, colors: 6, hidden: 0, hatches: 1, crates: 1, win: 0.80 }, // 14
   { trays: 14, colors: 6, hidden: 4, hatches: 1, crates: 1, win: 0.30 }, // 15
@@ -401,8 +401,8 @@ export function difficultyFor(level: number): number {
  * Same rule as LADDER: hand-editing an entry detaches that level from the curve. Retune.
  */
 const VARIANTS: number[] = [
-  0, 0, 0, 18, 10, 2, 9, 41, 42, 13,
-  4, 59, 53, 62, 9, 19, 27, 62, 13, 8,
+  0, 0, 0, 0, 18, 10, 2, 9, 41, 42,
+  13, 4, 53, 62, 9, 19, 27, 62, 13, 8,
   20, 59, 3, 15, 1, 47, 49, 21, 20, 25,
   15, 15, 12, 0, 4, 18, 14, 18, 10, 10,
   21, 27, 16, 9, 21,

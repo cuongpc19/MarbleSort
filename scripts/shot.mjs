@@ -97,6 +97,8 @@ async function main() {
   const exe = BROWSERS.find((p) => existsSync(p));
   if (!exe) throw new Error("no Chromium-based browser found");
 
+  // Browser frame, `WxH`. Default is the phone box the art was designed against.
+  const SIZE = (arg("size", "540x1160") + "").replace("x", ",");
   const profile = join(OUT, "profile"); // gitignored; reused so Chrome starts warm
   const child = spawn(
     exe,
@@ -106,7 +108,11 @@ async function main() {
       "--headless=new",
       "--no-first-run",
       "--disable-gpu",
-      "--window-size=540,1160",
+      // ⚠ `--size 1280x720` is the only way to see the desktop layout. `GAME_H` flexes with the
+      // frame's aspect ratio (see config.ts), and at the default phone shape it is clamped to 1160
+      // — so every screenshot taken here exercises the *phone* build and says nothing whatever
+      // about how the game looks in a 16:9 iframe, which is every frame the host uses.
+      `--window-size=${SIZE}`,
       "--hide-scrollbars",
       URL_BASE,
     ],
@@ -244,6 +250,29 @@ async function main() {
       await snap("05-fx");
     }
 
+    // `--eval "<js>"`: run a snippet against the live game and print what it returns.
+    //
+    // ⚠ The general form the bespoke flags below are special cases of. Each of those exists because
+    // it needs several evals with waits in between; a one-shot probe does not, and adding a flag
+    // per question is how a tool ends up with twenty of them. `window.__ms` is the door.
+    const ev = arg("eval", "");
+    if (ev && ev !== true) {
+      // ⚠ Not through `cdp.eval`. That helper wraps the body in `JSON.stringify(...)`, so a snippet
+      // returning a promise is stringified as `{}` before anything can await it — and `{}` looks
+      // like a probe that ran and found nothing rather than one that never ran. Anything that has
+      // to wait a frame (a scene restart, a tween) is exactly what this flag is for, so it takes
+      // the raw path and awaits properly.
+      const r = await cdp.send("Runtime.evaluate", {
+        expression: `(async () => { ${ev} })()`,
+        awaitPromise: true,
+        returnByValue: true,
+      });
+      const err = r.result?.exceptionDetails?.exception?.description;
+      console.log("eval → " + (err ?? JSON.stringify(r.result?.result?.value, null, 1)));
+      // A snippet is almost always run to *change* something on screen, so shoot what it left.
+      await snap("13-eval");
+    }
+
     // The revive offer. Its card animates on a two-second loop, so one still frame cannot show
     // it — take one early and one mid-flight, then buy it and shoot the board it hands back.
     //
@@ -266,6 +295,33 @@ async function main() {
       await sleep(1400);
       await snap("09-revived");
       console.log("after revive → " + JSON.stringify(await cdp.eval("return window.__ms.state().belt.filter(Boolean).length;")));
+    }
+
+    // The level-1 walkthrough and its idle nudge. ⚠ Timed UI: the nudge is five seconds of the
+    // player doing nothing, which is precisely the thing a normal `--taps` run never reproduces
+    // and precisely the failure mode of a timer that was wired up wrong — it does nothing, and
+    // nothing looks the same as not being there.
+    if (arg("tutor", false)) {
+      await cdp.eval(`localStorage.removeItem("bf_tutor"); window.__ms.goto(1); return 1;`);
+      await sleep(1600);
+      await snap("10-tutor-step1");
+      // ⚠ Read the tutorial object, NOT `coachLayer()` — that method *builds* a fresh container
+      // every call, so probing through it returns an empty one and reports the feature missing.
+      const marks = () => cdp.eval(`
+        const t = window.__ms.scene.tutorial;
+        if (!t) return null;
+        return { step: t.at, done: t.done, caption: t.label ? t.label.text : null,
+                 hand: !!t.hand, ring: !!t.ring, idleArmed: !!t.idle };`);
+      console.log("tutor step 1 → " + JSON.stringify(await marks()));
+      await cdp.eval(`window.__ms.tap(window.__ms.hint()); return 1;`);
+      // The four captions run about 7.6s between them; watch the last one clear.
+      await sleep(9500);
+      await snap("11-tutor-done");
+      console.log("after captions → " + JSON.stringify(await marks()));
+      // ...then sit perfectly still for the five seconds the nudge is waiting on.
+      await sleep(5800);
+      await snap("12-tutor-nudge");
+      console.log("after 5s idle → " + JSON.stringify(await marks()));
     }
 
     // The belt tread has to travel with the marbles, and no still frame can show that.

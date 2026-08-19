@@ -16,6 +16,62 @@ import { localStore, type Platform, type PlatformStorage } from "./base";
  */
 const INIT_TIMEOUT_MS = 2500;
 
+/**
+ * Their script. **Loaded from here, at runtime — never from a tag in `index.html`.**
+ *
+ * ⚠ A classic `<script src>` in `<head>` blocks the HTML parser, and the game bundle is
+ * `type="module"` and therefore deferred: deferred scripts run only after parsing finishes. So a
+ * slow answer from this host stopped the parser, the parser stopped the module, and the game never
+ * started however completely it had downloaded — no error, every capability present, just no
+ * canvas. Reproduced by holding the request open over CDP: nothing at 14s, against 3s when it was
+ * let through. An element created here cannot do that, because the document finished parsing long
+ * before this code runs.
+ *
+ * ⚠ The platform hosts the file and forbids bundling it, so it has to stay a network fetch of
+ * their URL. This is the same shape the sibling Pixel Flow project has always used.
+ */
+const SDK_URL = "https://sdk.crazygames.com/crazygames-sdk-v3.js";
+
+/**
+ * Budget for fetching the script alone, inside the overall `INIT_TIMEOUT_MS`.
+ *
+ * ⚠ Needed **on top of** `onerror`, not instead of it: an adblocked request can hang without ever
+ * firing either handler, and `init()` is awaited before the Phaser game exists. Pixel Flow measured
+ * this fetch from Vietnam on 2026-08-08 at 7.9s cold and 1.0-1.4s warm — so a cold, uncached player
+ * will genuinely lose the SDK here. That is the trade taken deliberately: a session without cloud
+ * save is a degraded session, a session that never boots is a lost player.
+ */
+const LOAD_TIMEOUT_MS = 2000;
+
+/**
+ * Put their script in the page and resolve when it is there — or when it is clearly not coming.
+ *
+ * Resolves `true`/`false` rather than throwing; nothing above needs to know which.
+ */
+function loadSdkScript(): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    let settled = false;
+    const done = (ok: boolean) => {
+      if (settled) return;
+      settled = true;
+      resolve(ok);
+    };
+    try {
+      // Already there — a host page that preloads it, or a second call.
+      if ((window as unknown as { CrazyGames?: unknown }).CrazyGames) return done(true);
+      const el = document.createElement("script");
+      el.src = SDK_URL;
+      el.async = true;
+      el.onload = () => done(true);
+      el.onerror = () => done(false);
+      document.head.appendChild(el);
+      setTimeout(() => done(false), LOAD_TIMEOUT_MS);
+    } catch {
+      done(false);
+    }
+  });
+}
+
 type Sdk = {
   init(): Promise<void>;
   game: {
@@ -132,6 +188,11 @@ export const platform: Platform = {
 
   async init() {
     const start = Date.now();
+    // ⚠ Fetch first, then poll. The poll below still exists because `onload` firing does not mean
+    // `window.CrazyGames.SDK` is assigned yet on every build of their script, and because a host
+    // page may have loaded it already — in which case `loadSdkScript` returns immediately and the
+    // poll finds it on its first tick.
+    await loadSdkScript();
     const found = await new Promise<Sdk | null>((resolve) => {
       const timer = setTimeout(() => resolve(null), INIT_TIMEOUT_MS);
       const tick = () => {
