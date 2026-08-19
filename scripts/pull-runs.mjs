@@ -89,14 +89,23 @@ const all = Object.entries(raw).map(([id, v]) => ({ id, ...v }));
 // so counting it as a game halves every winrate here. Rows from builds before start-logging carry
 // no `ev` at all — those are ends, and reading a missing field as "start" would throw away the
 // entire history instead.
-const rows = all.filter((r) => r.ev !== "start");
+// ⚠ Ends are **named**, not inferred. `ev !== "start"` was correct while there were two kinds of
+// row; the day a third arrived (`ev: "daily"`, a claimed login reward) it silently became "anything
+// that is not a start is a played level", which files every claim as a game with no result.
+const rows = all.filter((r) => r.ev === "end" || r.ev === undefined);
 const starts = all.filter((r) => r.ev === "start");
+const claims = all.filter((r) => r.ev === "daily");
 // A start whose `run` never came back as an end is someone who walked away mid-level. Only starts
 // carrying a `run` can be judged: the id is what pairs the two, and a start from an older build
 // has none.
 const ended = new Set(rows.map((r) => r.run).filter(Boolean));
 const quit = starts.filter((r) => r.run && !ended.has(r.run)).length;
 console.log(`Tai ve ${rows.length} van` + (starts.length ? `, ${starts.length} luot vao man (${quit} bo giua chung).` : "."));
+if (claims.length) {
+  const who = new Set(claims.map((r) => r.dev)).size;
+  const coins = claims.reduce((a, r) => a + (r.coins || 0), 0);
+  console.log(`Thuong dang nhap: ${claims.length} lan nhan boi ${who} nguoi, ${coins} xu.`);
+}
 
 const isTest = (r) => /^localhost$|^127\.|^192\.168\.|^\[::1\]$/.test(r.from ?? "");
 const scored = ALL ? rows : rows.filter((r) => !isTest(r));

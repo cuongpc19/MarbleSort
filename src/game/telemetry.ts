@@ -91,6 +91,26 @@ export function sendRun(row: Record<string, unknown>) {
 }
 
 /**
+ * The player took a daily-login reward.
+ *
+ * ⚠ **Not a game, and nothing downstream may count it as one.** Both readers used to split the log
+ * with `ev !== "start"`, which was exactly right while there were two kinds of row and became
+ * "anything that is not a start is a finished level" the moment a third arrived — a claim would
+ * have entered every table as a played level with no result, i.e. a loss on a level nobody played.
+ * `stats.html` and `scripts/pull-runs.mjs` now name the end rows instead of inferring them.
+ *
+ * ⚠ **No `run`.** A claim closes no attempt, and `pull-runs` pairs starts to ends by that id — a
+ * `run` here would mark the player's open attempt as finished and erase it from the quit count.
+ *
+ * ⚠ It still has to carry `lvl`: the database rules require `lvl` and `at` on every row, and a
+ * rejected write is silent (the send is fire-and-forget). The level here is progress, not a board
+ * being played, so it is `save.unlocked`.
+ */
+export function sendDaily(row: Record<string, unknown>) {
+  send({ ...row, ev: "daily" });
+}
+
+/**
  * The one writer. **Fire and forget**: never awaited, never surfaced, never allowed to throw. A
  * player must not be able to tell that telemetry is broken.
  *

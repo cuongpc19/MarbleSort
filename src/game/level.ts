@@ -292,30 +292,47 @@ export const SHEET: Spec[] = [
   { trays: 14, colors: 5, hidden: 0, hatches: 0, crates: 0, win: 0.90 }, //  5
   { trays: 14, colors: 5, hidden: 0, hatches: 0, crates: 0, win: 0.90 }, //  6
   { trays: 14, colors: 5, hidden: 0, hatches: 0, crates: 0, win: 0.90 }, //  7
-  { trays: 14, colors: 6, hidden: 0, hatches: 0, crates: 0, win: 1.00 }, //  8
+  // ⚠ 8 and 10 were re-aimed on 2026-08-19, **as their boards were rebuilt** and one row at a
+  // time, which is the only way this column may be touched (see the warning above). Both rows
+  // still said 1.00 while the boards they describe measured 84% and 32% on (B+D)/2 — the ruler
+  // `scripts/sheet.mjs` judges them with — so the number was not a goal any more, it was a stale
+  // claim. Worse for 8: its blueprint pins no `columns`, so `targetWin(8)` is what the box-order
+  // search aims at, and a 1.00 there hands a level meant to be harder its *easiest* stack order.
+  { trays: 14, colors: 6, hidden: 0, hatches: 0, crates: 0, win: 0.75 }, //  8
   { trays: 14, colors: 6, hidden: 0, hatches: 1, crates: 0, win: 0.90 }, //  9
-  { trays: 14, colors: 6, hidden: 0, hatches: 1, crates: 0, win: 1.00 }, // 10
+  { trays: 14, colors: 6, hidden: 0, hatches: 1, crates: 0, win: 0.12 }, // 10
   { trays: 14, colors: 6, hidden: 0, hatches: 1, crates: 0, win: 1.00 }, // 11
   { trays: 14, colors: 6, hidden: 2, hatches: 0, crates: 1, win: 0.80 }, // 12
-  { trays: 14, colors: 6, hidden: 0, hatches: 0, crates: 0, win: 0.80 }, // 13
+  // ⚠ 13, 19 and 22 re-aimed on 2026-08-19 as their boards were rebuilt, same rule as 8, 10
+  // and 25: one row at a time, never as a sweep. 13 had drifted furthest — the row said 0.80 and
+  // the board measured 95%.
+  { trays: 14, colors: 6, hidden: 0, hatches: 0, crates: 0, win: 0.85 }, // 13
   { trays: 14, colors: 6, hidden: 0, hatches: 1, crates: 1, win: 0.80 }, // 14
   { trays: 14, colors: 6, hidden: 4, hatches: 1, crates: 1, win: 0.30 }, // 15
   { trays: 14, colors: 6, hidden: 5, hatches: 2, crates: 2, win: 0.80 }, // 16
   { trays: 14, colors: 6, hidden: 0, hatches: 0, crates: 0, win: 0.80 }, // 17
   { trays: 14, colors: 6, hidden: 0, hatches: 0, crates: 0, win: 0.80 }, // 18
-  { trays: 14, colors: 6, hidden: 4, hatches: 1, crates: 2, win: 0.50 }, // 19
+  { trays: 14, colors: 6, hidden: 4, hatches: 1, crates: 2, win: 0.33 }, // 19
   { trays: 14, colors: 7, hidden: 5, hatches: 2, crates: 0, win: 0.40 }, // 20
   { trays: 14, colors: 6, hidden: 0, hatches: 0, crates: 0, win: 0.80 }, // 21
-  { trays: 14, colors: 6, hidden: 0, hatches: 0, crates: 0, win: 0.80 }, // 22
+  { trays: 14, colors: 6, hidden: 0, hatches: 0, crates: 0, win: 0.71 }, // 22
   { trays: 14, colors: 6, hidden: 0, hatches: 0, crates: 0, win: 0.80 }, // 23
-  { trays: 14, colors: 6, hidden: 4, hatches: 2, crates: 1, win: 0.80 }, // 24
-  { trays: 14, colors: 7, hidden: 5, hatches: 3, crates: 1, win: 0.30 }, // 25
+  // ⚠ 24 and 26 re-aimed on 2026-08-19 as their boards were rebuilt to 30%, one row at a time.
+  // Neither pins `columns`, so this number is re-read on **every load** — the box-order search
+  // runs at `toLevelDef` — and leaving 0.80 on a board that plays at 32% has the search hunting
+  // for the gentlest stacks it can find under a level deliberately built to be harder.
+  { trays: 14, colors: 6, hidden: 4, hatches: 2, crates: 1, win: 0.32 }, // 24
+  // ⚠ 25 re-aimed the same way on the same day: its board measured 16% on (B+D)/2 against the
+  // 0.30 written here, and it was rebuilt to 6%. Same reason as 8 — this number is what the
+  // box-order search aims at, so leaving 0.30 in place would build the gentlest stacks it can find
+  // underneath a board asked to be a wall. It stays inside `SPIKES` either way (<= 0.40).
+  { trays: 14, colors: 7, hidden: 5, hatches: 3, crates: 1, win: 0.06 }, // 25
   // ⚠ Rows 26-30 no longer come from the CSV. They were re-specified when those five levels were
   // hand-built to a brief of "every model under 20%", and the target here is what the box-order
   // search aims at — leaving the CSV's 80% in place would have had it building the *easiest*
   // stack order for a level meant to be brutal. Revert these five to 0.80 / 0.80 / 0.30 / 0.20
   // and delete row 30 to put the sheet back exactly as the CSV has it.
-  { trays: 14, colors: 7, hidden: 4, hatches: 2, crates: 1, win: 0.15 }, // 26
+  { trays: 14, colors: 7, hidden: 4, hatches: 2, crates: 1, win: 0.27 }, // 26
   { trays: 14, colors: 7, hidden: 4, hatches: 2, crates: 1, win: 0.15 }, // 27
   { trays: 14, colors: 7, hidden: 4, hatches: 2, crates: 1, win: 0.15 }, // 28
   { trays: 14, colors: 7, hidden: 4, hatches: 2, crates: 1, win: 0.15 }, // 29

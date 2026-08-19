@@ -38,7 +38,29 @@
      transparent one shows both at once. */
   th:first-child, td:first-child { position:sticky; left:0; background:var(--panel); z-index:1; }
   thead th:first-child { z-index:3; }
+  /* ⚠ And in the by-level table, **Winrate/game rides along with it**. It is the one number the
+     table exists for, so parking it next to Level and then letting it scroll away would undo the
+     move. A second sticky column needs an exact left offset, which means pinning the first
+     column's width — border-box, or the 10px padding lands outside the 62 and the two overlap. */
+  #tLv th:first-child, #tLv td:first-child { box-sizing:border-box; width:62px; min-width:62px; }
+  #tLv th:nth-child(2), #tLv td:nth-child(2) {
+    position:sticky; left:62px; background:var(--panel); z-index:1; box-shadow:1px 0 0 var(--line);
+  }
+  #tLv thead th:nth-child(2) { z-index:3; }
   .good { color:#2e9b57; } .warn { color:#c98a12; } .bad { color:#d2452f; }
+  /* Winrate's own five-step ramp, red at the bottom to green at the top.
+     ⚠ Deliberately NOT .good/.warn/.bad. Those carry a fixed meaning on Quit, Won & left, Drop-off
+     and Peak belt — where high really is bad — and winrate runs the other way. Sharing the classes
+     would mean any future tweak to the ramp silently repainted four unrelated columns. */
+  .wr1 { color:#d2452f; } .wr2 { color:#e0762a; } .wr3 { color:#c98a12; }
+  .wr4 { color:#6d9a1f; } .wr5 { color:#2e9b57; }
+  /* The mid-ramp tones are the ones that go muddy on a dark ground — lift the whole set together
+     so the steps stay evenly spaced rather than fixing the two that look worst. */
+  @media (prefers-color-scheme: dark) {
+    .wr1 { color:#f2695a; } .wr2 { color:#f0913f; } .wr3 { color:#e0b23c; }
+    .wr4 { color:#a6cc4a; } .wr5 { color:#4fc27e; }
+  }
+  .thin { color:var(--soft); }
   .spark { display:inline-block; height:9px; background:var(--accent); border-radius:2px; vertical-align:middle; }
   .spark.n2 { background:var(--line); }
   code { background:var(--bg); padding:1px 5px; border-radius:4px; }
@@ -60,6 +82,8 @@
   <div id="app" hidden>
     <div class="bar">
       <select id="days">
+        <option value="0.0416667">last 1 hour</option>
+        <option value="0.0833333">last 2 hours</option>
         <option value="0.25">last 6 hours</option>
         <option value="0.5">last 12 hours</option>
         <option value="1">last 24 hours</option>
@@ -80,16 +104,27 @@
 
     <div class="cards" id="cards"></div>
 
-    <h2>By day</h2>
+    <h2 id="hDayTitle">By day</h2>
     <p class="note" id="hDay"></p>
     <div class="scroll" style="max-height:44vh"><table id="tDay"></table></div>
 
     <h2>By level</h2>
     <p class="note">
+      <b>Winrate</b> runs low to high: <span class="wr1">under 40%</span>,
+      <span class="wr2">40-55%</span>, <span class="wr3">55-70%</span>,
+      <span class="wr4">70-90%</span>, <span class="wr5">90%+</span>,
+      <span class="thin">grey</span> = fewer than 8 games, which is too few to mean anything.
+      ⚠ Green is high, not <em>correct</em>: the ladder aims each level at its own target, so a
+      green level well above target is a level that got easier than it was meant to be.
       <b>Started</b> = distinct players with at least one <em>finished</em> attempt here;
       <b>Completed</b> = how many of them ever cleared it.
       <b>Quit</b> = attempts that reached the board and never came back with a result — someone who
       walked away mid-level. ⚠ Blank for levels whose only rows predate start-logging.
+      <b>Won &amp; left</b> = players who <em>cleared</em> this level and were never seen at the next
+      one. They did not leave because it was too hard, so this is the churn difficulty cannot
+      explain. ⚠ Read the last few rows with suspicion: the newest level in the window has no next
+      level to be absent from, and someone who cleared a board minutes ago has not had time to
+      start the one after it — both push this number up on their own.
       <b>Drop-off</b> = players who started this level and never started the next one.
       <b>Peak belt</b> is how full the conveyor ever got, averaged — the thing stars are scored on,
       so a level near 100% is one nobody has slack on.
@@ -147,6 +182,7 @@ onAuthStateChanged(auth, (u) => {
 // database rejects it outright and the only way left is pulling everything.
 let rows = [];      // finished attempts
 let starts = [];    // attempts that reached the board, finished or not
+let claims = [];    // daily-login rewards taken
 async function load() {
   if (!user) return;
   const days = Number($("days").value);
@@ -171,7 +207,13 @@ async function load() {
   // entire history from every table.
   const all = Object.values(j || {}).filter((r) => r && r.at && r.lvl != null);
   starts = all.filter((r) => r.ev === "start");
-  rows = all.filter((r) => r.ev !== "start");
+  claims = all.filter((r) => r.ev === "daily");
+  // ⚠ End rows are **named**, not inferred. `ev !== "start"` was exactly right while the log held
+  // two kinds of row, and the day a third arrived it quietly became "anything that is not a start
+  // is a played level" — a claimed daily reward would have entered every table below as a game
+  // with no result, i.e. a loss on a level nobody played. Rows written before `ev` existed carry
+  // none at all, and those are ends.
+  rows = all.filter((r) => r.ev === "end" || r.ev === undefined);
   const builds = [...new Set(rows.map((r) => r.build).filter(Boolean))].sort();
   const sel = $("build"), keep = sel.value;
   sel.innerHTML = '<option value="">all builds</option>' + builds.map((b) => `<option>${b}</option>`).join("");
@@ -189,6 +231,34 @@ const VN = 7 * 3600e3;                        // timestamps are epoch; bucket th
 const day = (ms) => new Date(ms + VN).toISOString().slice(0, 10);
 const pct = (a, b) => (b ? Math.round((100 * a) / b) : 0);
 const cls = (v, lo, hi) => (v < lo ? "bad" : v < hi ? "warn" : "good");
+
+/** Below this a rate is one or two players, and colouring it states a finding that is not there. */
+const MIN_N = 8;
+
+/**
+ * Winrate, on a five-step ramp: red under 40%, green from 90% up.
+ *
+ * ⚠ This replaced a **two-sided** scale that painted anything over 90% blue, on the argument that
+ * a level nobody ever loses is a defect with its own fix rather than a success. That argument is
+ * not wrong, but it made the column unreadable at a glance: the eye reads a colour ramp as one
+ * axis, so a second fault colour at the top end looked like a bug in the page every time. Too-easy
+ * levels are still findable — they are the ones sitting at the top of the ramp — and the sheet's
+ * own target is what actually says whether a level is where it should be.
+ *
+ * ⚠ Bands, not a continuous gradient. Adjacent levels differing by three points should read as the
+ * same colour; a per-percent gradient invents a distinction inside the ±5 noise floor.
+ *
+ * ⚠ Greyed under `MIN_N` games. Three attempts at 100% is not an easy level, it is three
+ * attempts — and a colour on it reads as a colour on a conclusion.
+ */
+const band = (v, n) => {
+  if (!n || n < MIN_N) return "thin";
+  if (v < 40) return "wr1";
+  if (v < 55) return "wr2";
+  if (v < 70) return "wr3";
+  if (v < 90) return "wr4";
+  return "wr5";
+};
 /**
  * Median as well as the mean, for time per player.
  *
@@ -207,9 +277,12 @@ const mmss = (ms) => {
   return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`;
 };
 
-function filtered() {
+// ⚠ Takes its source, so the daily-claims card obeys the same window, build filter and
+// hide-test-games box as every other number on this page. A second copy of this predicate would
+// disagree with the first the day either one was edited.
+function filtered(src = rows) {
   const ex = $("excl").checked, b = $("build").value;
-  return rows.filter((r) => {
+  return src.filter((r) => {
     if (ex && /^localhost$|^127\.|^192\.168\.|^10\./.test(r.from || "")) return false;
     if (b && r.build !== b) return false;
     // ⚠ A player's clock can be wrong, and real data has carried rows dated in the FUTURE. Drop
@@ -241,10 +314,23 @@ function render() {
   // 15:00 into today 15:00 and then sorts 00:00 to the top — the two busiest hours silently added
   // together and the sequence broken across midnight. The label drops the date again below when
   // every row shares one, which is the common case and the only reason to keep it short.
-  const hourly = Number($("days").value) <= 1;
-  const bucket = hourly
-    ? (ms) => new Date(ms + VN).toISOString().slice(0, 13).replace("T", " ") + ":00"
-    : day;
+  //
+  // ⚠ And by **ten minutes** once the window is two hours or less. An hour bucket over a 1h window
+  // is one row — "17:00, 4 players" and nothing else, which is a card, not a series, and the whole
+  // reason to ask for the last hour is to watch it move. The key stays 16 characters either way
+  // ("2026-08-19 17:30"), so every slice and sort below is unchanged.
+  const win = Number($("days").value);
+  const fine = win <= 2 / 24;
+  const hourly = win <= 1;
+  const iso = (ms) => new Date(ms + VN).toISOString();
+  const bucket = fine
+    ? (ms) => {
+        const t = iso(ms);
+        return t.slice(0, 14).replace("T", " ") + String(Math.floor(+t.slice(14, 16) / 10) * 10).padStart(2, "0");
+      }
+    : hourly
+      ? (ms) => iso(ms).slice(0, 13).replace("T", " ") + ":00"
+      : day;
   const first = new Map();
   for (const r of g) if (!first.has(r.dev) || r.at < first.get(r.dev)) first.set(r.dev, r.at);
   const byDay = new Map();
@@ -309,13 +395,16 @@ function render() {
       <td>${mmss(median([...o.perDev.values()]))}</td><td>${mmss(o.ms / o.devs.size)}</td>
       <td style="text-align:left"><span class="spark" style="width:${w(nw)}px"></span><span class="spark n2" style="width:${w(o.devs.size - nw)}px"></span></td></tr>`;
   }).reverse().join("");
-  $("tDay").innerHTML = `<thead><tr><th>${hourly ? "Hour" : "Day"}</th><th>Players</th><th>New</th><th>Returning</th>
+  $("tDay").innerHTML = `<thead><tr><th>${fine ? "10 min" : hourly ? "Hour" : "Day"}</th><th>Players</th><th>New</th><th>Returning</th>
     <th>% returning</th><th>Back D1</th><th>D1</th><th>Games</th><th>Games/player</th><th>Winrate</th><th>Time/game</th>
     <th>Median/player</th><th>Mean/player</th>
     <th style="text-align:left">new ▏returning</th></tr></thead><tbody>${dayRows}</tbody>`;
   // ⚠ "New" only means new *within the loaded window*: someone who played before it still counts
   // as new, because their earlier rows were never fetched. Say so rather than let the first rows
   // be read as a retention collapse.
+  // The heading has to follow the buckets. "By day" over rows labelled 17:20, 17:30 is the page
+  // contradicting itself, and it is the first thing read.
+  $("hDayTitle").textContent = fine ? "By 10 minutes" : hourly ? "By hour" : "By day";
   $("hDay").innerHTML =
     "<b>D1</b> = of the players whose FIRST game was that day, the share who came back the NEXT day. "
     + "This is the figure CrazyGames reports, so it is the one to hold up against another game. "
@@ -325,7 +414,7 @@ function render() {
     + "so the early rows understate returning and put strangers into the D1 cohort. To read one day's D1, "
     + "load a window that starts several days before it. The last row's D1 is blank because its next day "
     + "has not happened yet, and blank is the honest answer there rather than 0%. "
-    + (hourly ? "Showing hours, so the D1 column is blank — a cohort needs whole days." : "");
+    + (hourly ? `Showing ${fine ? "ten-minute blocks" : "hours"}, so the D1 column is blank — a cohort needs whole days.` : "");
 
   // ---- summary cards
   const today = days[days.length - 1], t = byDay.get(today);
@@ -334,6 +423,9 @@ function render() {
   const revives = g.reduce((s, r) => s + usedOf(r).filter((u) => u === "revive").length, 0);
   const boosts = g.reduce((s, r) => s + usedOf(r).length, 0);
   const ret = [...devAll].filter((x) => new Set(g.filter((r) => r.dev === x).map((r) => day(r.at))).size > 1).length;
+  const cl = filtered(claims);
+  const dailyWho = new Set(cl.map((r) => r.dev)).size;
+  const dailyCoins = cl.reduce((a, r) => a + (r.coins || 0), 0);
   const cleanG = g.filter((r) => !usedOf(r).length);
   const cleanW = cleanG.filter((r) => r.result === "win").length;
   $("cards").innerHTML = [
@@ -349,6 +441,10 @@ function render() {
     [pct(ret, devAll.size) + "%", "returning", `${ret} played on 2+ days`],
     [revives, "revives", `${pct(g.filter((r) => usedOf(r).includes("revive")).length, g.length)}% of games`],
     [boosts, "booster uses", `${pct(g.filter((r) => usedOf(r).length).length, g.length)}% of games`],
+    // ⚠ The headline is the **player** count, not the claim count. The reward is once a day, so a
+    // raw total mostly measures how long the loaded window is; what the feature is judged on is how
+    // many of the people who could take one did.
+    [dailyWho, "took daily reward", cl.length ? `${cl.length} claims, ${dailyCoins} coins paid` : "nobody has taken one yet"],
   ].map(([n, k, d]) => `<div class="card"><div class="n">${n}</div><div class="k">${k}</div><div class="d">${d}</div></div>`).join("");
 
   // ---- by level
@@ -382,6 +478,16 @@ function render() {
     if (r.run && !ended.has(r.run)) o.quit++;
   }
 
+  // Every device seen at a level at all — a start counts, so a player who reached the next board
+  // and quit inside it is not mistaken for one who never went.
+  const seen = new Map();
+  const mark = (l, d) => {
+    if (!seen.has(l)) seen.set(l, new Set());
+    seen.get(l).add(d);
+  };
+  for (const r of g) mark(r.lvl, r.dev);
+  for (const r of st) mark(r.lvl, r.dev);
+
   const nums = [...new Set([...lv.keys(), ...reach.keys()])].sort((a, b) => a - b);
   const lvRows = nums.map((n) => {
     const o = lv.get(n) ?? { devs:new Set(), pass:new Set(), n:0, w:0, ms:0, taps:0, peak:0, belt:0, used:{}, sigs:new Set() };
@@ -390,12 +496,31 @@ function render() {
     const drop = nx ? 100 - pct(nx.devs.size, o.devs.size) : null;
     const bs = Object.entries(o.used).map(([k, v]) => `${k}×${v}`).join(" ");
     const belt = o.belt ? pct(o.peak, o.belt) : 0;
-    const quit = rc && rc.n ? pct(rc.quit, rc.n) : null;
-    return `<tr><td>L${n}</td><td>${rc ? rc.devs.size : o.devs.size}</td><td>${o.pass.size}</td>
+    // ⚠ Only judged once there are enough starts. With one or two, "100%" is one person closing a
+    // tab, printed in red as though the level were driving people away.
+    const quit = rc && rc.n >= MIN_N ? pct(rc.quit, rc.n) : null;
+    // ⚠ Beat it and left anyway. Measured per device against the next level, not as a ratio of
+    // two totals like Drop-off beside it: a headcount ratio can stay flat while the actual people
+    // change, and the question here is about specific players who cleared this board and never
+    // came back. It is also the churn that difficulty cannot explain — they did not fail.
+    const nextSeen = seen.get(n + 1);
+    const wonLeft = [...o.pass].filter((d) => !nextSeen || !nextSeen.has(d)).length;
+    // The newest level in the window has no "next" to be absent from, and a player who cleared
+    // this board a minute ago has not had time to start the next one either. Both inflate it.
+    const wl = o.pass.size ? pct(wonLeft, o.pass.size) : null;
+    // ⚠ **The union, not the start rows.** Reading Started off `rc` alone counted only players on a
+    // build new enough to send a start row — so a level with 97 completions showed "Started 2",
+    // which is not a small error but an impossible table. Everyone who finished an attempt here
+    // plainly started it, whatever their build could report.
+    const started = (seen.get(n) ?? o.devs).size;
+    return `<tr><td>L${n}</td>
+      <td class="${band(pct(o.w, o.n), o.n)}">${pct(o.w, o.n)}%</td>
+      <td>${started}</td><td>${o.pass.size}</td>
       <td class="${quit == null ? "" : quit > 40 ? "bad" : quit > 20 ? "warn" : ""}">${quit == null ? "—" : quit + "%"}</td>
+      <td>${wonLeft || ""}</td>
+      <td class="${wl == null ? "" : wl > 50 ? "bad" : wl > 25 ? "warn" : ""}">${wl == null ? "—" : wl + "%"}</td>
       <td>${o.n}</td>
-      <td class="${cls(pct(o.w, o.n), 25, 50)}">${pct(o.w, o.n)}%</td>
-      <td class="${cls(pct(o.pass.size, o.devs.size), 50, 80)}">${pct(o.pass.size, o.devs.size)}%</td>
+      <td class="${band(pct(o.pass.size, o.devs.size), o.devs.size)}">${pct(o.pass.size, o.devs.size)}%</td>
       <td>${(o.n / o.devs.size).toFixed(1)}</td>
       <td class="${drop == null ? "" : drop > 40 ? "bad" : drop > 20 ? "warn" : ""}">${drop == null ? "—" : drop + "%"}</td>
       <td>${Math.round(o.ms / o.n / 1000)}s</td><td>${(o.taps / o.n).toFixed(1)}</td>
@@ -403,7 +528,7 @@ function render() {
       <td style="text-align:left">${bs}</td>
       <td class="${o.sigs.size > 1 ? "warn" : ""}" style="text-align:left">${[...o.sigs].join(" ")}</td></tr>`;
   }).join("");
-  $("tLv").innerHTML = `<thead><tr><th>Level</th><th>Started</th><th>Completed</th><th>Quit</th><th>Games</th><th>Winrate/game</th>
+  $("tLv").innerHTML = `<thead><tr><th>Level</th><th>Winrate/game</th><th>Started</th><th>Completed</th><th>Quit</th><th>Won &amp; left</th><th>%</th><th>Games</th>
     <th>Winrate/player</th><th>Games/player</th><th>Drop-off</th><th>Time</th><th>Taps</th><th>Peak belt</th>
     <th style="text-align:left">Boosters</th><th style="text-align:left">Fingerprint</th></tr></thead><tbody>${lvRows}</tbody>`;
 

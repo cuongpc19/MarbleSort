@@ -36,7 +36,11 @@
         // ⚠ `result` cannot be required any more: a start row is written when the player reaches
         // the board and has no outcome yet. Requiring it rejected every start row silently —
         // the write is fire-and-forget, so nothing on screen or in the console would have said so.
-        ".validate": "newData.hasChildren(['lvl', 'at']) && (newData.hasChild('result') || newData.child('ev').val() === 'start')"
+        //
+        // ⚠ Same for `ev: "daily"`, a claimed login reward. **Every new event type has to be added
+        // here and the rules redeployed**, or the row is refused at the door and the game cannot
+        // tell — the fetch is never awaited and the failure reaches nobody.
+        ".validate": "newData.hasChildren(['lvl', 'at']) && (newData.hasChild('result') || newData.child('ev').val() === 'start' || newData.child('ev').val() === 'daily')"
       }
     }
   }

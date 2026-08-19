@@ -64,6 +64,113 @@ const CONFIRM = Number(process.env.CONFIRM || 80);
 const GAP_OK = 0.15;
 
 /**
+ * `--ruler bd`: aim at **(B+D)/2** instead of Cuongxs1.
+ *
+ * ⚠ Not a preference — the two rulers disagree by up to 50 points on one board (measured here:
+ * L85 reads Cuongxs1 74% and (B+D)/2 11%, L75 reads 34% and 64%), so which one a rebuild is aimed
+ * at *is* the brief. Cuongxs1 is right when the brief names it, as the 86-115 run's did. (B+D)/2
+ * is right when a level is being re-aimed inside the shipped ladder, because that is the ruler
+ * `TARGET`, `targetWin` and `npm run sim` are all defined on — aiming at the other one and then
+ * reading the result off `sim` is the "check both sides are the same metric" trap CLAUDE.md
+ * records three times over.
+ */
+const RULER = arg("ruler", "cx") === "bd" ? "BD" : "CX";
+
+/**
+ * `--minb X`: refuse any board whose **best play** scores below X.
+ *
+ * ⚠ The guard that a low target needs and a floor does not. Aiming at 10% says nothing about
+ * whether 10% is the shape of a hard board or of a broken one: L105 and L110 currently read 1% on
+ * (B+D)/2 with best play at 1% and 3%, which is not a difficult level but one no line wins. The
+ * same lesson `pairs.mjs` records — it floors best play at 10% because a board can land the named
+ * model's curve while being a board *nobody* clears.
+ */
+const MIN_B = Number(arg("minb", 0));
+
+/**
+ * `--maxgap X`: under `--ruler bd`, refuse a board Cuongxs1 reads more than X above the aim.
+ *
+ * ⚠ The difference between a level that is hard to *plan* and one that is merely hard to *see*.
+ * Cuongxs1 is an oracle — it reads face-down trays and hatch queues — so the gap between it and
+ * (B+D)/2 is precisely the share of a board's difficulty that is hidden information. Left
+ * unguarded, aiming at 10% happily returns a board of face-down trays that any player who could
+ * see them would walk through: level 10 came back at (B+D)/2 21% with Cuongxs1 at 78%. That is
+ * cheap difficulty, and it is the kind that reads as unfair rather than as hard.
+ */
+const MAX_GAP = Number(arg("maxgap", 0));
+
+/**
+ * `--hidden X`: pin the share of trays drawn face-down instead of sweeping 0.25 / 0.40 / 0.55.
+ *
+ * ⚠ For a level the sweep cannot get low enough on its own. The sweep's job is to *find* a board
+ * near a target, and it stops at the first setting that lands — which means a board asked for 6%
+ * and stuck at 12% never sees the high end of the range at all. Pinning it high is a different
+ * request: make this board harder to *read*, then find the winrate from there.
+ *
+ * ⚠ The share is of the drawing, not of the finished board. A "?" tray with a way out is face-up
+ * before the first frame — that is the reveal rule, and it is why 0.7 here does not put 70% of the
+ * board face-down. The printed `N?` counts what survives settling, which is the only number worth
+ * reading.
+ */
+const WANT_HIDDEN = Number(arg("hidden", 0));
+
+/**
+ * `--pairs N` and `--withchoc`: put linked pairs and a chocolate box on the board **on top of**
+ * whatever `--feature` it was assigned.
+ *
+ * ⚠ These break the one-feature-per-board rule this script was written around, deliberately and
+ * only when asked. That rule exists so the 86-115 run can read what each feature costs; it is the
+ * wrong rule for a level being driven to a winrate the plain levers cannot reach, because these
+ * two are by far the heaviest things in the game and everything else has already been spent.
+ *
+ * A linked pair is `2 * TRAY_N` = 18 marbles out of two cells on one tap — **more than half a
+ * 30-slot belt**. CLAUDE.md measures two forced pairs taking level 20 from 74% to 43% and level 28
+ * from 88% to 35%. A chocolate box locks four trays behind a counter, so it blocks escape lanes and
+ * "?" reveals for everything around it until enough trays have been poured.
+ *
+ * ⚠ Expect more rejected candidates, not fewer. The same note records a 26-tray packed slab that
+ * had a winning line with no pairs and **none at all with one** — a packed board plus a pair is
+ * often simply unwinnable, and `playPerfect` throws those away. Raise TRIES rather than reading a
+ * failed run as "the target is unreachable".
+ */
+/**
+ * `--mintrays N`, `--minhidden N`, `--minhatch N`: **reject** any board under these, rather than
+ * merely preferring boards near them.
+ *
+ * ⚠ `--trays` is a *tiebreak* — it nudges the cost by 0.002 per tray, so a board one tray short
+ * that lands the winrate beats a board on size that misses by a point. Asked for 22 trays it came
+ * back with 21 and reported success, because by its own arithmetic that was the better board. A
+ * floor is a different instruction: below it the board does not exist, whatever it scores.
+ *
+ * ⚠ Counted the way the player meets them — grid tiles (a linked pair is two), plus hatch queues,
+ * plus the four trays parked under a chocolate lid. That is the same count `table.mjs` prints, and
+ * counting only the grid understates a two-hatch board by six.
+ */
+const MIN_TRAYS = Number(arg("mintrays", 0));
+const MIN_HIDDEN = Number(arg("minhidden", 0));
+const MIN_HATCH = Number(arg("minhatch", 0));
+
+const WANT_PAIRS = Number(arg("pairs", 0));
+const WITH_CHOC = process.argv.includes("--withchoc");
+
+/**
+ * `--choc1`: draw the chocolate box **single-colour** — both ribbons and all four trays under it
+ * in one colour — instead of the rainbow border this script has always used.
+ *
+ * ⚠ A single-colour counter counts only trays of *its* colour, and **the four trays it is sitting
+ * on cannot be tapped while it is shut**, so they never count toward opening it. The number has to
+ * be reachable from the trays outside the box, hatch queues included. `isWon` refuses to finish
+ * while any lid is still on the board, so a counter one too high is not a hard level — it is an
+ * unwinnable one, and nothing on screen says so. `keeps()` below counts the real supply and throws
+ * the board away if it is short. That check is the only reason this flag is safe to have.
+ *
+ * ⚠ Design convention, not an engine rule: a single-colour box holds four trays of its own colour.
+ * The ribbons are how the player is told which kind it is, so they must agree with what is under
+ * the lid.
+ */
+const CHOC_ONE = process.argv.includes("--choc1");
+
+/**
  * `--nohatch` turns every `H` in the maps into an ordinary tray.
  *
  * ⚠ For levels *below* where the hatch is introduced. The shipped run has no hatch until level 8,
@@ -207,6 +314,22 @@ const MAPS_LIGHT = [
  * which is the same tray count and none of the game.
  */
 const MAPS_HEAVY = [
+  // Khối nhỏ — a packed 5x5, and the only heavy map that is not 6 or 7 wide.
+  //
+  // ⚠ It exists for the **early** levels. Levels 8 and 10 are packed 5x5 boards of ~20 trays, and
+  // the rest of this set starts at 6x6 — rebuilding one of them from those maps hands level 8 a
+  // board wider than level 20's, which reads as the ladder jumping rather than as the level
+  // getting harder. The light set cannot do it either: its 5x5s are mostly casing and top out
+  // around 11 trays, under the sheet's floor of 14.
+  {
+    style: "khoi-nho",
+    sizes: [
+      [".....", "H####", "#####", "#####", ".####"],
+      [".....", ".H###", "#<###", "#####", "#####"],
+      [".....", "H####", "#####", "#####", "#####"],
+      ["....#", "H####", "#<###", "#####", "#####"],
+    ],
+  },
   // Khối nặng — the plain slab, and the densest thing here.
   {
     style: "khoi-nang",
@@ -237,6 +360,41 @@ const MAPS_HEAVY = [
     sizes: [
       ["......", ".H###.", ".<####", ".#__##", ".<####", ".#####"],
       [".......", ".H####.", ".<#####", ".#__###", ".<#####", ".######"],
+    ],
+  },
+  // Khối to — the largest board this set will draw: 32 and 36 trays on a 7x6.
+  //
+  // ⚠ It exists for a target the rest of the set cannot reach. At 29 trays the heavy maps bottom
+  // out around 10% on (B+D)/2 while best play still clears 20% — the belt is 30 slots and a board
+  // that size simply cannot be made to jam more often without taking the winning line away
+  // entirely. More trays is the honest lever: 36 trays is 324 marbles through a 30-slot rail.
+  //
+  // ⚠ Six rows, not seven. A 7x7 board is inside `GRID_MAX` and `gridMetrics` shrinks the cells to
+  // fit it, but nothing shipped has ever been 7 rows — every art decision in this project was
+  // settled against 5, and 6 is as far as the ladder has actually been driven. A silhouette is not
+  // the place to find out what a 57px cell looks like.
+  {
+    style: "khoi-to",
+    sizes: [
+      [".......", ".H#####", "#<#####", "#######", "#<#####", "..#####"],
+      ["......#", "H######", "#<#####", "#######", "#<#####", "#######"],
+    ],
+  },
+  // Khối hai cửa — the only silhouette here with **two** hatches, and the only one that reaches
+  // 33 and 39 trays.
+  //
+  // ⚠ Both hatches sit with a tray directly beneath them. A hatch pushes into the cell below and
+  // that cell has to be floor the queue can reach; a hatch over casing holds three trays nothing
+  // can ever collect, which is an unwinnable level rather than a hard one.
+  //
+  // ⚠ A hatch cell is solid to the escape rule and is **not** a tray, so it never opens a lane for
+  // its neighbours the way a tapped tray does. Two of them buried inside the slab would seal the
+  // cells around them permanently — that is why both sit on the top edge.
+  {
+    style: "khoi-hai-cua",
+    sizes: [
+      [".......", ".H###H.", "#<#####", "#######", "#<#####", "..#####"],
+      ["...H..#", "H######", "#<#####", "#######", "#<#####", "#######"],
     ],
   },
   // Hai tháp nặng — two blocks split by a casing column. Nothing crosses, so a colour in the
@@ -417,14 +575,21 @@ function draw(map, seed, pool, opt) {
   const cols = map.cols;
   const pick = () => pool[(r() * pool.length) | 0];
 
-  const anchors = opt.feature === "pair" ? slotsFor(map, base, r, opt.pairs) : [];
+  const anchors = opt.pairs > 0 ? slotsFor(map, base, r, opt.pairs) : [];
   const mates = new Set(anchors.map((a) => a + 1));
 
   // ⚠ The chocolate box is claimed before anything else is drawn, because it swallows four tray
   // cells whole and everything downstream has to see them as spoken for.
+  // ⚠ Chosen once, before the cells are drawn: the ribbons and all four trays underneath have to
+  // be the same colour, and picking per tray would give a single-colour box a rainbow interior.
+  const chocColor = opt.choc1 ? pick() : null;
   let choc = null;
-  if (opt.feature === "choc") {
-    const a = chocSlots(map, base, r)[0];
+  if (opt.choc) {
+    // ⚠ The box may not land on a pair. `chocSlots` reads `base`, which knows nothing about the
+    // anchors chosen a few lines up, so without this the 2x2 can swallow half a linked pair and
+    // leave its mate pointing at a cell the lid has taken.
+    const free = (a) => chocAt(a, cols).every((k) => !anchors.includes(k) && !mates.has(k));
+    const a = chocSlots(map, base, r).find(free);
     if (a == null) return null;
     choc = { at: a, cells: new Set(chocAt(a, cols)) };
   }
@@ -447,7 +612,7 @@ function draw(map, seed, pool, opt) {
       const q = [0, 1, 2].map(pick);
       // ⚠ A face-down tray inside a hatch counts as a "?" the player meets, so it only belongs on
       // the levels the mix assigned one to.
-      return { kind: "hatch", queue: q, hiddenQ: q.map(() => opt.feature === "hidden" && r() < opt.hiddenQ), dir: "down" };
+      return { kind: "hatch", queue: q, hiddenQ: q.map(() => opt.hide && r() < opt.hiddenQ), dir: "down" };
     }
     if (choc?.cells.has(i)) {
       if (i !== choc.at) return { kind: "floor" };
@@ -458,8 +623,8 @@ function draw(map, seed, pool, opt) {
         // own supply — the four trays underneath cannot be tapped while the box is shut, so the
         // count has to be reachable from the trays *outside* — and an unreachable counter is an
         // unwinnable level, not a hard one. On an easy run that trade is never worth taking.
-        border: null,
-        under: [0, 1, 2, 3].map(() => ({ color: pick(), hidden: false })),
+        border: chocColor,
+        under: [0, 1, 2, 3].map(() => ({ color: chocColor ?? pick(), hidden: false })),
       };
     }
     if (crates.has(i)) return { kind: "crate" };
@@ -472,7 +637,7 @@ function draw(map, seed, pool, opt) {
       for (let n = 0; n < 8 && mate === color && pool.length > 1; n++) mate = pick();
       return { kind: "tile", color, mate, wide: true, hidden: false };
     }
-    return { kind: "tile", color: pick(), hidden: opt.feature === "hidden" && r() < opt.hidden };
+    return { kind: "tile", color: pick(), hidden: opt.hide && r() < opt.hidden };
   });
   // ⚠ No hidden boxes anywhere in this run. They are invisible to every bot — the models read
   // `boxes` directly — so they would make the board harder for a person and not at all for the
@@ -480,15 +645,27 @@ function draw(map, seed, pool, opt) {
   return { cols, rows: map.rows, cells, boxHiddenFrac: 0 };
 }
 
-function scoreAll(def, n) {
+/**
+ * ⚠ `cx` is optional because Cuongxs1 is by far the most expensive model here — it snapshots the
+ * board and replays a tap to measure map gain for *every* candidate tray, on every turn. Under
+ * `--ruler bd` nothing in the search reads it, so paying for it on all ~700 candidates buys one
+ * printed column. Measured: the crate group had not finished a single level in twelve minutes with
+ * it on. The pick is re-scored with it below, so the row still prints both rulers.
+ */
+function scoreAll(def, n, cx = true) {
   const b = best(M, def, n);
   const d = rate(M, def, "greedy", n, D_SLIP);
-  return { B: b, D: d, BD: (b + d) / 2, CX: cuongxs1Rate(M, def, n).rate };
+  return { B: b, D: d, BD: (b + d) / 2, CX: cx ? cuongxs1Rate(M, def, n).rate : NaN };
 }
 
 /** What the finished board actually carries — read off the `LevelDef`, never off the drawing. */
 function has(def) {
+  let trays = 0;
+  for (const t of def.tiles) if (t) trays += t.wide ? 2 : 1;
+  for (const d of def.disp ?? []) if (d) trays += d.queue.length;
+  for (const l of def.lids ?? []) trays += l.tiles.length;
   return {
+    trays,
     pairs: def.tiles.filter((t) => t && t.wide).length,
     hidden: def.tiles.filter((t) => t && t.hidden).length,
     crates: (def.blocked ?? []).filter(Boolean).length,
@@ -501,10 +678,36 @@ function has(def) {
 function keeps(def, feature) {
   const h = has(def);
   if (!NO_HATCH && !h.hatch) return "mat cua xa";
+  // ⚠ `--colors` slices the *pool*, and a pool is not a board: the trays are coloured by drawing
+  // from it at random, so a 6-colour pool routinely paints a 5-colour board. That is a silently
+  // different level — colour count is the strongest fine knob left once size is fixed, and for
+  // levels 1-29 it is also a floor the sheet checks. Read it off the finished def, like everything
+  // else here.
+  if (WANT_COLORS && def.colors.length < WANT_COLORS) return "thieu mau";
   if (feature === "pair" && !h.pairs) return "mat khay doi";
   if (feature === "hidden" && !h.hidden) return "mat khay ?";
   if (feature === "crate" && !h.crates) return "mat thung go";
   if (feature === "choc" && !h.choc) return "mat socola";
+  if (WANT_PAIRS && h.pairs < WANT_PAIRS) return `chi co ${h.pairs}/${WANT_PAIRS} khay doi`;
+  if (WITH_CHOC && !h.choc) return "mat socola";
+  if (MIN_TRAYS && h.trays < MIN_TRAYS) return `chi co ${h.trays}/${MIN_TRAYS} khay`;
+  if (MIN_HIDDEN && h.hidden < MIN_HIDDEN) return `chi co ${h.hidden}/${MIN_HIDDEN} khay ?`;
+  if (MIN_HATCH && h.hatch < MIN_HATCH) return `chi co ${h.hatch}/${MIN_HATCH} cua xa`;
+  // ⚠ The supply check for a single-colour lid. Counted the way `creditLids` counts: a tray of the
+  // lid's colour anywhere the player can actually tap it — on the grid, either half of a linked
+  // pair, or waiting in a hatch queue. The four trays under the lid are deliberately not in
+  // `def.tiles`, so they cannot creep into their own supply.
+  for (const lid of def.lids ?? []) {
+    if (lid.color == null) continue;
+    let supply = 0;
+    for (const t of def.tiles) {
+      if (!t) continue;
+      if (t.color === lid.color) supply++;
+      if (t.wide && t.mate === lid.color) supply++;
+    }
+    for (const d of def.disp ?? []) if (d) for (const c of d.queue) if (c === lid.color) supply++;
+    if (supply < lid.need) return `socola can ${lid.need} khay mau do, ngoai hop chi co ${supply}`;
+  }
   return null;
 }
 
@@ -517,8 +720,10 @@ const COUNT = TODO.length;
 const GOOD = TARGET ? 0.04 : 0;
 console.log(
   TARGET
-    ? `Dung ${COUNT} level (${TODO.join(",")}), dich Cuongxs1 ${Math.round(TARGET * 100)}%±${Math.round(GOOD * 100)}, ${TRIES} bien the/level.`
-    : `De: ${COUNT} level ${lo}-${hi}, san Cuongxs1 >= ${Math.round(FLOOR * 100)}%, ${TRIES} bien the/level.`,
+    ? `Dung ${COUNT} level (${TODO.join(",")}), dich ${RULER === "BD" ? "(B+D)/2" : "Cuongxs1"} ` +
+      `${Math.round(TARGET * 100)}%±${Math.round(GOOD * 100)}${MIN_B ? `, san B >= ${Math.round(MIN_B * 100)}%` : ""}, ` +
+      `${TRIES} bien the/level.`
+    : `De: ${COUNT} level ${lo}-${hi}, san ${RULER === "BD" ? "(B+D)/2" : "Cuongxs1"} >= ${Math.round(FLOOR * 100)}%, ${TRIES} bien the/level.`,
 );
 if (COUNT === MIX.length) {
   const tally = MIX.reduce((a, k) => ((a[k] = (a[k] || 0) + 1), a), {});
@@ -550,11 +755,19 @@ for (const level of TODO) {
     const map = style.sizes[(t / 5) % style.sizes.length | 0];
     const opt = {
       feature,
-      pairs: 1,
+      // ⚠ `--pairs`/`--withchoc` add to the assigned feature; the feature itself still implies its
+      // own one. A level assigned "pair" with no flag keeps exactly the single pair it always had.
+      // ⚠ `--hidden X` implies face-down trays, not just their share. Reading the share while
+      // leaving the switch on `feature === "hidden"` meant a board asked for 50% face-down under a
+      // `choc` or `pair` feature got exactly none, silently.
+      hide: feature === "hidden" || WANT_HIDDEN > 0,
+      choc: feature === "choc" || WITH_CHOC,
+      choc1: CHOC_ONE,
+      pairs: WANT_PAIRS || (feature === "pair" ? 1 : 0),
       crates: 1 + (t % 2),
       chocNeed: 2 + (t % 2),
-      hidden: [0.25, 0.4, 0.55][t % 3],
-      hiddenQ: [0.34, 0.67][t % 2],
+      hidden: WANT_HIDDEN || [0.25, 0.4, 0.55][t % 3],
+      hiddenQ: WANT_HIDDEN || [0.34, 0.67][t % 2],
     };
     // Colour count is the fine difficulty knob and the strongest one left once size is fixed:
     // fewer colours means more of the belt can drain into the four open boxes at any moment.
@@ -585,17 +798,25 @@ for (const level of TODO) {
     built++;
 
     // Two-stage, or the winner's curse eats the result: screen cheaply, re-measure the survivors.
-    const quick = scoreAll(def, SCREEN);
-    if (picked && (TARGET ? Math.abs(quick.CX - TARGET) > 0.28 : quick.CX < FLOOR - 0.1)) continue;
-    const s = scoreAll(def, CONFIRM);
+    const quick = scoreAll(def, SCREEN, RULER === "CX");
+    if (picked && (TARGET ? Math.abs(quick[RULER] - TARGET) > 0.28 : quick[RULER] < FLOOR - 0.1)) continue;
+    const s = scoreAll(def, CONFIRM, RULER === "CX" || !!MAX_GAP);
+    // ⚠ Before the gap guard, because it is a different question: the gap asks whether the two
+    // models agree, this asks whether the board is winnable at all.
+    if (s.B < MIN_B) continue;
     // ⚠ A ceiling on the *other* ruler's distance below this one. A board Cuongxs1 clears 95% of
     // the time while best play manages 60% is not an easy level, it is a level one model happens
     // to be good at — and the run is being signed off on that one model.
-    if (s.BD < s.CX - GAP_OK) continue;
+    // ⚠ Only under the Cuongxs1 ruler. Its job is to catch a board that is easy for the one model
+    // being optimised and hard for everything else — which cannot happen when the thing being
+    // optimised is (B+D)/2 itself, and the guard then merely rejects every board an oracle reads
+    // higher than a one-ply bot does, i.e. most hard boards. `--minb` is the guard on that side.
+    if (RULER === "CX" && s.BD < s.CX - GAP_OK) continue;
+    if (MAX_GAP && s.CX - s[RULER] > MAX_GAP) continue;
     // The floor is one-sided: below it costs, above it is free. Ties break toward the *smaller*
     // board, because on an easy run a shorter level is a better one.
     // ⚠ Two-sided under `--target`, one-sided under `--floor`. See the note on TARGET.
-    const err = TARGET ? Math.abs(s.CX - TARGET) : Math.max(0, FLOOR - s.CX);
+    const err = TARGET ? Math.abs(s[RULER] - TARGET) : Math.max(0, FLOOR - s[RULER]);
     // ⚠ The floor is one-sided, so among boards that clear it the tiebreak decides everything —
     // and what it should prefer depends on the job. A fresh easy run wants the *smallest* board
     // that clears; a level being rebuilt inside an existing ladder wants one that still looks like
@@ -625,6 +846,8 @@ for (const level of TODO) {
   }
   HANDMADE[level] = picked.bp;
   out[level] = picked.bp;
+  // The search may have skipped Cuongxs1 entirely; fill it in once, for the board that won.
+  if (Number.isNaN(picked.s.CX)) picked.s.CX = cuongxs1Rate(M, picked.def, CONFIRM).rate;
   rows.push({ level, feature, picked, style: picked.style });
   const p = (x) => String(Math.round(x * 100)).padStart(3) + "%";
   const s = picked.s;
@@ -639,7 +862,8 @@ for (const level of TODO) {
   console.log(
     `L${level}: ${picked.style} ${picked.bp.cols}x${picked.bp.rows} [${feature}] ` +
       `${h.pairs}doi ${h.hidden}? ${h.crates}go ${h.choc}choc ${h.hatch}xa | ` +
-      `Cuongxs1 ${p(s.CX)} | B ${p(s.B)} D ${p(s.D)} | ${marbles} bi${flag}`,
+      `${RULER === "BD" ? `(B+D)/2 ${p(s.BD)} | Cuongxs1 ${p(s.CX)}` : `Cuongxs1 ${p(s.CX)} | (B+D)/2 ${p(s.BD)}`} ` +
+        `| B ${p(s.B)} D ${p(s.D)} | ${marbles} bi${flag}`,
   );
 }
 
