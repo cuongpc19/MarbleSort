@@ -6,7 +6,7 @@
 // generated one is and every rule, every bot and the fingerprint all apply to it unchanged.
 
 import { BOX_COLS, BOX_SLOTS, GRID_ROWS, TRAY_N, type Color } from "./config";
-import { Game, dispTarget, type Dir, type LevelDef } from "./logic";
+import { Game, dispTarget, stepTarget, type ArrowDir, type Dir, type LevelDef } from "./logic";
 
 export type CellKind = "floor" | "wall" | "tile" | "hatch" | "crate" | "choc";
 
@@ -28,6 +28,14 @@ export interface Cell {
    */
   wide?: boolean;
   mate?: Color;
+  /**
+   * tile only — an **arrow lock**: the tray is sealed until the neighbouring cell the arrow points
+   * at is empty. See `Tile.arrow`.
+   *
+   * ⚠ An arrow that points off the board, or at casing, a crate or a bar, never opens — the level
+   * cannot be won. `problems` raises that as fatal, because nothing in the engine will.
+   */
+  arrow?: ArrowDir;
   /**
    * choc only — the counter on the box's face: how many trays must be tipped before it bursts.
    */
@@ -239,6 +247,92 @@ export function checkBlueprint(bp: Blueprint): Problem[] {
         text: `Cửa xả có ${k === "wall" ? "thành máy" : "thùng gỗ"} ngay ${SIDE[dir]} — khay không ra được.`,
       });
     }
+  }
+
+  /**
+   * Arrow locks. The tray opens when the cell it points at is empty, so an arrow aimed at
+   * something that can never empty is a tray that can never be poured.
+   *
+   * ⚠ **Nothing in the engine refuses this** — it is a perfectly legal board that simply cannot be
+   * won, and `isWon` needs every tray gone. It has to be caught here or it ships.
+   *
+   * ⚠ An arrow pointing at an **empty cell** is legal but pointless: it opens on the first settle,
+   * before the player sees it, so the piece they were shown never existed. That is a warning, not
+   * a fatal — the same shape as the `?` marker for a face-down tray that flips before frame one.
+   */
+  const WAY: Record<ArrowDir, string> = {
+    up: "bên trên",
+    down: "bên dưới",
+    left: "bên trái",
+    right: "bên phải",
+  };
+  for (let i = 0; i < bp.cells.length; i++) {
+    const c = bp.cells[i];
+    if (c.kind !== "tile" || !c.arrow) continue;
+    const at = stepTarget(i, c.arrow, bp.cols, bp.rows);
+    const where = `Khay mũi tên ở ô (${(i % bp.cols) + 1},${((i / bp.cols) | 0) + 1})`;
+    if (at < 0) {
+      out.push({ fatal: true, text: `${where} chỉ ra mép bảng — không có ô ${WAY[c.arrow]} nào để đổ.` });
+      continue;
+    }
+    const k = bp.cells[at].kind;
+    if (k === "wall" || k === "crate") {
+      out.push({
+        fatal: true,
+        text: `${where} chỉ vào ${k === "wall" ? "thành máy" : "thùng gỗ"} — không bao giờ mở được.`,
+      });
+    } else if (k === "floor") {
+      out.push({
+        fatal: false,
+        text: `${where} chỉ vào ô trống — nó mở ngay từ đầu, người chơi sẽ không thấy mũi tên.`,
+      });
+    }
+    if (c.hidden) {
+      out.push({
+        fatal: false,
+        text: `${where} vừa là khay ? vừa có mũi tên — chồng hai khoá lên một ô thì không đọc ra khoá nào.`,
+      });
+    }
+  }
+
+  /**
+   * Arrow chains that never open — the deadlock the per-arrow check above cannot see.
+   *
+   * ⚠ **Two arrows pointing at each other is a legal board and a dead one**, and so is any longer
+   * ring. Each of them passes the target test on its own: every arrow points at a real tray, and
+   * nothing is aimed at casing. Only the chain as a whole is impossible, so it has to be asked as a
+   * chain — which is what makes this worth a fixpoint rather than another per-cell test.
+   *
+   * A cell **can empty** if it is not a tray, or if it is a tray whose arrow (if any) points at a
+   * cell that can empty. Start from the cells that need nothing and grow the set until it stops
+   * growing; any arrow tray left outside it is in a ring, or hanging off one.
+   */
+  const canEmpty = bp.cells.map((c) => c.kind !== "tile" || !c.arrow);
+  for (let pass = 0; pass < bp.cells.length; pass++) {
+    let grew = false;
+    for (let i = 0; i < bp.cells.length; i++) {
+      if (canEmpty[i]) continue;
+      const c = bp.cells[i];
+      if (c.kind !== "tile" || !c.arrow) continue;
+      const at = stepTarget(i, c.arrow, bp.cols, bp.rows);
+      if (at >= 0 && canEmpty[at]) {
+        canEmpty[i] = true;
+        grew = true;
+      }
+    }
+    if (!grew) break;
+  }
+  const stuck = bp.cells
+    .map((_, i) => i)
+    .filter((i) => !canEmpty[i] && bp.cells[i].kind === "tile" && bp.cells[i].arrow);
+  // ⚠ One line for the whole ring, not one per cell. A four-arrow loop reported four times reads
+  // as four separate faults and sends you fixing them one at a time; it is a single mistake.
+  if (stuck.length) {
+    const list = stuck.map((i) => `(${(i % bp.cols) + 1},${((i / bp.cols) | 0) + 1})`).join(" ");
+    out.push({
+      fatal: true,
+      text: `Mũi tên khoá vòng tròn — các khay ${list} chờ lẫn nhau nên không khay nào mở được.`,
+    });
   }
 
   return out;
@@ -674,7 +768,13 @@ function gridDef(bp: Blueprint, level = 0): LevelDef {
       // taps on that cell to the wrong tile.
       const room = (i % bp.cols) < bp.cols - 1 && (bp.cells[i + 1]?.kind ?? "floor") === "floor";
       const wide = !!c.wide && room;
-      tiles[i] = { color: c.color, hidden: !!c.hidden, wide, mate: wide ? (c.mate ?? c.color) : undefined };
+      tiles[i] = {
+        color: c.color,
+        hidden: !!c.hidden,
+        wide,
+        mate: wide ? (c.mate ?? c.color) : undefined,
+        arrow: c.arrow,
+      };
     } else if (c.kind === "hatch") {
       const queue = [...(c.queue ?? [])];
       disp[i] = { queue, hiddenQ: queue.map((_, k) => !!c.hiddenQ?.[k]), dir: c.dir ?? "down" };
@@ -763,7 +863,10 @@ export function fromLevelDef(def: LevelDef): { bp: Blueprint; dropped: string[] 
   for (let i = 0; i < n; i++) {
     const t = def.tiles[i];
     const d = def.disp[i];
-    if (t) cells[i] = { kind: "tile", color: t.color, hidden: t.hidden };
+    // ⚠ `wide`/`mate` are **not** carried here — see the "lossy" note on this function — but the
+    // arrow is, because it is a whole obstacle rather than a detail of one: a board opened without
+    // its arrows plays as a completely different level, and the editor would then save that back.
+    if (t) cells[i] = { kind: "tile", color: t.color, hidden: t.hidden, arrow: t.arrow };
     else if (d)
       cells[i] = { kind: "hatch", queue: [...d.queue], hiddenQ: [...d.hiddenQ], dir: d.dir ?? "down" };
     else if (def.blocked?.[i]) cells[i] = { kind: "crate" };

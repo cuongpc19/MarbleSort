@@ -8,8 +8,11 @@ import {
   BOX_COLS,
   BOX_SLOTS,
   BOX_VISIBLE,
+  COMBO_RUN,
   GAME_H,
   GAME_W,
+  STAGE_PAD,
+  WIDE_HUD,
   L,
   PALETTE,
   SHOW_BOOSTERS,
@@ -29,11 +32,11 @@ import {
   slotPos,
   type Color,
 } from "../game/config";
-import { Game, hint, levelFingerprint, starsFor, type RevivePick, type TickEvents } from "../game/logic";
+import { Game, boardBounds, hint, levelFingerprint, starsFor, type RevivePick, type TickEvents } from "../game/logic";
 import { Tutorial } from "./tutorial";
 import { Coach } from "./coach";
-import { featureProgress, levelDefFor, type FeatureProgress } from "../game/board";
-import { DAILY_FROM, DAILY_ON } from "../game/daily";
+import { TAG_LOOK, featureProgress, levelDefFor, levelTag, type FeatureProgress } from "../game/board";
+import { dailyOfferable, markDailyOffered } from "../game/daily";
 import { platform } from "../platform";
 import { loadCustom, toLevelDef } from "../game/custom";
 import { save } from "../game/save";
@@ -44,29 +47,46 @@ import { Replay } from "../game/replay";
 import { startAnalytics, track } from "../game/analytics";
 import { sfx } from "../game/audio";
 import { HOLE_STEP, K, TS, bakeAll, img } from "../game/textures";
-import { dismissBootSplash, setPageBackground } from "../game/bootsplash";
+import { dismissBootSplash, matchPageToCanvas, pageBackdrop } from "../game/bootsplash";
+import { MagnetTutor } from "./magnetTutor";
+import { teachAll } from "../game/teach";
+import { FREE_MAGNETS, MAGNET_TUTOR_LEVEL } from "../game/config";
 
 export { GAME_W, GAME_H };
 
 // ⚠ `revive` is not a booster button — it is only ever offered by the jam pop-up — but its price
 // belongs in the same table as the others or the two drift and the badge stops matching the till.
-const COST = { magnet: 60, wrench: 80, undo: 40, revive: 50 };
+/**
+ * ⚠ Magnet and revive do the **same thing to the board** and are priced apart on purpose. The
+ * revive is only offered when the board is already dead; the magnet is available whenever a plan
+ * exists, so it is strictly the more useful of the two and costs 20% more. Pricing them equal would
+ * make the revive the dominant way to buy the effect — wait for the jam, pay less.
+ */
+const COST = { magnet: 60, revive: 50 };
 /**
  * Coins a win pays, flat — not scaled by stars.
  *
  * ⚠ Write it once. The reward was spelled out twice, once into the wallet and once into the
  * overlay that announces it, and two copies of a number the player is shown *and* paid is the
  * one place a drift is unarguable: the card says one figure and the till gives another.
- * ⚠ It is deliberately small against `COST`: a revive is five wins, a wrench eight. Boosters are
- * meant to be a decision, and at the old 40 + stars×10 a win paid for one outright.
+ * ⚠ **20 since 2026-08-20, up from 10**, and the ratio it is read against moved with it: a revive
+ * is now two and a half wins and a magnet three, where they were five and six. That was a
+ * deliberate loosening — a player who jams in the first handful of levels was facing a revive they
+ * could not pay for, so the jam had exactly one outcome and the booster row was decoration until
+ * about level 5. It is still not free: a booster is meant to be a decision, and at the old
+ * 40 + stars×10 a single win paid for one outright, which is the thing to stay away from.
+ *
+ * ⚠ The three other files that quote this number in prose — `daily.ts`, `save.ts`, `main.ts` —
+ * were updated with it. A constant written into four comments drifts the moment one is missed, and
+ * a comment that quietly disagrees with the code is worse than no comment.
  */
-const WIN_COINS = 10;
+const WIN_COINS = 20;
 
 // `SHOW_BOOSTERS` is imported from config: the layout moves with it, so the flag has to be
 // somewhere both this file and `L` can read. What this file adds on top:
 //
 // ⚠ The buttons are **hidden, not torn out**. Two things read the containers rather than draw
-// them — `flyToMagnet` tweens marbles to `boosterBtns.magnet`'s coordinates, and `refreshHud`
+// them — `refreshHud`
 // reaches into each container's face to swap the affordable/unaffordable texture. Skipping the
 // construction takes both with it, and they fail at the moment a booster is next used, i.e. only
 // once the flag is turned back on, which is the worst time to find out.
@@ -74,7 +94,19 @@ const WIN_COINS = 10;
 // `window.__ms` and from `npm run shot -- --exercise`, which calls it directly rather than
 // clicking. Without the gate those still spend real coins against a HUD showing none.
 /** The three the HUD carries. Revive is priced here but never built as a button. */
-type BoosterKind = "magnet" | "wrench" | "undo";
+/**
+ * The booster row. **One button.**
+ *
+ * ⚠ The wrench (cycle a box column) and undo were taken off on 2026-08-19. They are gone from the
+ * row, not from `logic.ts` — `useWrench` and `restore` are still there and still tested, so putting
+ * either back is adding a button rather than rewriting a rule.
+ *
+ * ⚠ Magnet no longer means what it used to. It was "pull the most useless colour off the belt into
+ * a holder"; it now does exactly what a revive does — takes two boxes off the board together with
+ * the six belt marbles that were going to fill them. Same rule, same code (`Game.revivePlan` /
+ * `useRevive`), reached from a button instead of only from the jam pop-up.
+ */
+type BoosterKind = "magnet";
 const FONT = '"Lilita One", Arial, sans-serif';
 /**
  * Tint per row of a box column, top (live) to bottom (deepest in the well).
@@ -89,6 +121,13 @@ const FONT = '"Lilita One", Arial, sans-serif';
  * the well's own recess; it does not need to be paid for in colour.
  */
 const SHADE = [0xffffff, 0xffffff, 0xffffff, 0xffffff, 0xffffff];
+
+/** A marble's last state on physics, carried across the handoff onto the rail. */
+interface FeedPt {
+  x: number;
+  y: number;
+  rot: number;
+}
 
 interface Falling {
   body: MatterJS.BodyType;
@@ -113,6 +152,24 @@ const CHUTE_TIMEOUT_MS = 6000;
 const CONE_DRAG = 0.09;
 /** Contact friction down there too, so they slide off the cone walls rather than stick. */
 const CONE_FRICTION = 0.008;
+
+/**
+ * The horizontal centre of the design box.
+ *
+ * ⚠ Every dialog, button, toast and HUD pill hangs off this, **never off a literal 270**. The
+ * design box is 540 wide on a phone and wider in the landscape layout, so a literal centre is a
+ * layout that silently left-aligns itself the day the box widens — 34 separate times.
+ */
+const CX = GAME_W / 2;
+/**
+ * The whole canvas, machine plus the two pads. `root` is shifted right by `STAGE_PAD`, so in
+ * root-local space the stage runs from `-STAGE_PAD` to `GAME_W + STAGE_PAD` — and `CX` is still
+ * its middle, which is what keeps every card and dimmer in this file centred without being touched.
+ */
+const STAGE_W = GAME_W + 2 * STAGE_PAD;
+
+/** Where the booster badge hangs — the button's lower-right corner, so it follows its size. */
+const BADGE_AT = Math.round(L.boostSize * 0.44);
 
 /** `0x2f2c63` -> `#2f2c63`, so CSS and the canvas quote the same palette entry. */
 const hexOf = (n: number) => "#" + n.toString(16).padStart(6, "0");
@@ -139,6 +196,8 @@ export class GameScene extends Phaser.Scene {
   private crateSprites: Phaser.GameObjects.Image[] = [];
   /** One per cell, shown between the halves of a linked pair. */
   private linkSprites: Phaser.GameObjects.Image[] = [];
+  /** The arrow lock badge, one per cell, hidden unless that tray is sealed by one. */
+  private arrowSprites: Phaser.GameObjects.Image[] = [];
   private fixtures!: Phaser.GameObjects.Container;
   private badgeLabels: Phaser.GameObjects.Text[] = [];
   private beltSprites: Phaser.GameObjects.Image[] = [];
@@ -164,6 +223,8 @@ export class GameScene extends Phaser.Scene {
    * on the glass — see the note on `Game.rec`.
    */
   private replay = new Replay();
+  /** The magnet lesson, on `MAGNET_TUTOR_LEVEL` and only until it has been seen once. */
+  private magTutor: MagnetTutor | null = null;
   /** Scene clock reading at which the SUPER HARD plate is gone and the chute strip is free again. */
   private hardWarnUntil = 0;
   /**
@@ -182,9 +243,19 @@ export class GameScene extends Phaser.Scene {
   private boxCols: Phaser.GameObjects.Container[] = [];
   private boxImages: Phaser.GameObjects.Image[][] = [];
   private boxFill: Phaser.GameObjects.Image[][] = [];
-  private colGlow: Phaser.GameObjects.Rectangle[] = [];
 
   private falling: Falling[] = [];
+  /**
+   * Where each marble handed to the belt actually left the chute from, in the order they were
+   * handed over — so the slide onto the rail can start from the body the player was watching
+   * instead of from a fixed point under the neck.
+   *
+   * A queue rather than one slot because `arrive()` puts the marble in `pending`, and a congested
+   * rail can hold it there for several ticks before it is placed. One point in, one point out.
+   */
+  private feedQueue: FeedPt[] = [];
+  /** The point the marble being placed *this* tick came from. Null falls back to `FEED_FROM`. */
+  private feedNow: FeedPt | null = null;
   private undoStack: ReturnType<Game["snapshot"]>[] = [];
 
   private lastTickAt = 0;
@@ -207,7 +278,6 @@ export class GameScene extends Phaser.Scene {
     if (v) platform.gameplayStop();
     else platform.gameplayStart();
   }
-  private wrenchArmed = false;
   /** Tear-down for the revive offer while it is up, so buying one can close its own card. */
   private reviveClose: (() => void) | null = null;
   /** The level-1 walkthrough while it is on screen. Null everywhere else. */
@@ -215,8 +285,38 @@ export class GameScene extends Phaser.Scene {
   private coach: Coach | null = null;
 
   private coinLabel!: Phaser.GameObjects.Text;
-  private progressBar!: Phaser.GameObjects.Rectangle;
   private boosterBtns: Record<string, Phaser.GameObjects.Container> = {};
+  /**
+   * ⚠ A `Graphics`, not a circle, because the badge has to hold either two digits or the word
+   * FREE and a count. Sized for the digits it clips the word; sized for the word it is a lozenge
+   * hanging off the corner of a button that costs 60. It is redrawn to fit whatever it says.
+   */
+  /**
+   * ⚠ Held by reference, not looked up as `container.list[0]`.
+   *
+   * `refreshHud` used to index the face out of the container, and adding a white pad in front of it
+   * made index 0 a `Graphics` — `face.setTexture is not a function`, thrown during `create`, which
+   * killed the whole scene before anything drew. A positional lookup into a display list is a
+   * dependency on the order things happen to be added in.
+   */
+  private boosterFace!: Phaser.GameObjects.Image;
+  private boosterBadge!: Phaser.GameObjects.Graphics;
+  private boosterCost!: Phaser.GameObjects.Text;
+  /** The padlock shown in place of the count while the magnet is still locked. */
+  private boosterLock!: Phaser.GameObjects.Image;
+
+  /**
+   * Is the magnet still locked on this board?
+   *
+   * ⚠ **`MAGNET_TUTOR_LEVEL` is the one source**, the same constant that decides where the lesson
+   * runs and what the results-card progress bar counts down to. Before this existed the bar
+   * promised MAGNET at level 6 while the button sat live and stocked from level 1 — and the play
+   * log caught a player at **level 2** firing it twice. Three places reading one constant is what
+   * stops the game contradicting itself again.
+   */
+  private get magnetLocked(): boolean {
+    return this.level < MAGNET_TUTOR_LEVEL;
+  }
 
   constructor() {
     super("Game");
@@ -230,15 +330,21 @@ export class GameScene extends Phaser.Scene {
 
   create() {
     bakeAll(this);
+    // ⚠ Put the design box back to the machine's own shape. `HomeScene` widens it to fill a
+    // landscape frame, and it is **this** scene's job to undo that rather than Home's on the way
+    // out: `?level=N` and `?custom=1` start here with Home never having run, so a reset written
+    // over there would be a reset that half the entry points never reach. The height never moves,
+    // which is what makes it safe to recover the device pixel ratio from it.
+    const dpr = this.scale.height / GAME_H || 1;
+    const want = Math.round(STAGE_W * dpr);
+    if (Math.abs(this.scale.width - want) > 1) this.scale.setGameSize(want, Math.round(GAME_H * dpr));
     // ⚠ Here as well as in `HomeScene`. `?level=N` and `?custom=1` make this the *first* scene,
     // and the poster is a full-screen div over the canvas — miss it and the board is invisible.
     dismissBootSplash();
     // The bars either side of the canvas, matched to the board's own gradient. ⚠ Same two colours
     // the scene paints with, read from `UI` rather than typed again — a hex copied into CSS is a
     // second definition of a colour, and it drifts the first time the palette is touched.
-    setPageBackground(
-      `linear-gradient(${hexOf(UI.bgTop)} 0%, ${hexOf(UI.bgBottom)} 100%)`,
-    );
+    matchPageToCanvas(this, pageBackdrop(hexOf(UI.bgTop), hexOf(UI.bgBottom)));
     // ⚠ Leaving the level is hooked **once, here**, rather than at every route out. There are
     // several ways off this scene — the win card, the lose card, the pause menu, the home
     // button — and the one that gets missed leaves the host believing a turn is still running,
@@ -251,14 +357,21 @@ export class GameScene extends Phaser.Scene {
       this.tutorial = null;
       this.coach?.destroy();
       this.coach = null;
+      this.magTutor?.destroy();
+      this.magTutor = null;
     });
     this.resetLevel();
     this.devAutoWin();
   }
 
   /**
-   * "SUPER HARD" — shown on entry to a board a person has marked as far harder than its
-   * neighbours (`Blueprint.hard`).
+   * "HARD" / "SUPER HARD" — shown on entry to a board the ladder bills as a spike.
+   *
+   * ⚠ **Which boards, from the level number** (`levelTag`): every 15th is super hard, and past
+   * level 10 every 5th that is not already one is hard. Chosen deliberately over the per-board
+   * `Blueprint.hard` flag, whose note in `custom.ts` argues the other way — the trade accepted here
+   * is that reordering the ladder moves the labels with the *numbers* rather than with the boards.
+   * `def.hard` is still honoured as a manual override for a board that is a spike wherever it sits.
    *
    * Why warn at all: the ladder is not monotonic on purpose, and a board that wins 16% sitting
    * between boards that win 60% reads as the game breaking rather than as a spike. A player who
@@ -277,7 +390,11 @@ export class GameScene extends Phaser.Scene {
    */
   private hardWarning() {
     this.hardWarnUntil = 0;
-    if (!this.board.def.hard) return;
+    // ⚠ The editor's scratch board has no place on the ladder, so the number rule cannot speak for
+    // it — only an explicit flag on the drawing can.
+    const tag = this.board.def.hard ? "superhard" : this.custom ? null : levelTag(this.level);
+    if (!tag) return;
+    const look = TAG_LOOK[tag];
     // Below the board's own lowest row, in the throat of the chute.
     //
     // ⚠ **Measured off the board, not pinned to `funnel.shoulder`.** A fixed offset is right for a
@@ -302,15 +419,16 @@ export class GameScene extends Phaser.Scene {
     }
     // One cell below the last row, then clear of the rim the cavity draws around it.
     const y = Math.max(L.funnel.shoulder + 44, this.gm.y + (lowest + 1) * this.gm.pitch + 40);
-    const label = "SUPER HARD";
+    // ⚠ The plate is measured off the text, not a fixed width — "HARD" is less than half as wide as
+    // "SUPER HARD", and a plate sized for the longer one leaves the shorter word adrift in it.
     const txt = this.add
-      .text(270, y, label, { fontFamily: FONT, fontSize: "40px", color: "#ffffff" })
+      .text(CX, y, look.text, { fontFamily: FONT, fontSize: "40px", color: "#ffffff" })
       .setOrigin(0.5)
-      .setStroke("#7a1220", 9);
+      .setStroke(hexOf(look.shadow), 9);
     const w = txt.width + 56;
     const plate = this.add.graphics();
-    plate.fillStyle(0x7a1220, 1).fillRoundedRect(270 - w / 2, y - 34, w, 62, 18);
-    plate.fillStyle(0xd2452f, 1).fillRoundedRect(270 - w / 2 + 4, y - 30, w - 8, 54, 15);
+    plate.fillStyle(look.shadow, 1).fillRoundedRect(CX - w / 2, y - 34, w, 62, 18);
+    plate.fillStyle(look.face, 1).fillRoundedRect(CX - w / 2 + 4, y - 30, w - 8, 54, 15);
 
     const c = this.add.container(0, 0, [plate, txt]).setAlpha(0);
     // Above the HUD, like the walkthrough's own layer — under it, the coin counter and the level
@@ -391,15 +509,17 @@ export class GameScene extends Phaser.Scene {
     this.time.removeAllEvents();
 
     this.falling = [];
+    this.feedQueue = [];
+    this.feedNow = null;
     this.undoStack = [];
     this.paused = false;
-    this.wrenchArmed = false;
     this.reviveClose = null;
     this.cellSprites = [];
     this.tileSprites = [];
     this.dispSprites = [];
     this.crateSprites = [];
     this.linkSprites = [];
+    this.arrowSprites = [];
     this.badgeLabels = [];
     this.beltSprites = [];
     this.cleatSprites = [];
@@ -407,7 +527,6 @@ export class GameScene extends Phaser.Scene {
     this.boxCols = [];
     this.boxImages = [];
     this.boxFill = [];
-    this.colGlow = [];
 
     // A hand-built board goes through the same `Game` as a generated one — the editor produces
     // a `LevelDef`, not a second idea of what a board is, so every rule applies to it unchanged.
@@ -421,11 +540,14 @@ export class GameScene extends Phaser.Scene {
     this.board = new Game(scratch ? toLevelDef(scratch, this.level) : levelDefFor(this.level));
     this.replay = new Replay();
     this.board.rec = this.replay;
-    this.gm = gridMetrics(this.board.cols, this.board.rows);
+    this.gm = gridMetrics(this.board.cols, this.board.rows, boardBounds(this.board.def));
 
     this.cameras.main.setBackgroundColor(UI.bg);
-    const scale = this.scale.width / GAME_W;
-    this.root = this.add.container(0, 0).setScale(scale);
+    const scale = this.scale.width / STAGE_W;
+    // ⚠ Shifted, not re-origined. Every coordinate in `config.ts` is in the machine's own 540-wide
+    // space and so is Matter — moving the container leaves all of that alone and moves the hit
+    // zones with it, because Phaser tests those through the transform.
+    this.root = this.add.container(STAGE_PAD * scale, 0).setScale(scale);
 
     // Depth order matters here. The belt housing goes down *after* the falling marbles, so a
     // marble dropping into the neck slides behind its chrome rim instead of floating over the
@@ -456,6 +578,7 @@ export class GameScene extends Phaser.Scene {
     this.refreshHud();
     this.startTutorial();
     this.hardWarning();
+    this.startMagnetTutor();
     this.startCoach();
 
     // ⚠ Analytics starts **here**, on reaching a board, not at boot — the script is 145 KB from
@@ -492,7 +615,9 @@ export class GameScene extends Phaser.Scene {
     if (this.preview) {
       this.paused = true;
       this.add
-        .text(270, L.hudY - 2, "PREVIEW", {
+        // ⚠ Into the HUD column on a wide frame. Left on the old row it lands at y 46 over a
+        // cabinet whose top edge is now at 20 — a label printed across the machine it labels.
+        .text(WIDE_HUD ? L.hudCol.x : CX, (WIDE_HUD ? L.hudCol.levelY : L.hudY) - 2, "PREVIEW", {
           fontFamily: FONT,
           fontSize: "28px",
           color: "#ffffff",
@@ -510,9 +635,13 @@ export class GameScene extends Phaser.Scene {
     // sits in a lit room instead of on a flat colour field.
     const bg = this.add.graphics();
     bg.fillGradientStyle(UI.bgTop, UI.bgTop, UI.bgBottom, UI.bgBottom, 1);
-    bg.fillRect(0, 0, GAME_W, GAME_H);
+    bg.fillRect(-STAGE_PAD, 0, STAGE_W, GAME_H);
     this.root.add(bg);
-    const halo = img(this, K.flash, GAME_W / 2, 520).setScale(5.2 / TS).setAlpha(0.13);
+    // ⚠ Off the cabinet, not the old hardcoded 520. The machine rides up by `HUD_LIFT` on a wide
+    // frame and a glow left behind sits under its feet instead of behind it.
+    const halo = img(this, K.flash, CX, L.machine.y + L.machine.h / 2 - 29)
+      .setScale(5.2 / TS)
+      .setAlpha(0.13);
     halo.setTintFill(UI.glow);
     this.root.add(halo);
 
@@ -529,6 +658,15 @@ export class GameScene extends Phaser.Scene {
     // wider than one marble. Coning the whole height instead would leave a big empty wedge
     // across the middle of the machine and let the marbles spread out as they fall.
     const f = L.funnel;
+    /**
+     * ⚠ **Straight, and it was tried curved on 2026-08-19.** The physics wall is a 33° line and
+     * cannot become a curve: any curve between the same two points averages the same slope, so part
+     * of it is shallower than 33° and that is where marbles stop sliding. Drawing a curve over a
+     * straight wall was the compromise — 16px of bow, 8px of deviation at mid-height — and it read
+     * exactly as what it was: the marbles slid down an invisible line with a band of white between
+     * them and the wall they were supposed to be touching. It also did not look like the reference,
+     * which is a shorter funnel, not a curved one.
+     */
     g.fillStyle(0xeef3fb, 1);
     g.beginPath();
     g.moveTo(f.mouthL, f.shoulder);
@@ -609,6 +747,16 @@ export class GameScene extends Phaser.Scene {
       well.fillRoundedRect(boxColX(j) - L.box.w / 2 - 3, wellTop + 8, L.box.w + 6, wellH - 8, 12);
     }
     this.root.add(well);
+
+    /**
+     * ⚠ **Do not clip the columns with a geometry mask.** It was tried, to stop the deepest box
+     * dipping below the floor during a clear (see `slideColumn`), and it is a trap: Phaser renders a
+     * mask object through its *own* transform and ignores the container it belongs to, so a mask
+     * built in design units lands `root.scaleX` away from the thing it is masking. `root.scaleX` is
+     * the device pixel ratio — **1 in the headless browser every screenshot is taken in**, and 2 on
+     * a real phone. It therefore passed every check here and shipped a build whose box well was
+     * completely empty on the reporter's screen. `slideColumn` pins the box instead.
+     */
   }
 
   /**
@@ -701,6 +849,8 @@ export class GameScene extends Phaser.Scene {
       const tile = img(this, K.trayHidden, x, y).setVisible(false).setScale(k / TS);
       const link = img(this, K.link, x + gm.pitch / 2, y).setVisible(false).setScale(k / TS);
       this.linkSprites.push(link);
+      const arrow = img(this, K.arrow, x, y).setVisible(false).setScale(k / TS);
+      this.arrowSprites.push(arrow);
       const disp = img(this, K.dispenser, x, y).setVisible(false).setScale(k / TS);
       const crate = img(this, K.crate, x, y).setVisible(false).setScale(k / TS);
       this.crateSprites.push(crate);
@@ -720,11 +870,26 @@ export class GameScene extends Phaser.Scene {
         .setInteractive({ useHandCursor: true });
       // Either half of an x2 tray taps the tray.
       zone.on("pointerdown", () => {
+        // ⚠ The lesson's gate lives **here**, on the pointer, so `window.__ms.tap()` and every
+        // `npm run shot` run walk past it. Putting it in `onTapCell` would make the one level a
+        // reviewer is most likely to be shown the one nothing can drive.
+        if (this.magTutor && !this.magTutor.finished) {
+          const ok = this.magTutor.allowedCells();
+          const a0 = this.board.anchorAt(i);
+          if (!ok.includes(a0 < 0 ? i : a0)) {
+            sfx.deny();
+            return;
+          }
+        }
         const a = this.board.anchorAt(i);
         this.onTapCell(a < 0 ? i : a);
       });
 
-      this.gridLayer.add([crate, tile, link, disp, label, zone]);
+      // ⚠ **The arrow goes in after the tile**, so it sits on the tray's face rather than under it,
+      // and it goes in *here* rather than being left in the scene root — a sprite outside
+      // `gridLayer` keeps its design-unit coordinates but loses the layer's transform, which drew
+      // the six badges of level 200 in a neat row across the top of the cabinet.
+      this.gridLayer.add([crate, tile, link, arrow, disp, label, zone]);
     }
   }
 
@@ -761,12 +926,10 @@ export class GameScene extends Phaser.Scene {
         .rectangle(boxColX(j), L.box.top + L.box.h / 2, L.box.w + 10, L.box.h + 10, 0xffffff, 0.35)
         .setVisible(false);
       c.add(glow);
-      this.colGlow.push(glow);
 
       const zone = this.add
         .rectangle(boxColX(j), L.box.top + L.box.h / 2, L.box.w, L.box.h, 0xffffff, 0)
         .setInteractive({ useHandCursor: true });
-      zone.on("pointerdown", () => this.onTapColumn(j));
       c.add(zone);
 
       this.boxCols.push(c);
@@ -803,17 +966,41 @@ export class GameScene extends Phaser.Scene {
 
   // ── HUD ────────────────────────────────────────────────────────────────────
 
+  /**
+   * A dimmer over the **whole canvas**, pads included.
+   *
+   * ⚠ Not `GAME_W` wide. On a wide frame that leaves the two pads — and the HUD column standing in
+   * one of them — at full brightness beside a dimmed machine, which reads as the card having failed
+   * to cover the screen rather than as a modal.
+   */
+  private stageDim(colour: number, alpha: number) {
+    return this.add.rectangle(CX, GAME_H / 2, STAGE_W, GAME_H, colour, alpha);
+  }
+
   private buildHud() {
-    const gear = img(this, K.btn("gold"), 60, L.hudY);
-    const gearIcon = img(this, K.icon("gear"), 60, L.hudY).setScale(0.55 / TS);
+    // Where each control sits. ⚠ **One set of coordinates, chosen once** — the wide layout is the
+    // same four controls in a column beside the machine, not a second HUD. Writing it as two
+    // branches of `img(...)` calls is how the coin label ends up on the row in one and the column
+    // in the other, and only one of them gets fixed the next time.
+    const col = WIDE_HUD;
+    const hc = L.hudCol;
+    const gearX = col ? hc.x : CX - 210;
+    const gearY = col ? hc.gearY : L.hudY;
+    const pillX = col ? hc.x : CX;
+    const pillY = col ? hc.levelY : L.hudY;
+    const coinX = col ? hc.x : CX + 160;
+    const coinY = col ? hc.coinY : L.hudY;
+
+    const gear = img(this, K.btn("gold"), gearX, gearY);
+    const gearIcon = img(this, K.icon("gear"), gearX, gearY).setScale(0.55 / TS);
     const gearZone = this.add
-      .rectangle(60, L.hudY, 60, 60, 0xffffff, 0)
+      .rectangle(gearX, gearY, 60, 60, 0xffffff, 0)
       .setInteractive({ useHandCursor: true });
     gearZone.on("pointerdown", () => this.openSettings());
 
-    const pill = img(this, K.btn("purple"), 270, L.hudY);
+    const pill = img(this, K.btn("purple"), pillX, pillY);
     const lvl = this.add
-      .text(270, L.hudY - 2, this.custom ? "Editor" : `Level ${this.level}`, {
+      .text(pillX, pillY - 2, this.custom ? "Editor" : `Level ${this.level}`, {
         fontFamily: FONT,
         fontSize: "26px",
         color: "#ffffff",
@@ -821,10 +1008,13 @@ export class GameScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setStroke(UI.ink, 5);
 
-    const coinBg = img(this, K.btn("purple"), 430, L.hudY);
-    const coin = img(this, K.coin, 388, L.hudY).setScale(0.9 / TS);
+    // ⚠ The coin and its number are placed **off the pill**, not off `CX`. On the row the pill was
+    // at CX+160 with the coin at CX+118 and the label at CX+174 — three numbers that only agree by
+    // arithmetic, and moving the pill into a column left the coin sitting on the machine.
+    const coinBg = img(this, K.btn("purple"), coinX, coinY);
+    const coin = img(this, K.coin, coinX - 42, coinY).setScale(0.9 / TS);
     this.coinLabel = this.add
-      .text(444, L.hudY - 2, String(save.coins), {
+      .text(coinX + 14, coinY - 2, String(save.coins), {
         fontFamily: FONT,
         fontSize: "24px",
         color: "#ffffff",
@@ -832,41 +1022,84 @@ export class GameScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setStroke(UI.ink, 5);
 
-    // Marbles still to be placed. The only readout that matters mid-level.
-    // On the machine's top lip, clear of the booster cost badges above it.
-    const barW = 300;
-    // Sits just inside the cabinet's top edge, so it has to travel with it rather than hold a
-    // number of its own — hardcoded at 216 it stayed behind when the machine rode up.
-    const barY = L.machine.y + 18;
-    const barBg = this.add.rectangle(270, barY, barW, 12, UI.panelDeep, 1).setOrigin(0.5);
-    // Driven by scaleX, not width: a Shape's fill geometry is baked at construction, so
-    // assigning .width later moves the origin without redrawing the bar.
-    this.progressBar = this.add
-      .rectangle(270 - barW / 2, barY, barW, 12, UI.green, 1)
-      .setOrigin(0, 0.5);
-    this.progressBar.scaleX = 0;
-
     this.uiLayer.add([gear, gearIcon, pill, lvl, coinBg, coin, this.coinLabel, gearZone]);
-    this.uiLayer.add([barBg, this.progressBar]);
 
-    this.buildBooster("magnet", 180);
-    this.buildBooster("wrench", 270);
-    this.buildBooster("undo", 360);
+    // Centred on its own row, because it is the only one. Left at 180 it reads as the first of a
+    // row whose other two buttons failed to draw.
+    this.buildBooster("magnet", col ? hc.x : L.boostX, col ? hc.boostY : L.boostY);
   }
 
-  private buildBooster(kind: BoosterKind, x: number) {
-    const c = this.add.container(x, L.boostY);
-    const face = img(this, K.btn("green"), 0, 0);
-    const icon = img(this, K.icon(kind), 0, -4).setScale(1.05 / TS);
-    const badge = this.add.circle(26, 26, 16, 0xe33b3b).setStrokeStyle(3, 0xffffff);
+  private buildBooster(kind: BoosterKind, x: number, y: number) {
+    const c = this.add.container(x, y);
+    /**
+     * A green pad behind the button.
+     *
+     * ⚠ The booster is the only control that sits out on the violet, away from both the HUD pills
+     * and the white cabinet — which makes it the easiest thing on screen to miss and the one thing
+     * the player has been taught to press. The pad gives it a ground of its own, so it reads as
+     * mounted on the machine rather than floating over it.
+     *
+     * ⚠ Sized off `boostSize` like the icon and the badge, and drawn **first** so the button sits on
+     * top of it. Two faint rings outside the white rather than a stroked border: an outline at this
+     * size reads as a second button around the first.
+     */
+    const pad = this.add.graphics();
+    const R = L.boostSize / 2;
+    // ⚠ 14px of white all round, not 5. At 5 the pad was a rim the eye read as anti-aliasing on the
+    // button's own edge — present in the pixels and absent to anyone looking at the screen. A pad
+    // meant to draw attention has to be wider than the thing it sits under is thick.
+    const PAD = 14;
+    // ⚠ Green since 2026-08-20, reported as the white being hard to look at. The white read as a
+    // plain disc with an icon punched out of it — the green button inside was almost entirely
+    // covered by the icon, so the control the player sees *is* the pad.
+    //
+    // ⚠ The solid ring is `greenEdge`, **darker** than the button face, not `green`. A mount has to
+    // be darker than the thing mounted on it or the two merge into one flat blob: the face is baked
+    // #7fe06a → #3fb43f → #2c8330, and against a pad of the same brightness its light top edge —
+    // the only thing making it read as raised — disappears.
+    pad.fillStyle(UI.green, 0.16).fillRoundedRect(-R - PAD - 20, -R - PAD - 20, 2 * (R + PAD + 20), 2 * (R + PAD + 20), R + PAD + 20);
+    pad.fillStyle(UI.green, 0.34).fillRoundedRect(-R - PAD - 9, -R - PAD - 9, 2 * (R + PAD + 9), 2 * (R + PAD + 9), R + PAD + 9);
+    pad.fillStyle(UI.green, 1).fillRoundedRect(-R - PAD, -R - PAD, 2 * (R + PAD), 2 * (R + PAD), R + PAD);
+
+    // ⚠ The frame is drawn **around** the icon again, not hidden behind it. On the HUD line there
+    // was no room for both and the icon won; on its own row the button reads as a button, which is
+    // what a control the player is asked to press has to look like.
+    const face = img(this, K.btn("green"), 0, 0).setScale(L.boostSize / 76);
+    this.boosterFace = face;
+    // ⚠ The icon is 44px baked and is drawn at 54 — **larger than its 60px frame allows for**, so it
+    // breaks slightly out of the button. At 1.32 it came out 58px wide inside a 60px face and the
+    // magnet ran into the level pill beside it; the gap between the gear and the pill is 127px and
+    // the whole control has to live inside it.
+    // ⚠ Derived from the frame, never typed in beside it. The icon sits at 77% of the button and
+    // has to stay there — the two were set independently once and the next size change left a
+    // 43px magnet in a 46px frame, filling it corner to corner.
+    const icon = img(this, K.icon(kind), 0, -2).setScale((L.boostSize * 0.77) / 44 / TS);
+    const badge = this.add.graphics();
     const cost = this.add
-      .text(26, 25, String(COST[kind]), { fontFamily: FONT, fontSize: "17px", color: "#ffffff" })
+      .text(BADGE_AT, BADGE_AT - 1, "", { fontFamily: FONT, fontSize: "16px", color: "#ffffff" })
       .setOrigin(0.5);
+    this.boosterBadge = badge;
+    this.boosterCost = cost;
+    // ⚠ Built here and only toggled later, never created inside `refreshHud` — that runs on every
+    // tick, and an image added there would stack one sprite per frame on a locked board.
+    const lock = img(this, K.lock, 26, 24).setScale(0.62 / TS).setVisible(false);
+    this.boosterLock = lock;
     const zone = this.add
-      .rectangle(0, 0, L.boostSize, L.boostSize, 0xffffff, 0)
+      // ⚠ 56, not `boostSize`. The frame is 30 and the icon overhangs it; a hit zone cut to the
+      // frame would be a control you have to hit dead centre of the thing you can barely see.
+      .rectangle(0, 0, L.boostSize + 12, L.boostSize + 12, 0xffffff, 0)
       .setInteractive({ useHandCursor: true });
-    zone.on("pointerdown", () => this.onBooster(kind));
-    c.add([face, icon, badge, cost, zone]);
+    zone.on("pointerdown", () => {
+      if (this.magTutor && !this.magTutor.finished && !this.magTutor.allowBooster()) {
+        sfx.deny();
+        return;
+      }
+      this.onBooster(kind);
+    });
+    // ⚠ Badge under the text, both above the face — drawn after `cost` the graphics would cover
+    // the very number it exists to frame. The lock sits in the same corner as the count, because
+    // it says the same kind of thing: what this button has for you right now.
+    c.add([pad, face, icon, badge, cost, lock, zone]);
     // Built either way so the layout and the fly-to target survive; only the pixels and the
     // hit test go away while the row is hidden.
     if (!SHOW_BOOSTERS) {
@@ -881,7 +1114,6 @@ export class GameScene extends Phaser.Scene {
 
   private onTapCell(i: number) {
     if (this.paused || this.board.status !== "play") return;
-    if (this.wrenchArmed) return this.disarmWrench();
 
     // ⚠ Through `anchorAt`, always. A linked pair is stored once at its left cell and covers the
     // cell to its right, so a tap on that right cell finds no tile of its own — refusing it
@@ -934,106 +1166,84 @@ export class GameScene extends Phaser.Scene {
     // player poured a tray the box plainly wanted and watched the number sit there.
     this.refreshFixtures();
     this.board.lastOpened.forEach((at) => this.playLidOpen(at));
+    this.board.lastUnlocked.forEach((at) => this.playUnlock(at));
     // Only after the pour actually happened — every early return above is a tap the player made
     // and the board refused, which is not the thing step 1 is waiting to see.
     this.tutorial?.noteTap();
     this.coach?.noteTap();
+    this.magTutor?.noteTap(a);
   }
 
-  private onTapColumn(j: number) {
-    if (!this.wrenchArmed) return;
-    if (!this.board.canWrench(j)) {
-      sfx.deny();
-      return;
-    }
-    save.coins = save.coins - COST.wrench;
-    this.boostersUsed.push("wrench");
-    this.board.useWrench(j);
-    sfx.booster();
-    this.disarmWrench();
-    this.refreshBoxes();
-    this.refreshHud();
-  }
 
-  private onBooster(kind: BoosterKind) {
+  private onBooster(_kind: BoosterKind) {
     // ⚠ Gated here rather than only at the button, because the button is not the only caller:
     // `window.__ms` and `--exercise` reach this directly.
     if (!SHOW_BOOSTERS) return;
     if (this.paused || this.board.status !== "play") return;
-    if (kind !== "wrench" && this.wrenchArmed) this.disarmWrench();
 
-    if (save.coins < COST[kind]) {
+    // ⚠ Refused **here**, not only by dimming the button. The button is not the only caller —
+    // `window.__ms.scene.onBooster()` and `npm run shot -- --exercise` reach this directly, and a
+    // lock that only exists in the HUD is not a rule. Same reasoning as the `SHOW_BOOSTERS` line
+    // above it.
+    //
+    // ⚠ The toast names the level. "Not yet" leaves the player pressing it again every board to
+    // find out whether this is the one.
+    if (this.magnetLocked) {
       sfx.deny();
-      this.toast("Not enough coins");
+      this.toast(`Unlocks at level ${MAGNET_TUTOR_LEVEL}`);
       return;
     }
 
-    if (kind === "magnet") {
-      if (this.board.magnet.length) return this.toast("Magnet is full");
-      const taken = this.board.useMagnet();
-      if (!taken.length) {
-        sfx.deny();
-        this.toast("Nothing worth pulling");
-        return;
-      }
-      save.coins = save.coins - COST.magnet;
-      this.boostersUsed.push("magnet");
-      sfx.booster();
-      this.flyToMagnet(taken.length);
-    } else if (kind === "wrench") {
-      this.wrenchArmed = true;
-      this.colGlow.forEach((g, j) => g.setVisible(this.board.canWrench(j)));
-      this.tweens.add({
-        targets: this.colGlow.filter((g) => g.visible),
-        alpha: { from: 0.1, to: 0.55 },
-        duration: 380,
-        yoyo: true,
-        repeat: -1,
-      });
-      this.toast("Pick a column to cycle");
+    // ⚠ Nothing is taken from the board before it is known the player can pay — `useRevive` changes
+    // it, and a booster that has already fired cannot be refused afterwards.
+    //
+    // ⚠ At zero the press is a **question**, not a purchase. The player asked for the effect, not
+    // to spend 60 coins, and a button that quietly takes the money is a button they stop trusting.
+    // ⚠ No board test here. Buying is stock for later, not a move — see the note in `refreshHud`.
+    if (save.magnets <= 0) {
+      this.askBuyMagnet();
       return;
-    } else {
-      const snap = this.undoStack.pop();
-      if (!snap) {
-        sfx.deny();
-        this.toast("No move to undo");
-        return;
-      }
-      save.coins = save.coins - COST.undo;
-      this.boostersUsed.push("undo");
-      this.applyUndo(snap);
-      sfx.booster();
     }
-    this.refreshHud();
+
+    // ⚠ **The same rule the revive runs, not a second copy of it.** `revivePlan` is what guarantees
+    // a box leaves with exactly the `BOX_SLOTS` marbles that were going to fill it; anything that
+    // frees belt slots without taking their boxes, or takes boxes without their marbles, leaves the
+    // level unwinnable several minutes before it says so. That arithmetic is the whole feature, and
+    // it is already proven by `npm run revive` over 1450 real jams.
+    const picks = this.board.useRevive();
+    if (!picks) {
+      sfx.deny();
+      // ⚠ Says which of the two conditions failed. "Nothing to pull" is what the old magnet said and
+      // it left the player guessing whether the button was broken.
+      this.toast("No two boxes ready yet");
+      return;
+    }
+
+    save.magnets = save.magnets - 1;
+    // ⚠ **Firing it at all is what marks it learned — not finishing the lesson.** The lesson only
+    // wrote `markCoach("magnet")` from its own completion path, so a player who found the button on
+    // their own was still owed a lesson, and got one levels later: a card explaining a booster they
+    // had already been using, which gates the board for three beats to teach nothing. The question
+    // the gate is really asking is "does this player know what the magnet is", and pressing it is a
+    // better answer than sitting through a card about it.
+    //
+    // ⚠ Here, not in `startMagnetTutor`. Only this path knows the press actually went through —
+    // above it, an empty stock opens the buy card and a board with no plan is refused, and neither
+    // of those has taught the player anything.
+    //
+    // ⚠ `teachAll()` guarded, like every other write of a coach mark: `?teach=1` is for looking at
+    // the lessons, and looking at one must not spend it on the device you then hand to a playtester.
+    if (!teachAll()) save.markCoach("magnet");
+    // ⚠ Logged either way. `PURE=1` keeps a level that leaned on a booster out of the model
+    // ranking, and a free booster is exactly as much help as a bought one.
+    this.boostersUsed.push("magnet");
+    sfx.booster();
+    this.magnetPull();
+    this.magTutor?.noteBooster();
+    this.playRevive(picks, true);
   }
 
-  private disarmWrench() {
-    this.wrenchArmed = false;
-    this.tweens.killTweensOf(this.colGlow);
-    this.colGlow.forEach((g) => g.setVisible(false).setAlpha(0.35));
-  }
 
-  /**
-   * Restoring the snapshot rewinds the board exactly, so the physics marbles that belonged
-   * to the undone tap are thrown away and the ones the snapshot still expects are re-dropped
-   * at the neck — the board is the source of truth, not the debris in the chute.
-   */
-  private applyUndo(snap: ReturnType<Game["snapshot"]>) {
-    this.falling.forEach((f) => {
-      this.matter.world.remove(f.body);
-      f.sprite.destroy();
-    });
-    this.falling = [];
-    this.board.restore(snap);
-    const owed = [...this.board.inFlight];
-    this.board.inFlight = [];
-    owed.forEach((c, i) => {
-      this.board.inFlight.push(c);
-      this.dropMarble(L.belt.cx + (i % 3) * 9 - 9, L.funnel.neckY - 80 - i * 10, c);
-    });
-    this.refreshGrid();
-    this.refreshBoxes();
-  }
 
   // ── Marbles in the chute ───────────────────────────────────────────────────
 
@@ -1081,6 +1291,7 @@ export class GameScene extends Phaser.Scene {
     // them. Nothing should get here, but if anything ever does the level would hang forever
     // with no way for the player to tell why, so pay the debt straight from the queue.
     if (!best && !this.falling.length && this.board.inFlight.length) {
+      this.feedQueue.push({ x: FEED_FROM.x, y: FEED_FROM.y, rot: 0 });
       this.board.arrive(this.board.inFlight[0]);
       return;
     }
@@ -1094,6 +1305,14 @@ export class GameScene extends Phaser.Scene {
       }
     }
     if (!best) return;
+    // ⚠ Read the body's real position and spin **before** destroying it. This is the whole join
+    // between the two halves of the drop: the chute is physics and the rail is interpolation, and
+    // the player is following one ball across the seam.
+    this.feedQueue.push({
+      x: best.body.position.x,
+      y: best.body.position.y,
+      rot: best.sprite.rotation,
+    });
     this.matter.world.remove(best.body);
     best.sprite.destroy();
     this.falling.splice(this.falling.indexOf(best), 1);
@@ -1124,6 +1343,8 @@ export class GameScene extends Phaser.Scene {
         this.matter.world.remove(f.body);
         f.sprite.destroy();
         this.falling.splice(this.falling.indexOf(f), 1);
+        // Its real position is off-screen, so the neck is the only honest place to feed it from.
+        this.feedQueue.push({ x: FEED_FROM.x, y: FEED_FROM.y, rot: 0 });
         this.board.arrive(f.color);
       }
     }
@@ -1132,7 +1353,26 @@ export class GameScene extends Phaser.Scene {
     // The tread travels exactly one marble-slot per tick, same as the marbles, so the two
     // stay locked together and the belt reads as carrying them.
     this.beltTravel = (this.beltTravel + BELT_SPACING) % BELT_PERIM;
+    // ⚠ Two conditions, not one. The lesson ends by the **booster firing**, which happens outside
+    // this block — so testing `!finished` before calling `tick` and again inside it meant the
+    // finishing path was never reached and the lesson was never marked seen. It replayed on every
+    // visit to the level, gating the board each time.
+    if (this.magTutor) {
+      if (!this.magTutor.finished) this.magTutor.tick();
+      if (this.magTutor.finished) {
+        save.markCoach("magnet");
+        this.magTutor.destroy();
+        this.magTutor = null;
+        // The board is the player's again, and whatever piece the coach wanted to explain can have
+        // its turn now.
+        this.startCoach();
+      }
+    }
     const ev = this.board.tick();
+    // `tick` is what moves a marble out of `pending` and onto the entry slot, and it sets exactly
+    // one `fresh` when it does. Consuming here keeps the queue in step with the belt no matter how
+    // many ticks the marble spent waiting for the rail to clear.
+    if (this.board.fresh[0]) this.feedNow = this.feedQueue.shift() ?? null;
     this.lastTickAt += this.tickMs;
     // A long stall (tab in the background) must not leave the clock owing dozens of ticks.
     if (this.time.now - this.lastTickAt > this.tickMs * 4) this.lastTickAt = this.time.now;
@@ -1171,12 +1411,12 @@ export class GameScene extends Phaser.Scene {
       if (m.popped) this.popBox(m.col, m.color);
     }
     if (ev.matched.length || ev.emitted.length || ev.revealed.length) this.refreshBoxes();
-    if (ev.emitted.length || ev.revealed.length) this.refreshGrid();
+    if (ev.emitted.length || ev.revealed.length || ev.unlocked.length) this.refreshGrid();
+    ev.unlocked.forEach((cell) => this.playUnlock(cell));
     // Any box clear can move a counter, so redraw the fixtures whenever one popped.
     if (ev.matched.some((m) => m.popped)) this.refreshFixtures();
     ev.opened.forEach((at) => this.playLidOpen(at));
     ev.emitted.forEach((cell) => this.playEmit(cell));
-    this.refreshProgress();
   }
 
   /** A hatch shoving the next tray out from under its shutter. */
@@ -1295,7 +1535,21 @@ export class GameScene extends Phaser.Scene {
   }
 
   private popBox(j: number, color: Color) {
-    sfx.boxClear();
+    // Three boxes in a row lights the rim. `boxClear` returns the run the bell is already counting,
+    // so the sound and the fireworks land together.
+    //
+    // ⚠ **Every third box of a run, not every box from the third on.** Left firing on all of 3..8
+    // that is six bursts inside a couple of seconds — the box-clear punctuation rule broken by the
+    // very effect meant to reward beating it.
+    //
+    // ⚠ In practice that means **3 and 6, and no more**: the run saturates at 8, because
+    // `boxClear` clamps to its `CHAIN_STEPS` table so the bell has somewhere to stop climbing. A
+    // run of 12 therefore gets the same bursts as a run of 6. Measured, not assumed — the
+    // arithmetic reads as though 9 and 12 would fire. Left as it is (a monster run should not turn
+    // into a fireworks display), and written down so the next person does not "fix" the multiple
+    // and get nothing new.
+    const run = sfx.boxClear();
+    if (run >= COMBO_RUN && run % COMBO_RUN === 0) this.comboFireworks(color);
     const x = boxColX(j);
     const y = L.box.top + L.box.h / 2;
 
@@ -1363,8 +1617,118 @@ export class GameScene extends Phaser.Scene {
 
     // Slide the rest of the column up into the gap. No camera shake — several boxes clear per
     // level and shaking the whole machine each time is exhausting rather than satisfying.
-    this.boxCols[j].y = L.box.h + L.box.vgap;
-    this.tweens.add({ targets: this.boxCols[j], y: 0, duration: 240, ease: "Back.easeOut" });
+    this.slideColumn(j);
+  }
+
+  /**
+   * Three boxes eaten in a row: small fireworks up the two rims of the cabinet.
+   *
+   * ⚠ **Up the rims, not over the well.** The reward for a run lands while the run is still going,
+   * so anything drawn across the box row or the belt hides the next marble arriving — the player
+   * is congratulated by having the thing they are playing taken off screen. The cabinet's
+   * shoulders are the only strip of the machine nothing is ever read off, which is exactly what
+   * makes them the place to put this.
+   *
+   * ⚠ **Three shells a side**, not one big burst. Depth is what makes it read as a display rather
+   * than a pop, and the win screen is still where the budget goes (`confetti`, the star pops).
+   *
+   * ⚠ It grows **upward and in count, never wider.** The launch sits 34px in from the cabinet edge
+   * and the sparks already reach within a few pixels of the canvas on both sides, so scaling the
+   * horizontal throw is how this starts getting cropped by the screen — and a firework clipped by
+   * the screen edge reads as a rendering fault, not as a firework. More shells, a bigger ring, more
+   * and larger sparks, a longer fall: all free. A wider `far`: not.
+   *
+   * ⚠ It runs about 1.7s, and the length lives in the **stagger and the falling embers**, not in
+   * the climb. Slowing the rocket to fill the same time makes it read as sluggish rather than
+   * longer — a shell that crawls has not been launched. So the second shell hangs back further
+   * and the sparks fall further over more time; the climb is barely touched.
+   *
+   * Tinted with the colour just eaten plus a deep gold, so the burst points back at what earned it
+   * rather than being generic celebration confetti.
+   *
+   * ⚠ **No additive blending and no pale tones**, which is the whole reason the first version
+   * photographed as an empty machine. The rims are part of the cabinet and the cabinet is *white*;
+   * a gold spark on ADD over white is white, so the effect ran perfectly and could not be seen.
+   * Same trap the box-clear burst is tinted out of, met on a lighter surface still. Saturated fill,
+   * and a ring rather than a flash for the pop — an outline survives a light ground, a glow does not.
+   */
+  private comboFireworks(color: Color) {
+    const y0 = L.box.top + 14;                       // launch: down at the well, where it was earned
+    const y1 = L.funnel.shoulder + 16;               // burst: up alongside the board itself
+    const tint = [PALETTE[color].base, 0xf08a1c, PALETTE[color].dark];
+
+    for (const side of [-1, 1]) {
+      // ⚠ 34px in from the cabinet edge, not 10. At 10 the burst ring hung half off the canvas —
+      // a firework cropped by the screen edge reads as a rendering fault, not as a firework. This
+      // is the middle of the shoulder, which is the widest clear strip the rim has (48 - 14).
+      const x = side < 0 ? L.machine.x + 34 : L.machine.x + L.machine.w - 34;
+      for (let shell = 0; shell < 3; shell++) {
+        const burstY = y1 + shell * 46;              // each stops lower, so the three stack
+
+        // The shell: a spark stretched along its flight, so it reads as a streak rather than a
+        // dot sliding. The climb is what makes the pop a consequence instead of an appearance.
+        const rocket = img(this, K.spark, x, y0).setScale(0.34 / TS, 1.5 / TS);
+        rocket.setTintFill(tint[1]);
+        this.fxLayer.add(rocket);
+        this.tweens.add({
+          targets: rocket,
+          y: burstY,
+          alpha: { from: 1, to: 0.75 },
+          duration: 430,
+          delay: shell * 300,
+          ease: "Quad.easeOut",
+          onComplete: () => {
+            rocket.destroy();
+            this.comboBurst(x, burstY, tint);
+          },
+        });
+      }
+    }
+  }
+
+  /** One pop: a ring going out and a scatter of sparks that arc out and then drop. */
+  private comboBurst(x: number, y: number, tint: number[]) {
+    const ring = img(this, K.ring, x, y).setScale(0.16 / TS).setAlpha(0.95);
+    ring.setTintFill(tint[1]);
+    this.fxLayer.add(ring);
+    this.tweens.add({
+      targets: ring,
+      scale: 1.35 / TS,
+      alpha: 0,
+      duration: 480,
+      ease: "Cubic.easeOut",
+      onComplete: () => ring.destroy(),
+    });
+
+    for (let i = 0; i < 14; i++) {
+      const a = (i / 14) * Math.PI * 2 + Math.random() * 0.3;
+      // ⚠ Unchanged. This is the one number that decides whether the burst fits on the canvas.
+      const far = 24 + Math.random() * 20;
+      const sp = img(this, K.spark, x, y).setScale(0.1 / TS);
+      sp.setTintFill(tint[i % tint.length]);
+      this.fxLayer.add(sp);
+      // Out, then down. One straight tween to the far point is a starburst decal; the fall is
+      // what makes it a firework — the same reason `playLidOpen` throws its shards in two legs.
+      this.tweens.add({
+        targets: sp,
+        x: x + Math.cos(a) * far,
+        y: y + Math.sin(a) * far,
+        scale: { from: 1.1 / TS, to: 0.38 / TS },
+        duration: 300,
+        ease: "Quad.easeOut",
+        onComplete: () => {
+          this.tweens.add({
+            targets: sp,
+            y: sp.y + 78 + Math.random() * 50,
+            scale: 0.02 / TS,
+            alpha: 0,
+            duration: 640,
+            ease: "Quad.easeIn",
+            onComplete: () => sp.destroy(),
+          });
+        },
+      });
+    }
   }
 
   private holePos(j: number, hole: number) {
@@ -1451,6 +1815,9 @@ export class GameScene extends Phaser.Scene {
       // that difference is the whole tell — a sunken slot says "a tray could slide here".
       this.cellSprites[i].setVisible(!g.wall[i]);
       this.crateSprites[i].setVisible(g.blocked[i]);
+      // Hidden by default and turned back on only by the tile branch below, so every early
+      // `continue` — a hatch, an empty cell, the mate half of a pair — leaves no badge behind.
+      this.arrowSprites[i]?.setVisible(false);
       ds.setVisible(!!disp);
       if (disp) {
         // The housing is baked with its shutter along the bottom, so turning the whole sprite is
@@ -1480,7 +1847,9 @@ export class GameScene extends Phaser.Scene {
         continue;
       }
 
-      const raised = g.canEscape(i);
+      // ⚠ `liftable`, not `canEscape`: a tray held shut by an arrow has a way out and still cannot
+      // be poured, and raised eggs are the board's promise that it can.
+      const raised = g.liftable(i);
       // Remember where the sprite belongs. `shake` restores to this rather than to wherever the
       // sprite happens to be, which is what stops repeated taps walking a locked tray sideways.
       // A linked pair is two ordinary trays with a clip between them, never one double-width
@@ -1493,8 +1862,100 @@ export class GameScene extends Phaser.Scene {
         .setPosition(homeX, homeY)
         .setData("homeX", homeX);
       label.setVisible(false);
+      // The arrow badge, turned to face the cell it is waiting on. Baked pointing up, so up is
+      // rotation 0. It is only ever on a tray that is showing its colour: a face-down tray has
+      // nothing to say yet, and stacking two locks on one tile reads as neither.
+      const arrow = this.arrowSprites[i];
+      if (tile.arrow && !tile.hidden) {
+        const turn =
+          tile.arrow === "right" ? Math.PI / 2 : tile.arrow === "down" ? Math.PI : tile.arrow === "left" ? -Math.PI / 2 : 0;
+        arrow.setVisible(true).setPosition(homeX, homeY).setRotation(turn).setAlpha(1).setScale(this.gm.cell / L.cell / TS);
+      } else {
+        arrow.setVisible(false);
+      }
     }
-    this.refreshProgress();
+  }
+
+  /**
+   * A tray whose arrow lock just opened.
+   *
+   * ⚠ **The badge leaves, and the tray answers.** The whole rule is "pour that one and this one
+   * wakes up", so both halves of that sentence have to be visible in the same beat: the arrow flies
+   * off towards the cell it was pointing at — the one the player just emptied, which is where their
+   * eye already is — and the tray it was sitting on gives a short bounce as its eggs come up.
+   * `refreshGrid` has already swapped the flat face for the raised one by the time this runs.
+   */
+  private playUnlock(cell: number) {
+    const badge = this.arrowSprites[cell];
+    const ts = this.tileSprites[cell];
+    if (badge) {
+      badge.setVisible(true).setAlpha(1);
+      // It has already been cleared off the tile by now, so the direction comes from where the
+      // sprite is pointing rather than from the model.
+      const turn = badge.rotation;
+      this.tweens.add({
+        targets: badge,
+        x: badge.x + Math.sin(turn) * this.gm.pitch * 0.7,
+        y: badge.y - Math.cos(turn) * this.gm.pitch * 0.7,
+        alpha: 0,
+        scale: badge.scale * 1.5,
+        duration: 300,
+        ease: "Quad.easeOut",
+        onComplete: () => badge.setVisible(false).setScale(this.gm.cell / L.cell / TS),
+      });
+    }
+    if (ts?.visible) {
+      this.tweens.add({
+        targets: ts,
+        scale: { from: ts.scale * 0.86, to: ts.scale },
+        duration: 260,
+        ease: "Back.easeOut",
+      });
+    }
+    sfx.pick();
+  }
+
+  /**
+   * The stack rising by one box after the top one comes off.
+   *
+   * ⚠ **The column is drawn one box taller than the well is.** Sliding it is done by offsetting the
+   * whole container by a box and tweening it home — the right picture for the boxes already on
+   * screen, and the wrong one for the deepest, which has nowhere to come from: for those 240ms it
+   * sits a full box *below* the well floor, hanging under the cabinet on a tall frame and sliced
+   * off by the canvas edge on a short one.
+   *
+   * So that one sprite is **pinned**: its own y cancels the container's for the length of the
+   * tween, and it fades up in place while everything above it slides. Nothing is ever drawn against
+   * the rim, and it costs no height — buying the 45px instead is ~8% off how big the game draws on
+   * every desktop, where `GAME_H` is clamped to the machine's own height.
+   *
+   * ⚠ Both callers go through here. They looked like two lines worth inlining and they are the same
+   * animation; the box-clear one and the chocolate-burst one drifting apart is how one of them ends
+   * up with the artefact and the other does not.
+   */
+  private slideColumn(j: number) {
+    const col = this.boxCols[j];
+    const step = L.box.h + L.box.vgap;
+    col.y = step;
+    const deepest = this.boxImages[j][BOX_VISIBLE - 1];
+    const baseY = deepest ? deepest.y : 0;
+    if (deepest?.visible) deepest.setAlpha(0);
+    this.tweens.add({
+      targets: col,
+      y: 0,
+      duration: 240,
+      ease: "Back.easeOut",
+      onUpdate: () => {
+        if (!deepest) return;
+        deepest.y = baseY - col.y;
+        deepest.alpha = Math.min(1, Math.max(0, 1 - col.y / step));
+      },
+      onComplete: () => {
+        if (!deepest) return;
+        deepest.y = baseY;
+        deepest.alpha = 1;
+      },
+    });
   }
 
   private refreshBoxes() {
@@ -1527,19 +1988,56 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private refreshProgress() {
-    const total = this.board.totalMarbles();
-    const done = total - this.board.remaining();
-    this.progressBar.scaleX = total ? done / total : 0;
-  }
-
   private refreshHud() {
     this.coinLabel.setText(String(save.coins));
     if (!SHOW_BOOSTERS) return;
-    (["magnet", "wrench", "undo"] as const).forEach((kind) => {
-      const face = this.boosterBtns[kind].list[0] as Phaser.GameObjects.Image;
-      face.setTexture(save.coins >= COST[kind] ? K.btn("green") : K.btn("greenOff"));
-    });
+    // ⚠ Greyed on **either** reason it cannot be used: no coins, or no plan on this board. A button
+    // that looks live and then refuses is worse than one that never offered — and "no two boxes
+    // whose colour has six marbles on the rail" is the common case early in a level, when the belt
+    // is nearly empty.
+    const face = this.boosterFace;
+    const icon = this.boosterBtns.magnet.list[1] as Phaser.GameObjects.Image;
+    const own = save.magnets;
+
+    // ⚠ **Locked reads as locked, and it is drawn before every other state is considered.** Dimmed
+    // face, faded icon, a padlock where the count would be — and no number, because a count on a
+    // button that cannot fire is the button telling the player they have something they do not.
+    // Shown rather than hidden: the results card is already counting down to MAGNET, so a button
+    // that simply appears at level 6 would be the reward arriving with no build-up. This is the
+    // build-up.
+    this.boosterLock.setVisible(this.magnetLocked);
+    icon.setAlpha(this.magnetLocked ? 0.45 : 1);
+    if (this.magnetLocked) {
+      face.setTexture(K.btn("greenOff"));
+      this.boosterCost.setText("");
+      this.boosterBadge.clear();
+      return;
+    }
+    // ⚠ **Two different presses, so two different tests.** With one in hand the press *uses* it, and
+    // that needs a plan on the board — greyed without one, because a booster that fires and does
+    // nothing is worse than a button that says not yet. At zero the press *buys* one, and buying
+    // has nothing to do with the state of the belt: a player who wants to stock up between jams is
+    // doing something sensible, and greying the button then hides the price behind a control they
+    // have been taught not to press.
+    const usable = own > 0 ? !!this.board.revivePlan() : true;
+    face.setTexture(usable ? K.btn("green") : K.btn("greenOff"));
+
+    // ⚠ **The badge is how many you have, and at zero there is no badge at all.** It said the price
+    // before, which put a red 60 on a button the player already owned two free uses of — the number
+    // most likely to be read as "this costs 60" at exactly the moment it did not.
+    // ⚠ A **+** at zero, never a 0. "0" says the thing is empty and stops there; "+" says it can be
+    // filled, which is exactly what pressing it now does. An absent badge said neither.
+    this.boosterCost.setText(own > 0 ? String(own) : "+");
+    this.boosterBadge.clear();
+    const w = Math.max(32, this.boosterCost.width + 18);
+    const h = 30;
+    this.boosterCost.setPosition(BADGE_AT, BADGE_AT);
+    this.boosterBadge
+      .fillStyle(0xffffff, 1)
+      .fillRoundedRect(BADGE_AT - w / 2 - 3, BADGE_AT - h / 2 - 3, w + 6, h + 6, (h + 6) / 2);
+    this.boosterBadge
+      .fillStyle(own > 0 ? 0x2e9b57 : 0xf0a020, 1)
+      .fillRoundedRect(BADGE_AT - w / 2, BADGE_AT - h / 2, w, h, h / 2);
   }
 
   // ── Frame ──────────────────────────────────────────────────────────────────
@@ -1559,11 +2057,28 @@ export class GameScene extends Phaser.Scene {
       while (this.time.now - this.lastTickAt >= this.tickMs && guard++ < 4) this.onTick();
     }
 
+    // ⚠ The highest marble in the chute is **exempt from the brake**, and that is not a tweak to
+    // the drag — it is the difference between a queue and a straggler.
+    //
+    // The brake exists so a *pile* creeps into the neck at a watchable pace, and it works because
+    // the marbles above supply the push. The topmost one has nothing above it, so once it crosses
+    // `brake` with the speed it had spent waiting on the pile — i.e. none — `CONE_DRAG` is enough
+    // to stop it starting. Measured on a real pour: the last marble of a tray took **939 ms to
+    // cover the 28 px** from `brake` to the pick-up zone, where a marble arriving with the pile's
+    // momentum crosses the same stretch in 154 ms. That is the dawdle at the tail of every pour.
+    //
+    // Exempting the top one leaves the pile behaviour untouched (everything with a marble above it
+    // still brakes) and lets the straggler close the gap, which is what a real hopper does.
+    // ⚠ Not `falling.length === 1`. The straggler is a straggler whether or not the ones ahead of
+    // it have already been taken, and by the time it is genuinely alone it has already dawdled.
+    let topY = Infinity;
+    for (const f of this.falling) topY = Math.min(topY, f.body.position.y);
     for (const f of this.falling) {
       // Fall out of the tray at full speed, then hit the brakes on the way into the cone.
       // The drop is meant to feel like a tray being emptied; the last stretch into the neck
       // is meant to be watched, and one global gravity cannot do both.
-      const slow = f.body.position.y > L.funnel.brake;
+      const tail = f.body.position.y <= topY + 2;
+      const slow = f.body.position.y > L.funnel.brake && !tail;
       f.body.frictionAir = slow ? CONE_DRAG : 0.004;
       f.body.friction = slow ? CONE_FRICTION : 0.05;
       f.sprite.setPosition(f.body.position.x, f.body.position.y);
@@ -1588,21 +2103,36 @@ export class GameScene extends Phaser.Scene {
         continue;
       }
       // A marble that has just been placed on the entry has no previous slot to travel from.
-      // Rather than have it blink into existence on the rail, slide it down out of the neck
-      // over the tick — that is the last stretch of the drop the player has been watching.
+      // Rather than have it blink into existence on the rail, slide it down out of the chute over
+      // the tick — that is the last stretch of the drop the player has been watching.
       if (this.board.fresh[i]) {
         const to = slotPos(i, 0);
-        // Hang back, then drop. The marble it is replacing is still clearing the entry for
-        // most of this tick, and touching down early has the two overlapping right where the
-        // player is looking. Landing late also reads as a drop rather than a slide.
-        const drop = Phaser.Math.Easing.Quadratic.In(Math.max(0, (frac - 0.4) / 0.6));
+        // ⚠ **From where the body actually was**, not from a fixed point under the neck. Measured
+        // over a real pour: `drainFunnel` takes the lowest marble within 46px of the neck, which
+        // is often one still resting on the *cone slope* — recorded at (299, 571) while the fixed
+        // feed point is (270, 590). So the ball the eye was following blinked out and another
+        // appeared 29px to the left and 19px lower, on the same frame. That sideways hop is what
+        // reads as the drop not being one movement.
+        const from = this.feedNow ?? { x: FEED_FROM.x, y: FEED_FROM.y, rot: 0 };
+        // Hang back, then drop. The marble it is replacing is still clearing the entry, and
+        // touching down early has the two overlapping right where the player is looking. The wait
+        // is shorter than it was (0.15, not 0.4) because starting up in the chute already puts
+        // clear air between them — the delay was standing in for the distance.
+        const drop = Phaser.Math.Easing.Quadratic.In(Math.max(0, (frac - 0.15) / 0.85));
         s.setVisible(true)
           .setTexture(K.marble(c))
-          .setPosition(FEED_FROM.x, Phaser.Math.Linear(FEED_FROM.y, to.y, drop));
+          .setPosition(Phaser.Math.Linear(from.x, to.x, drop), Phaser.Math.Linear(from.y, to.y, drop));
+        // ⚠ And carry the spin off. Every marble on the rail is drawn upright, so its highlight
+        // points the same way as its neighbours'; a tumbling ball that snaps upright the instant
+        // it is handed over is the same discontinuity as the hop, in the one part of the texture
+        // the eye tracks. Wrapped, or a ball at 3.1 rad unwinds the long way round.
+        s.setRotation(from.rot + Phaser.Math.Angle.Wrap(-from.rot) * drop);
         continue;
       }
       const p = slotPos(i - 1, frac);
-      s.setVisible(true).setTexture(K.marble(c)).setPosition(p.x, p.y);
+      // Settled marbles are upright — and this also scrubs the residue of the slide above, since
+      // the sprites are reused per slot and `drop` never quite reaches 1 on the last frame.
+      s.setVisible(true).setTexture(K.marble(c)).setPosition(p.x, p.y).setRotation(0);
     }
   }
 
@@ -1624,12 +2154,11 @@ export class GameScene extends Phaser.Scene {
    */
   private offerRevive(plan: RevivePick[]) {
     this.paused = true;
-    this.disarmWrench();
     sfx.deny();
 
     const c = this.add.container(0, 0);
     const midY = GAME_H / 2 - 40;
-    c.add(this.add.rectangle(GAME_W / 2, GAME_H / 2, GAME_W, GAME_H, 0x0d0a2a, 0.78));
+    c.add(this.stageDim(0x0d0a2a, 0.78));
 
     const panel = this.add.graphics();
     panel.fillStyle(0x1d1a45, 0.55).fillRoundedRect(58, midY - 196, 424, 496, 36);
@@ -1641,13 +2170,13 @@ export class GameScene extends Phaser.Scene {
 
     c.add(
       this.add
-        .text(270, midY - 166, "BELT FULL!", { fontFamily: FONT, fontSize: "40px", color: "#ffffff" })
+        .text(CX, midY - 166, "BELT FULL!", { fontFamily: FONT, fontSize: "40px", color: "#ffffff" })
         .setOrigin(0.5)
         .setStroke(UI.ink, 8),
     );
     c.add(
       this.add
-        .text(270, midY - 96, "The rail is packed and nothing fits.\nRevive clears 6 marbles and 2 boxes.", {
+        .text(CX, midY - 96, "The rail is packed and nothing fits.\nRevive clears 6 marbles and 2 boxes.", {
           fontFamily: FONT,
           fontSize: "22px",
           color: "#3b465f",
@@ -1676,7 +2205,7 @@ export class GameScene extends Phaser.Scene {
     this.reviveClose = close;
 
     const afford = save.coins >= COST.revive;
-    const btn = this.add.container(270, midY + 146);
+    const btn = this.add.container(CX, midY + 146);
     const face = img(this, K.btn("wide"), 0, 0);
     if (!afford) face.setTint(0x9aa3b8);
     const label = this.add
@@ -1708,7 +2237,7 @@ export class GameScene extends Phaser.Scene {
     });
 
     c.add(
-      this.button(270, midY + 232, "NO THANKS", "wideBlue", () => {
+      this.button(CX, midY + 232, "NO THANKS", "wideBlue", () => {
         close();
         this.finish(false);
       }),
@@ -1733,7 +2262,7 @@ export class GameScene extends Phaser.Scene {
 
     // Red wash over the rail, breathing — this is the "it is full" half of the message and it has
     // to still be saying it while the marbles are mid-flight.
-    const warn = this.add.rectangle(270, railY, 310, 52, 0xff4040, 0.22);
+    const warn = this.add.rectangle(CX, railY, 310, 52, 0xff4040, 0.22);
     into.add(warn);
     this.tweens.add({
       targets: warn,
@@ -1745,7 +2274,7 @@ export class GameScene extends Phaser.Scene {
     });
 
     const boxes = plan.map((p, k) => {
-      const x = 270 + (k - (plan.length - 1) / 2) * 118;
+      const x = CX + (k - (plan.length - 1) / 2) * 118;
       return img(this, K.boxOpen(p.color), x, boxY);
     });
     into.add(boxes);
@@ -1763,7 +2292,7 @@ export class GameScene extends Phaser.Scene {
     const marbles: Phaser.GameObjects.Image[] = [];
     const owner: number[] = [];
     for (let k = 0; k < 12; k++) {
-      const x = 270 + (k - 5.5) * 25;
+      const x = CX + (k - 5.5) * 25;
       const box = leaving.get(k);
       const color = box === undefined ? filler[(k * 5) % Math.max(1, filler.length)] ?? 0 : plan[box].color;
       const m = img(this, K.marble(color), x, railY).setData("restX", x);
@@ -1842,11 +2371,174 @@ export class GameScene extends Phaser.Scene {
     this.boostersUsed.push("revive");
     close();
     sfx.booster();
+    this.playRevive(picks);
+  }
 
+  /**
+   * The magnet firing: the button kicks, and a ring goes out from it down the machine.
+   *
+   * ⚠ It exists because the delivery animation alone does not say *magnet*. Six marbles gliding
+   * into their boxes is the picture a revive draws, and it is the right picture for what happens to
+   * the board — but the player pressed a button with a horseshoe on it, and nothing on screen came
+   * from that button. The ring is the only part of this that ties the effect to its cause.
+   */
+  /**
+   * "Buy a magnet for 60?" — shown only when the player has none left and pressed anyway.
+   *
+   * ⚠ It buys and **stops there**. Firing the booster on the way out was the first shape of this,
+   * and it forced the purchase to happen only when the board already had a plan — which turned
+   * "buy one for later" into an offer the game refuses most of the time. Buying is stock; the badge
+   * then reads 1 and the next press is the one that spends it.
+   */
+  private askBuyMagnet() {
+    // ⚠ Looked for in `uiLayer`, which is where it is added — `this.children` is the scene root and
+    // never sees it, so the guard silently never fired and a second press stacked a second card on
+    // a paused board.
+    if (this.uiLayer.list.some((o) => o.name === "buyCard")) return;
+    this.paused = true;
+    sfx.pick();
+    const c = this.add.container(0, 0).setName("buyCard").setDepth(120);
+    const midY = GAME_H / 2;
+    const dim = this.stageDim(0x0d0a2a, 0.78);
+    dim.setInteractive();
+    c.add(dim);
+
+    const W = 408;
+    // ⚠ Tall enough for the two buttons **stacked**. Side by side they cannot fit: `button` bakes a
+    // fixed 260x76 face, so a pair needs 520px of a card 408px wide — they overlapped each other and
+    // hung out past the bottom edge. Stacking also matches the results card, which is the only other
+    // place in the game offering a choice.
+    // ⚠ Tall enough for the two stacked buttons **and** the refusal line between them and the
+    // price. At 452 the message sat under the BUY face and only its top half was readable — the
+    // half that says "Not enough", with the number it is about hidden.
+    const H = 480;
+    const X = (GAME_W - W) / 2;
+    const Y = midY - H / 2;
+    const panel = this.add.graphics();
+    panel.fillStyle(0x1d1a45, 0.55).fillRoundedRect(X - 6, Y + 6, W + 12, H, 34);
+    panel.fillStyle(UI.machineEdge, 1).fillRoundedRect(X - 4, Y - 4, W + 8, H, 32);
+    panel.fillStyle(UI.machine, 1).fillRoundedRect(X, Y, W, H, 30);
+    panel.fillStyle(0x4bc84b, 1).fillRoundedRect(X, Y, W, 78, 30);
+    panel.fillStyle(0x4bc84b, 1).fillRect(X, Y + 48, W, 30);
+    c.add(panel);
+
+    c.add(
+      this.add
+        .text(GAME_W / 2, Y + 38, "BUY A MAGNET?", { fontFamily: FONT, fontSize: "34px", color: "#ffffff" })
+        .setOrigin(0.5)
+        .setStroke(UI.ink, 7),
+    );
+    c.add(img(this, K.icon("magnet"), GAME_W / 2, Y + 128).setScale(1.7 / TS));
+    c.add(
+      this.add
+        .text(GAME_W / 2, Y + 190, "Lifts 6 balls off the belt\ninto 2 boxes.", {
+          fontFamily: FONT,
+          fontSize: "21px",
+          color: "#3b465f",
+          align: "center",
+          lineSpacing: 4,
+        })
+        .setOrigin(0.5),
+    );
+
+    const enough = save.coins >= COST.magnet;
+    const coin = img(this, K.coin, GAME_W / 2 - 34, Y + 246).setScale(1 / TS);
+    // ⚠ `shake` restores to `homeX`, and without this it falls back to wherever the sprite happens
+    // to be — so a second press while the first nudge is running captures an already-offset x as
+    // home and the coin ratchets left, 6px a press. Exactly the trap the tray shake documents.
+    coin.setData("homeX", coin.x);
+    c.add(coin);
+    c.add(
+      this.add
+        .text(GAME_W / 2 + 2, Y + 246, String(COST.magnet), {
+          fontFamily: FONT,
+          fontSize: "30px",
+          // ⚠ Red when they cannot afford it. The card still opens — being told the price is the
+          // point — but it must not look like an offer that will go through.
+          color: enough ? "#8a5a06" : "#d2452f",
+        })
+        .setOrigin(0, 0.5),
+    );
+
+    // ⚠ The refusal has to be **on the card**. `toast` draws into `fxLayer`, and `uiLayer` is
+    // created after it and therefore on top — so a toast raised while this card is up renders
+    // behind its own dimmer and is never seen. Pressing BUY without the coins looked like a dead
+    // button, which is the worst thing a purchase can look like.
+    const why = this.add
+      .text(GAME_W / 2, Y + 278, "", { fontFamily: FONT, fontSize: "19px", color: "#d2452f" })
+      .setOrigin(0.5);
+    c.add(why);
+
+    const close = () => {
+      c.destroy();
+      this.paused = false;
+      this.lastTickAt = this.time.now;
+      this.refreshHud();
+    };
+    c.add(
+      // ⚠ Always the green face: there is no `wideOff` texture and inventing one for this card
+      // would be a fourth button style. The price in red above is what says they cannot afford it,
+      // and pressing BUY without the coins says so out loud rather than doing nothing.
+      this.button(GAME_W / 2, Y + 336, "BUY", "wide", () => {
+        if (save.coins < COST.magnet) {
+          sfx.deny();
+          why.setText(`Not enough coins — you have ${save.coins}`);
+          // A nudge on the price as well as the words, so the eye is sent to the number the
+          // sentence is about. Through `shake`, which owns the rest position — see `homeX` above.
+          this.shake(coin);
+          return;
+        }
+        save.coins = save.coins - COST.magnet;
+        save.magnets = save.magnets + 1;
+        sfx.booster();
+        close();
+      }),
+    );
+    c.add(this.button(GAME_W / 2, Y + 418, "NO", "wideBlue", close));
+    this.uiLayer.add(c);
+  }
+
+  private magnetPull() {
+    const btn = this.boosterBtns.magnet;
+    if (!btn) return;
+    this.tweens.add({
+      targets: btn,
+      scale: { from: 1, to: 1.22 },
+      duration: 140,
+      yoyo: true,
+      ease: "Back.easeOut",
+    });
+    const ring = img(this, K.ring, btn.x, btn.y).setScale(0.2 / TS).setAlpha(0.9);
+    this.fxLayer.add(ring);
+    this.tweens.add({
+      targets: ring,
+      scale: 2.6 / TS,
+      alpha: 0,
+      duration: 420,
+      ease: "Cubic.easeOut",
+      onComplete: () => ring.destroy(),
+    });
+  }
+
+  /**
+   * Play a taken plan out on screen: the six marbles fly to the two boxes they were owed to, the
+   * boxes burst, and the clock is held until they have visibly gone.
+   *
+   * ⚠ **One body, two doors.** The jam pop-up and the Magnet button do exactly the same thing to
+   * the board, and a second copy of this would drift — the fly-out timing, the undo wipe and the
+   * clock hold are all part of the rule being legible, not decoration on top of it.
+   *
+   * ⚠ The board is **already changed** when this runs: `useRevive` has been called and the belt
+   * sprites read straight off it. So these ghosts are covering a swap that has happened, not a
+   * decision still being made — which is why the clock resumes on a timer rather than on input.
+   */
+  private playRevive(picks: RevivePick[], pulled = false) {
     // ⚠ Rewinding across a revive would restore the jammed board *with its boxes back on it* and
     // the player would be sold the same revive twice. A revive is not a move; it is where the
     // history starts again.
     this.undoStack = [];
+    this.paused = true;
+    if (pulled) return this.magnetLift(picks);
 
     let last = 0;
     picks.forEach((p, k) => {
@@ -1877,7 +2569,98 @@ export class GameScene extends Phaser.Scene {
     // decision waiting to be made.
     this.time.delayedCall(last + 260, () => {
       this.refreshBoxes();
-      this.refreshProgress();
+      this.paused = false;
+      this.lastTickAt = this.time.now;
+    });
+    this.refreshHud();
+  }
+
+  /**
+   * The magnet's own animation: **pick the six marbles up, hold them where they can be counted,
+   * then set them into the two boxes.** Three beats, deliberately slow.
+   *
+   * ⚠ It is a rewrite of the straight glide, not a decoration on it, and the reason is that the
+   * glide could not be read. Six marbles sliding from rail to boxes on staggered curves is a
+   * scatter — by the time the eye has found one, the others have arrived. What makes an effect
+   * legible is a moment where nothing moves: the marbles rise, they *stop* in a row above the
+   * machine, and only then do they go in. The hold is the part that does the explaining.
+   *
+   * ⚠ They rise **straight up**, not toward the button. A marble that veers sideways on the way up
+   * is being thrown; one that lifts off the rail is being picked up, which is what the magnet is
+   * doing to it.
+   *
+   * ⚠ They are laid out in **plan order**, so the three destined for the first box are together and
+   * the next three follow. Sorted by belt position instead, the row would have to unshuffle itself
+   * on the way down and the two groups would cross.
+   */
+  private magnetLift(picks: RevivePick[]) {
+    const ghosts: { g: Phaser.GameObjects.Image; pick: RevivePick }[] = [];
+    picks.forEach((p) =>
+      p.slots.forEach((slot) => {
+        const from = slotPos(slot, 0);
+        const g = img(this, K.marble(p.color), from.x, from.y);
+        this.fxLayer.add(g);
+        ghosts.push({ g, pick: p });
+      }),
+    );
+    if (!ghosts.length) {
+      this.paused = false;
+      this.lastTickAt = this.time.now;
+      return;
+    }
+
+    // The empty triangle of the chute, above the belt and below the funnel mouth — the one strip
+    // of the machine with nothing on it, and directly under the button that was pressed.
+    const HOVER_Y = L.belt.cy - 96;
+    const PITCH = 34;
+    const LIFT = 460;
+    const STAGGER = 80;
+    const HOLD = 320;
+    const PLACE = 420;
+
+    ghosts.forEach((o, n) => {
+      const x = CX + (n - (ghosts.length - 1) / 2) * PITCH;
+      this.tweens.add({
+        targets: o.g,
+        x,
+        y: HOVER_Y,
+        scale: 1.35 / TS,
+        delay: n * STAGGER,
+        duration: LIFT,
+        // Eases *out*: fast off the rail, slowing as it arrives, which is what being lifted looks
+        // like. Ease-in would read as the marble falling upwards.
+        ease: "Sine.easeOut",
+      });
+    });
+    const lifted = (ghosts.length - 1) * STAGGER + LIFT;
+
+    // A breath with the row hanging there. ⚠ Do not trim this to save time — it is the beat that
+    // lets the player see six marbles and two boxes, and without it the whole thing is a blur.
+    let end = lifted + HOLD;
+    picks.forEach((p, k) => {
+      const mine = ghosts.filter((o) => o.pick === p);
+      const to = { x: boxColX(p.col), y: this.boxRowY(p.idx) };
+      const at = lifted + HOLD + k * 220;
+      mine.forEach((o, i) => {
+        this.tweens.add({
+          targets: o.g,
+          x: to.x + (i - (mine.length - 1) / 2) * 18,
+          y: to.y,
+          scale: 0.55 / TS,
+          delay: at + i * 90,
+          duration: PLACE,
+          // Ease-in: it accelerates into the hole rather than drifting to a stop above it.
+          ease: "Quad.easeIn",
+          onComplete: () => o.g.destroy(),
+        });
+      });
+      const landed = at + (mine.length - 1) * 90 + PLACE;
+      end = Math.max(end, landed);
+      this.time.delayedCall(landed, () => this.reviveBurst(p.col, p.idx, p.color));
+    });
+
+    this.time.delayedCall(end + 300, () => {
+      this.refreshBoxes();
       this.paused = false;
       this.lastTickAt = this.time.now;
     });
@@ -1928,8 +2711,7 @@ export class GameScene extends Phaser.Scene {
     this.refreshBoxes();
     // Only the part of the column *below* the gap moved, but the whole stack is one container, so
     // sliding it is the same picture for one box as it is for the top one.
-    this.boxCols[col].y = L.box.h + L.box.vgap;
-    this.tweens.add({ targets: this.boxCols[col], y: 0, duration: 240, ease: "Back.easeOut" });
+    this.slideColumn(col);
   }
 
   // ── End of level ───────────────────────────────────────────────────────────
@@ -1939,7 +2721,6 @@ export class GameScene extends Phaser.Scene {
     // A flourish on the host page. Only on a win — it marks something going well, and firing it
     // on a loss would be the opposite of what it is for.
     if (won) platform.happytime();
-    this.disarmWrench();
     this.time.removeAllEvents();
     // Record the game before anything else touches the board. Bot numbers are guesses about
     // people; these are the only real data the tuning will ever have.
@@ -1999,13 +2780,13 @@ export class GameScene extends Phaser.Scene {
     // Everything below the stars slides down to make room for the bar. One number rather than two
     // sets of coordinates, so the card without a bar stays exactly the card it has always been.
     const dy = feat ? 66 : 0;
-    c.add(this.add.rectangle(GAME_W / 2, GAME_H / 2, GAME_W, GAME_H, 0x0d0a2a, 0.78));
+    c.add(this.stageDim(0x0d0a2a, 0.78));
 
     if (stars) {
       // Slow sunburst behind everything. It is the one element that keeps moving, which is
       // what stops a static results card feeling like an error dialog.
       // Additive, or the wedges sit on the dimmed machine as grey stripes instead of light.
-      const rays = img(this, K.rays, 270, midY - 40).setScale(1.9 / TS).setAlpha(0.6);
+      const rays = img(this, K.rays, CX, midY - 40).setScale(1.9 / TS).setAlpha(0.6);
       rays.setTintFill(0xffd75e).setBlendMode(Phaser.BlendModes.ADD);
       c.add(rays);
       this.tweens.add({ targets: rays, angle: 360, duration: 26000, repeat: -1 });
@@ -2029,7 +2810,7 @@ export class GameScene extends Phaser.Scene {
 
     c.add(
       this.add
-        .text(270, midY - 142, title, { fontFamily: FONT, fontSize: "40px", color: "#ffffff" })
+        .text(CX, midY - 142, title, { fontFamily: FONT, fontSize: "40px", color: "#ffffff" })
         .setOrigin(0.5)
         .setStroke(UI.ink, 8),
     );
@@ -2038,7 +2819,7 @@ export class GameScene extends Phaser.Scene {
       for (let i = 0; i < 3; i++) {
         const big = i === 1;
         const target = (big ? 1.35 : 1.05) / TS;
-        const sx = 270 + (i - 1) * 84;
+        const sx = CX + (i - 1) * 84;
         const sy = midY - 40 - (big ? 14 : 0);
         const s = img(this, K.star(i < stars), sx, sy).setScale(0.1);
         c.add(s);
@@ -2098,7 +2879,7 @@ export class GameScene extends Phaser.Scene {
     } else {
       c.add(
         this.add
-          .text(270, midY - 20, "The belt is full and\nnothing else fits a box.", {
+          .text(CX, midY - 20, "The belt is full and\nnothing else fits a box.", {
             fontFamily: FONT,
             fontSize: "23px",
             color: "#3b465f",
@@ -2108,7 +2889,7 @@ export class GameScene extends Phaser.Scene {
       );
       c.add(
         this.add
-          .text(270, midY + 40, "Undo a move, or start the level over.", {
+          .text(CX, midY + 40, "Undo a move, or start the level over.", {
             fontFamily: FONT,
             fontSize: "19px",
             color: "#7c88a6",
@@ -2118,15 +2899,33 @@ export class GameScene extends Phaser.Scene {
       );
     }
 
-    // ⚠ Clearing the level that unlocks the daily reward sends the player **home**, not on to the
-    // next board. The reward is on the home screen and they have never seen it; handing them
-    // "NEXT LEVEL" here means the first thing the feature does is get skipped. Only on the win
-    // that crosses the line — replaying the level later goes on as normal, because by then the
-    // icon is on their home screen and they know what it is.
-    const toDaily = DAILY_ON && stars && !this.custom && this.level === DAILY_FROM;
+    // ⚠ A win with a reward waiting sends the player **home**, not on to the next board. The reward
+    // lives on the home screen; handing them "NEXT LEVEL" here means the feature's whole job is to
+    // be skipped past.
+    //
+    // ⚠ **Gated on the daily rule, not on `this.level === DAILY_FROM`.** The equality test only ever
+    // fired for someone who cleared level 5 *after* this shipped — a player already at level 16 when
+    // they got the update will never clear level 5 again, so the one route to a feature they have
+    // never seen was a pulsing icon in the corner and nothing else. `dailyOfferable()` asks the
+    // question that actually matters: is the gate passed and is there something to take.
+    //
+    // ⚠ Safe to ask here because `save.unlocked` is raised a few lines above, before the card is
+    // drawn — so the level-5 win that crosses the line reads `6 > 5` and still routes, exactly as
+    // the equality test used to. Asking before the bump would silently drop that case.
+    //
+    // ⚠ **Once a day, and `dailyOfferable` is what makes that true.** The comment here used to say
+    // "it re-fires on the first win of each day" and the code did not: the gate was "is there
+    // something to take", which stays true all day for anyone who does not take it, so *every* win
+    // sent them home. 121 forced returns across 72 devices in one day of real play, one player 50
+    // times. The stamp goes down when the offer is **drawn**, not when it is pressed — a player who
+    // saw CLAIM REWARD and chose HOME has been asked.
+    //
+    // A loss never routes (`stars` is 0), so nobody is pulled off a board they are still fighting.
+    const toDaily = !!stars && !this.custom && dailyOfferable();
+    if (toDaily) markDailyOffered();
     const primary = toDaily ? "CLAIM REWARD" : stars ? "NEXT LEVEL" : "TRY AGAIN";
     c.add(
-      this.button(270, midY + 130 + dy, primary, "wide", () => {
+      this.button(CX, midY + 130 + dy, primary, "wide", () => {
         if (toDaily) {
           this.scene.start("Home", { daily: true });
           return;
@@ -2135,7 +2934,7 @@ export class GameScene extends Phaser.Scene {
         this.scene.restart({ level: this.level });
       }),
     );
-    c.add(this.button(270, midY + 212 + dy, "HOME", "wideBlue", () => this.scene.start("Home")));
+    c.add(this.button(CX, midY + 212 + dy, "HOME", "wideBlue", () => this.scene.start("Home")));
 
     this.uiLayer.add(c);
   }
@@ -2191,7 +2990,17 @@ export class GameScene extends Phaser.Scene {
     const icons: Phaser.GameObjects.Image[] =
       feat.id === "pair"
         ? [img(this, K.tray(2, true), BX - 12, y), img(this, K.link, BX, y), img(this, K.tray(5, true), BX + 12, y)]
-        : [img(this, feat.id === "hatch" ? K.dispenser : K.lid, BX, y)];
+        : [
+            img(
+              this,
+              // ⚠ Explicit per id, not a two-way test. It was `hatch ? dispenser : lid`, so the
+              // magnet — added later and matching neither branch — would have drawn a chocolate
+              // lid: a milestone illustrated with the wrong piece entirely.
+              feat.id === "hatch" ? K.dispenser : feat.id === "magnet" ? K.icon("magnet") : K.lid,
+              BX,
+              y,
+            ),
+          ];
     for (const ic of icons) {
       // Fitted from the texture's own size — the pieces are baked at wildly different scales (a
       // chocolate box is two cells across, the clip between a linked pair is a few pixels).
@@ -2201,7 +3010,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     const label = this.add
-      .text(270, y + 30, `${Math.round(from * 100)}% TO NEXT FEATURE`, {
+      .text(CX, y + 30, `${Math.round(from * 100)}% TO NEXT FEATURE`, {
         fontFamily: FONT,
         fontSize: "20px",
         color: "#b58a2b",
@@ -2290,13 +3099,13 @@ export class GameScene extends Phaser.Scene {
     const height = 140 + rows * 90 + (devTools ? 30 : 0);
 
     const c = this.add.container(0, 0);
-    c.add(this.add.rectangle(GAME_W / 2, GAME_H / 2, GAME_W, GAME_H, 0x101a33, 0.7));
+    c.add(this.stageDim(0x101a33, 0.7));
     const panel = this.add.graphics();
     panel.fillStyle(UI.machine, 1).fillRoundedRect(66, top, 408, height, 30);
     c.add(panel);
     c.add(
       this.add
-        .text(270, top + 50, "PAUSED", { fontFamily: FONT, fontSize: "38px", color: "#ffffff" })
+        .text(CX, top + 50, "PAUSED", { fontFamily: FONT, fontSize: "38px", color: "#ffffff" })
         .setOrigin(0.5)
         .setStroke(UI.ink, 8),
     );
@@ -2313,21 +3122,21 @@ export class GameScene extends Phaser.Scene {
       return at;
     };
     c.add(
-      this.button(270, row(), save.muted ? "SOUND ON" : "SOUND OFF", "wideBlue", () => {
+      this.button(CX, row(), save.muted ? "SOUND ON" : "SOUND OFF", "wideBlue", () => {
         save.muted = !save.muted;
         close();
         this.openSettings();
       }),
     );
-    c.add(this.button(270, row(), "RESTART LEVEL", "wide", () => this.scene.restart({ level: this.level })));
-    c.add(this.button(270, row(), "HOME", "wideBlue", () => this.scene.start("Home")));
+    c.add(this.button(CX, row(), "RESTART LEVEL", "wide", () => this.scene.restart({ level: this.level })));
+    c.add(this.button(CX, row(), "HOME", "wideBlue", () => this.scene.start("Home")));
     // ⚠ Shipped in **every** build, unlike the play-log rows above it. The host requires a game
     // that collects anything beyond their SDK's own events to show the notice in-game rather than
     // only answer the form field, and a privacy page that exists but cannot be reached from the
     // game is the failure that rule is written against. Opens a sibling page in a new tab, so the
     // level being played is never navigated away from.
-    c.add(this.button(270, row(), "PRIVACY", "wide", () => openPrivacyPolicy()));
-    c.add(this.button(270, row(), "RESUME", "wideBlue", close));
+    c.add(this.button(CX, row(), "PRIVACY", "wide", () => openPrivacyPolicy()));
+    c.add(this.button(CX, row(), "RESUME", "wideBlue", close));
 
     if (!devTools) {
       this.uiLayer.add(c);
@@ -2342,7 +3151,7 @@ export class GameScene extends Phaser.Scene {
     // plain http, which is not a secure context, so `navigator.clipboard` is missing and the
     // button could only ever report failure.
     c.add(
-      this.button(270, row(), `SEND ${st!.runs} GAMES`, "wideBlue", () => {
+      this.button(CX, row(), `SEND ${st!.runs} GAMES`, "wideBlue", () => {
         void uploadRuns().then((up) => {
           if (up) {
             this.toast(up.added ? `${up.added} games sent to PC` : "already sent");
@@ -2356,7 +3165,7 @@ export class GameScene extends Phaser.Scene {
     );
     c.add(
       this.add
-        .text(270, y - 45, `${st!.levels} levels · ${st!.wins} won`, {
+        .text(CX, y - 45, `${st!.levels} levels · ${st!.wins} won`, {
           fontFamily: FONT,
           fontSize: "17px",
           color: "#ffffff",
@@ -2369,7 +3178,7 @@ export class GameScene extends Phaser.Scene {
     // play log would also delete the hand-built levels. Two taps, because there is no undo.
     if (st!.runs > 0) {
       let armed = false;
-      const wipe = this.button(270, row(), "CLEAR LOG", "wide", () => {
+      const wipe = this.button(CX, row(), "CLEAR LOG", "wide", () => {
         const label = wipe.getAt(1) as Phaser.GameObjects.Text;
         if (!armed) {
           armed = true;
@@ -2433,7 +3242,63 @@ export class GameScene extends Phaser.Scene {
    * of these pieces anyway, so the guard costs nothing and only ever fires if the ladder is
    * rebuilt with a mechanic on the first board.
    */
+  /**
+   * Open the magnet lesson, if this is its level and it has not been taught.
+   *
+   * ⚠ **Before `startCoach`**, and `startCoach` stands down while it is open — both draw in the
+   * same strip of chute, and stacked they are two captions on top of each other. The magnet lesson
+   * wins the tie because it gates input: a coach card explaining a crate, shown while the player is
+   * being told to pour a specific tray, is instructions the game is simultaneously refusing.
+   *
+   * ⚠ Marked seen when it **finishes**, not when it opens — the same rule `tutorialDone` and
+   * `markCoach` already follow. A lesson abandoned halfway has taught nothing, and this is the only
+   * board it can be taught on.
+   */
+  private startMagnetTutor() {
+    this.magTutor?.destroy();
+    this.magTutor = null;
+    if (!SHOW_BOOSTERS) return;
+    if (this.custom || this.preview) return;
+    if (save.coachSeen.includes("magnet")) return;
+    // ⚠ **`>=`, not `===`.** Pinning it to one level only works for a player who arrives at that
+    // level; anyone already past it when this shipped would never be taught the booster at all —
+    // and they are the players with the most levels left to use it on. So level 6 is where it is
+    // taught to someone climbing the ladder, and for everyone else it is the **first board at or
+    // after where they already are** that can carry the lesson.
+    if (this.level < MAGNET_TUTOR_LEVEL) return;
+    // ⚠ **Never on a multiple of five.** Those are the milestone boards — the ones rebuilt to sit in
+    // the 10-20% band — and the lesson gates input for its first three beats. Teaching on a level
+    // the player is expected to lose spends their attention on the wrong thing and spends a free
+    // booster on a board that was meant to be hard. It waits for the next one; the lesson is not
+    // owed to any particular level, only to the first suitable one.
+    if (this.level % 5 === 0) return;
+    const target = MagnetTutor.pick(this.board);
+    // ⚠ No suitable tray, no lesson — try again on the next board. Its middle beat waits for a
+    // magnet plan that the wrong tray can never produce, and a lesson that cannot end is a level
+    // that cannot be played.
+    if (target < 0) return;
+    // ⚠ The lesson **hands over the boosters it is about to spend**. `FREE_MAGNETS` reaches most
+    // players through the save default, but a player who somehow arrives here at zero would be
+    // shown the buy card at the exact moment the lesson says "press it" — teaching a purchase
+    // instead of a booster.
+    if (save.magnets < FREE_MAGNETS) save.magnets = FREE_MAGNETS;
+    this.refreshHud();
+    this.magTutor = new MagnetTutor(this, this.coachLayer(), this.board, {
+      cellAt: (cell) => ({
+        x: this.gm.x + (cell % this.board.cols) * this.gm.pitch + this.gm.cell / 2,
+        y: this.gm.y + ((cell / this.board.cols) | 0) * this.gm.pitch + this.gm.cell / 2,
+        // ⚠ From `gm`, never `L.cell`. A 7x7 board is drawn at 57 and the two are 7px apart per
+        // cell — the note at the top of this file about mixing them applies to markers too.
+        size: this.gm.cell,
+      }),
+      buttonAt: () => ({ x: this.boosterBtns.magnet.x, y: this.boosterBtns.magnet.y }),
+    });
+    this.magTutor.start(target, PALETTE[this.board.tiles[target]!.color].name);
+  }
+
   private startCoach() {
+    // ⚠ Stands down while the magnet lesson is running — see `startMagnetTutor`.
+    if (this.magTutor && !this.magTutor.finished) return;
     this.coach?.destroy();
     this.coach = null;
     if (this.custom || this.preview || this.tutorial) return;
@@ -2473,7 +3338,7 @@ export class GameScene extends Phaser.Scene {
 
   private toast(msg: string) {
     const t = this.add
-      .text(270, 700, msg, { fontFamily: FONT, fontSize: "26px", color: "#ffffff" })
+      .text(CX, 700, msg, { fontFamily: FONT, fontSize: "26px", color: "#ffffff" })
       .setOrigin(0.5)
       .setStroke(UI.ink, 6);
     this.fxLayer.add(t);
@@ -2514,22 +3379,6 @@ export class GameScene extends Phaser.Scene {
     this.tweens.add({ targets: r, alpha: 0, duration: 420, onComplete: () => r.destroy() });
   }
 
-  private flyToMagnet(n: number) {
-    const btn = this.boosterBtns.magnet;
-    for (let i = 0; i < n; i++) {
-      const s = img(this, K.marble(0), L.belt.cx, L.belt.cy).setAlpha(0.9);
-      this.fxLayer.add(s);
-      this.tweens.add({
-        targets: s,
-        x: btn.x,
-        y: btn.y,
-        scale: 0.4 / TS,
-        duration: 320,
-        delay: i * 40,
-        onComplete: () => s.destroy(),
-      });
-    }
-  }
 
   // ── Dev hook ───────────────────────────────────────────────────────────────
   // Keeping this is what makes the game measurable from a headless browser.

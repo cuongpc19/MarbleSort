@@ -31,7 +31,7 @@
 // to Arial glyph by glyph and looks broken.
 
 import Phaser from "phaser";
-import type { Game } from "../game/logic";
+import { stepTarget, type Game } from "../game/logic";
 import { save } from "../game/save";
 import { coachPlate, coachRing } from "./tutorial";
 import { teachAll, teachOnly } from "../game/teach";
@@ -54,6 +54,23 @@ type Mark = { id: string; steps: Step[]; present: (b: Game) => boolean };
 
 const firstTile = (b: Game, f: (t: NonNullable<Game["tiles"][number]>) => boolean) =>
   b.tiles.findIndex((t) => !!t && f(t));
+
+/** The first arrow-locked tray on the board, or -1. */
+const firstArrow = (b: Game) => firstTile(b, (t) => !!t.arrow);
+
+/**
+ * The cell an arrow lock is waiting on — the tray that has to be poured first.
+ *
+ * ⚠ The second card points **there**, not back at the locked tray. The rule is about the other
+ * cell, and a ring drawn twice on the same tile teaches "this one is special" rather than "pour
+ * that one".
+ */
+function arrowTarget(b: Game): number {
+  const i = firstArrow(b);
+  if (i < 0) return -1;
+  const at = stepTarget(i, b.tiles[i]!.arrow!, b.cols, b.rows);
+  return at >= 0 ? at : i;
+}
 
 /** Where a hatch pushes to. Absent `dir` means down — boards built before hatches could turn. */
 function hatchTarget(b: Game): number {
@@ -96,6 +113,17 @@ const MARKS: Mark[] = [
       { text: "The number on a hatch is how many trays it holds", find: (b) => b.disp.findIndex(Boolean) },
       { text: "It pushes one out when the cell it faces is free", find: hatchTarget },
       { text: "So clearing that cell pulls the queue through", find: hatchTarget },
+    ],
+  },
+  {
+    id: "arrow",
+    present: (b) => b.tiles.some((t) => !!t?.arrow),
+    steps: [
+      { text: "This tray is locked — see the arrow", find: firstArrow },
+      // ⚠ The half that is not obvious, and the one worth the second card: the arrow is an
+      // instruction about a *different* tray. Read as decoration on this one it says nothing.
+      { text: "Pour the tray it points at first", find: arrowTarget },
+      { text: "Then this one opens up", find: firstArrow },
     ],
   },
   {

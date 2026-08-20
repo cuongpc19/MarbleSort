@@ -161,12 +161,19 @@ function coloursOf(t) {
   return t.wide ? [t.color, t.mate ?? t.color] : [t.color];
 }
 
-/** Trays standing with their eggs proud: on the board, face-up, and with a lane out. */
+/**
+ * Trays standing with their eggs proud: on the board, face-up, and with a lane out.
+ *
+ * ⚠ `liftable`, not `canEscape` — an arrow-locked tray has a lane out and still cannot be poured.
+ * This is Cuongxs1's idea of what the player can see, so a bot counting a locked tray as available
+ * is a bot planning moves the board refuses, and its map-gain term would credit the tap that opens
+ * it twice.
+ */
 function availableTrays(g) {
   const out = [];
   for (let i = 0; i < g.tiles.length; i++) {
     const t = g.tiles[i];
-    if (t && !t.hidden && g.canEscape(i)) out.push(i);
+    if (t && !t.hidden && g.liftable(i)) out.push(i);
   }
   return out;
 }

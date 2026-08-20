@@ -16,6 +16,7 @@ import {
   STAR_TWO_TRIES,
   TRAY_N,
   type Color,
+  type GridBox,
 } from "./config";
 
 /** Marbles the magnet can hold off-belt at once. */
@@ -57,6 +58,24 @@ export interface Tile {
   /** Right half's colour. Absent means the same as `color` — how boards written before linked
    *  pairs existed still parse. */
   mate?: Color;
+  /**
+   * An **arrow lock**: this tray is sealed until the cell the arrow points at is empty.
+   *
+   * The arrow is drawn on the tray's face pointing at its neighbour, and the rule is exactly what
+   * the picture says — pour *that* one first and this one wakes up. While it is on, the tray taps
+   * like a `?`: not at all, and its eggs lie flat, because raised eggs are the board's promise that
+   * a tray will move.
+   *
+   * ⚠ **It clears for good, like a `?` reveal — it does not come back.** A hatch can push a new
+   * tray into the cell that was emptied, and a lock that snapped shut again after the player had
+   * already satisfied it would be the board taking back something it had given. `settleInto` clears
+   * the field rather than deriving the state each time, so there is nothing left to re-close.
+   *
+   * ⚠ **An arrow pointing off the board, or at casing, a crate or a bar, never opens.** Nothing in
+   * the engine refuses that — it is a legal board that cannot be won — so the editor rejects it as
+   * fatal and `custom.ts` checks it on every keystroke.
+   */
+  arrow?: ArrowDir;
 }
 
 /**
@@ -94,6 +113,26 @@ export interface Lid {
 /** Which way a hatch faces. Its shutter is on that side and its trays come out there. */
 export type Dir = "down" | "left" | "right";
 
+/**
+ * Four ways, for the arrow lock.
+ *
+ * ⚠ Wider than `Dir` on purpose: a hatch shutter can never face **up** — it would push a tray into
+ * the cell above and there is nothing there to catch it — but an arrow only points, so all four
+ * make sense. Keeping them one type would either give hatches an illegal direction or leave the
+ * arrow unable to say "the one above".
+ */
+export type ArrowDir = Dir | "up";
+
+/** The neighbouring cell in `dir`, or -1 if that is off the board. */
+export function stepTarget(i: number, dir: ArrowDir, cols: number, rows: number): number {
+  const x = i % cols;
+  const y = (i / cols) | 0;
+  if (dir === "left") return x > 0 ? i - 1 : -1;
+  if (dir === "right") return x < cols - 1 ? i + 1 : -1;
+  if (dir === "up") return y > 0 ? i - cols : -1;
+  return y < rows - 1 ? i + cols : -1;
+}
+
 /** Sits in a cell and pushes tiles into the neighbouring cell it faces, as that cell empties. */
 export interface Dispenser {
   queue: Color[];
@@ -104,11 +143,7 @@ export interface Dispenser {
 
 /** The cell a hatch at `i` pushes into, or -1 if it faces off the board. */
 export function dispTarget(i: number, dir: Dir | undefined, cols: number, rows: number): number {
-  const x = i % cols;
-  const y = (i / cols) | 0;
-  if (dir === "left") return x > 0 ? i - 1 : -1;
-  if (dir === "right") return x < cols - 1 ? i + 1 : -1;
-  return y < rows - 1 ? i + cols : -1;
+  return stepTarget(i, dir ?? "down", cols, rows);
 }
 
 export interface LevelDef {
@@ -190,6 +225,8 @@ export interface TickEvents {
   released: Color[];
   emitted: number[];
   revealed: number[];
+  /** trays whose arrow lock opened this tick */
+  unlocked: number[];
   /** lids that came off this tick, by their top-left cell */
   opened: number[];
 }
@@ -210,6 +247,33 @@ export interface Snapshot {
 }
 
 export type Status = "play" | "won" | "lost";
+
+/**
+ * The bounding box of the cells that are part of the board — everything else is casing.
+ *
+ * ⚠ Casing only. A crate is *inside* the board and counts, which is the same distinction
+ * `drawGridCavity` draws and `cellFree` enforces; dropping crates out of the box would shrink the
+ * cavity away from an obstacle the player can see.
+ */
+export function boardBounds(def: LevelDef): GridBox {
+  const wall = def.wall ?? [];
+  let x0 = def.cols;
+  let y0 = def.rows;
+  let x1 = -1;
+  let y1 = -1;
+  for (let y = 0; y < def.rows; y++) {
+    for (let x = 0; x < def.cols; x++) {
+      if (wall[y * def.cols + x]) continue;
+      if (x < x0) x0 = x;
+      if (x > x1) x1 = x;
+      if (y < y0) y0 = y;
+      if (y > y1) y1 = y;
+    }
+  }
+  // A board that is casing end to end cannot be played, but it must still be drawable.
+  if (x1 < 0) return { x: 0, y: 0, w: def.cols, h: def.rows };
+  return { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
+}
 
 export class Game {
   readonly def: LevelDef;
@@ -271,6 +335,15 @@ export class Game {
    * off on the tap itself, and the scene needs to know which one to play the burst on.
    */
   lastOpened: number[] = [];
+  /**
+   * Arrow locks the most recent `tap` opened.
+   *
+   * ⚠ **Same channel, and for the same reason as `lastOpened`.** The unlock happens on the pour —
+   * that is the entire rule, "empty this one and that one wakes" — and the marbles then spend
+   * seconds falling. A scene that waited for the next `tick` to animate it would leave the arrow
+   * sitting on a tray the model had already freed, which reads as the tap not having worked.
+   */
+  lastUnlocked: number[] = [];
 
   constructor(def: LevelDef) {
     this.def = def;
@@ -441,11 +514,25 @@ export class Game {
     return false;
   }
 
+  /**
+   * Whether a tray's eggs stand proud — a way out **and** nothing holding it shut.
+   *
+   * ⚠ **The art is drawn from this, and so is the board half of `canTap`.** Raised eggs are the
+   * board's promise that a tray will move, so anything that refuses a tap has to press them flat
+   * or the picture is lying. `canEscape` alone was that test until the arrow lock arrived; a tray
+   * whose arrow is still on has a way out and cannot be poured, and the two must not disagree.
+   */
+  liftable(idx: number): boolean {
+    const t = this.tiles[idx];
+    if (!t || t.arrow) return false;
+    return this.canEscape(idx);
+  }
+
   canTap(idx: number): boolean {
     if (this.status !== "play") return false;
     const t = this.tiles[idx];
     if (!t || t.hidden) return false;
-    if (!this.canEscape(idx)) return false;
+    if (!this.liftable(idx)) return false;
     return this.capacity() >= this.load(idx);
   }
 
@@ -554,7 +641,9 @@ export class Game {
     this.creditLids(t.wide ? [t.color, t.mate ?? t.color] : [t.color]);
     // Chocolate boxes this tap burst, for the scene to animate. A field rather than a return
     // value because every caller of `tap` wants the colour and only one wants this.
-    this.lastOpened = this.settle().opened;
+    const ev = this.settle();
+    this.lastOpened = ev.opened;
+    this.lastUnlocked = ev.unlocked;
     return t.color;
   }
 
@@ -731,6 +820,7 @@ export class Game {
       released: [],
       emitted: [],
       revealed: [],
+      unlocked: [],
       opened: [],
     };
     if (this.status !== "play") return ev;
@@ -857,6 +947,7 @@ export class Game {
       released: [],
       emitted: [],
       revealed: [],
+      unlocked: [],
       opened: [],
     };
     this.openLids(ev);
@@ -903,6 +994,22 @@ export class Game {
           ev.revealed.push(i);
           changed = true;
         }
+      }
+
+      // Arrow locks. ⚠ Inside the same settle loop as the reveals and the hatches, so one tap can
+      // open a chain: pouring a tray frees its cell, which opens the arrow pointing at it, whose
+      // own cell is what the next arrow is waiting on. Run as a separate pass afterwards it would
+      // take one player tap per link, and the board would look like it was thinking in slow motion.
+      for (let i = 0; i < this.tiles.length; i++) {
+        const t = this.tiles[i];
+        if (!t?.arrow) continue;
+        const at = stepTarget(i, t.arrow, this.cols, this.rows);
+        // ⚠ Off the board never opens, and neither does casing or a crate — `cellFree` says so.
+        // That is an unwinnable board, caught in the editor, not something to paper over here.
+        if (at < 0 || !this.cellFree(at)) continue;
+        delete t.arrow;
+        ev.unlocked.push(i);
+        changed = true;
       }
 
       if (!changed) break;
@@ -964,7 +1071,11 @@ export class Game {
  */
 export function levelFingerprint(d: LevelDef): string {
   const tiles = d.tiles
-    .map((t) => (t ? `${t.color}${t.hidden ? "?" : ""}${t.wide ? `w${t.mate ?? t.color}` : ""}` : "."))
+    .map((t) =>
+      t
+        ? `${t.color}${t.hidden ? "?" : ""}${t.wide ? `w${t.mate ?? t.color}` : ""}${t.arrow ? `>${t.arrow[0]}` : ""}`
+        : ".",
+    )
     .join(",");
   const disp = d.disp.map((x) => (x ? `${x.dir ?? "down"}:${x.queue.join("")}` : "-")).join(",");
   const cols = d.columns.map((c) => c.join("")).join("|");

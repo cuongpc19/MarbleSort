@@ -72,6 +72,15 @@ export const K = {
   bar: "bar",
   /** The clip that holds a linked pair together. */
   link: "link",
+  /**
+   * The arrow lock: a chevron on a dark disc, sitting on the face of a sealed tray and pointing
+   * at the neighbour that has to be poured first.
+   *
+   * ⚠ **One texture, baked pointing up, turned by the scene** — the same trick the hatch shutter
+   * uses. Four baked arrows would be four chances for one of them to be drawn a pixel off centre,
+   * and the rotation is exactly what the rule is about.
+   */
+  arrow: "arrow",
   lid: "lid",
   /**
    * The two ribbons tied round a chocolate box, in the colour that counts toward opening it.
@@ -88,6 +97,7 @@ export const K = {
   cleat: (light: boolean) => (light ? "cleatL" : "cleatD"),
   spark: "spark",
   ring: "ring",
+  /** The pointing hand every coach mark travels on. */
   hand: "hand",
   rays: "rays",
   flash: "flash",
@@ -99,6 +109,8 @@ export const K = {
   calendar: "cal",
   /** Day seven's prize. Bigger than a coin because it has to look like more than a coin. */
   chest: "chest",
+  /** The padlock on a daily-reward day the player has not reached yet. */
+  lock: "lock",
 };
 
 // ── The bakery ───────────────────────────────────────────────────────────────
@@ -254,6 +266,41 @@ export function bakeAll(scene: Phaser.Scene) {
   // The clip joining a linked pair. Drawn as its own small sprite between the two trays rather
   // than baked into a double-width face: a pair carries two colours, and baking every
   // combination would be PALETTE² textures at boot for a thing 18px wide.
+  /**
+   * ⚠ **Dark on the tray, not tinted with it.** The tray underneath is a locked one, so it is
+   * already wearing the flat face, and a chevron in the tray's own colour on a tray's own colour
+   * is the one combination that disappears at arm's length — the same trap the box-clear burst
+   * fell into on a white cabinet. Ink and white read on all seven.
+   */
+  bake(scene, K.arrow, 34, 34, (ctx, w) => {
+    const r = w / 2;
+    const stroke = (color: string, dy: number, width: number) => {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = width;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.beginPath();
+      ctx.moveTo(r, r + 9 + dy);
+      ctx.lineTo(r, r - 7 + dy);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(r - 7, r - 2 + dy);
+      ctx.lineTo(r, r - 9.5 + dy);
+      ctx.lineTo(r + 7, r - 2 + dy);
+      ctx.stroke();
+    };
+    // ⚠ **A shadow under it, not a disc behind it.** White alone is the request and white alone is
+    // unreadable on the pale half of the palette — yellow and cyan trays are nearly white
+    // themselves, and this sits on the *flat* face, which is the tray's own colour with no eggs to
+    // break it up. So the arrow stays purely white and the contrast comes from underneath: one
+    // darker pass, offset down and drawn fatter, which reads as depth on the dark swatches and as
+    // an outline on the light ones. Same trick as the eggs on `trayFace`.
+    ctx.globalAlpha = 0.4;
+    stroke("#101a30", 2, 8.5);
+    ctx.globalAlpha = 1;
+    stroke("#ffffff", 0, 5);
+  });
+
   bake(scene, K.link, 22, 30, (ctx, w, h) => {
     ctx.fillStyle = hex(UI.machineEdge);
     rr(ctx, 0, 0, w, h, 7);
@@ -566,29 +613,66 @@ function bakeEffects(scene: Phaser.Scene) {
    * ⚠ Outlined in ink, like every other piece: it has to sit legibly on the white cabinet *and*
    * on a saturated tray, and a plain white hand vanishes against the first.
    */
-  bake(scene, K.hand, 46, 60, (ctx) => {
+  // The pointing hand every coach mark travels on.
+  //
+  // ⚠ **Two details carry the whole drawing, and three earlier versions failed for want of them.**
+  // A finger rising out of a fist is the rude gesture — reported off a real screen, twice, and
+  // correctly, because that is the silhouette. What separates a *pointing* hand from it is:
+  //
+  //   1. **The thumb protrudes**, as its own rounded lobe clear of the palm with a crease where it
+  //      folds across. A bump tucked flat against the side is not enough — that shipped, and still
+  //      read wrong.
+  //   2. **The three folded fingers are separate humps** with creases between them. Smoothed into
+  //      one curve, what is left is a fist with one finger out, whatever else is added.
+  //
+  // Drawn side by side at 6x, 2x and 1x, a version missing either one reverts. Both are load-bearing.
+  //
+  // ⚠ The **fingertip sits on the sprite's horizontal centre** (x = 43 of 86), which is why the
+  // canvas is wider than the drawing needs and carries dead margin on the left. Every call site
+  // places this by an offset from the thing it points at, so an off-centre tip would silently
+  // re-aim the level-1 walkthrough and the magnet lesson together — a change to what the player is
+  // told to touch, made from inside a drawing routine. Pad the canvas; never move the tip.
+  bake(scene, K.hand, 86, 70, (ctx) => {
     ctx.lineJoin = "round";
+    ctx.lineCap = "round";
     ctx.lineWidth = 4;
     ctx.strokeStyle = UI.ink;
     ctx.fillStyle = "#ffffff";
+
     ctx.beginPath();
-    // index finger, pointing up
-    ctx.moveTo(17, 30);
-    ctx.lineTo(17, 12);
-    ctx.quadraticCurveTo(17, 5, 23, 5);
-    ctx.quadraticCurveTo(29, 5, 29, 12);
-    ctx.lineTo(29, 27);
-    // knuckles folded under it
-    ctx.quadraticCurveTo(34, 25, 37, 29);
-    ctx.quadraticCurveTo(41, 33, 41, 40);
-    ctx.quadraticCurveTo(41, 55, 30, 55);
-    ctx.lineTo(22, 55);
-    ctx.quadraticCurveTo(12, 55, 9, 45);
-    ctx.lineTo(6, 36);
-    ctx.quadraticCurveTo(5, 30, 11, 28);
-    ctx.quadraticCurveTo(15, 27, 17, 30);
+    ctx.moveTo(36, 36);
+    ctx.lineTo(36, 12);                       // index finger, left side
+    ctx.quadraticCurveTo(36, 4, 43, 4);       // the tip — on the sprite's centre line
+    ctx.quadraticCurveTo(50, 4, 50, 12);
+    ctx.lineTo(50, 26);                       // index finger, right side
+    ctx.quadraticCurveTo(50, 21, 56, 21);     // folded finger 1
+    ctx.quadraticCurveTo(62, 21, 62, 28);
+    ctx.quadraticCurveTo(62, 24, 68, 24);     // folded finger 2
+    ctx.quadraticCurveTo(74, 24, 74, 31);
+    ctx.quadraticCurveTo(74, 28, 78, 29);     // folded finger 3
+    ctx.quadraticCurveTo(82, 31, 82, 37);
+    ctx.lineTo(82, 48);                       // outside of the palm
+    ctx.quadraticCurveTo(82, 64, 64, 64);
+    ctx.lineTo(48, 64);
+    ctx.quadraticCurveTo(37, 64, 34, 54);     // heel
+    ctx.lineTo(31, 50);
+    ctx.quadraticCurveTo(20, 50, 19, 42);     // the thumb, out clear of the palm
+    ctx.quadraticCurveTo(18, 34, 28, 33);
+    ctx.quadraticCurveTo(34, 33, 36, 36);
     ctx.closePath();
     ctx.fill();
+    ctx.stroke();
+
+    // The creases: two between the folded fingers, one where the thumb folds across the palm.
+    // Without them the right side is one smooth lump and the left side is a mitten.
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(62, 29);
+    ctx.lineTo(62, 40);
+    ctx.moveTo(74, 32);
+    ctx.lineTo(74, 43);
+    ctx.moveTo(33, 38);
+    ctx.quadraticCurveTo(39, 45, 40, 54);
     ctx.stroke();
   });
 
@@ -667,8 +751,14 @@ function bakeChrome(scene: Phaser.Scene) {
   bake(scene, K.btn("green"), S, S, (ctx, w, h) =>
     face(ctx, w, h, "#7fe06a", "#3fb43f", "#2c8330", 17),
   );
+  // ⚠ The "not yet" face, and it is **muted green, not grey**. It used to be #a9b5a9 → #7e8a7e,
+  // whose top edge reads as off-white — and this is the state the button spends most of a level in,
+  // because with a magnet in hand it greys whenever the belt has no plan for one, which is nearly
+  // always true at the start of a board. Reported as "the button is green but the background is
+  // still white": the white *was* this face. Darker and less saturated than the live face, so it
+  // still reads as unavailable, but it is recognisably the same control rather than a pale disc.
   bake(scene, K.btn("greenOff"), S, S, (ctx, w, h) =>
-    face(ctx, w, h, "#a9b5a9", "#7e8a7e", "#5c665c", 17),
+    face(ctx, w, h, "#5f9c62", "#40734a", "#2b4d35", 17),
   );
   bake(scene, K.btn("purple"), 120, 46, (ctx, w, h) =>
     face(ctx, w, h, "#a596f2", "#7f6ada", "#5b48ab", 20),
@@ -849,6 +939,32 @@ function bakeChrome(scene: Phaser.Scene) {
     }
     ctx.fillStyle = "#ffd964";              // the clasp
     rr(ctx, 24, 26, 8, 10, 2);
+    ctx.fill();
+  });
+
+  // The padlock on a locked daily-reward day.
+  //
+  // ⚠ Baked, not an emoji. A pictograph falls back to whatever the OS ships — a different shape on
+  // every device and nothing at all on some Androids — and this one carries a rule ("you cannot
+  // take this yet"), so it has to look the same everywhere the rule applies.
+  bake(scene, K.lock, 34, 40, (ctx) => {
+    ctx.strokeStyle = "#8fa6c4";            // the shackle, behind the body
+    ctx.lineWidth = 6;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.arc(17, 17, 9, Math.PI, 0);
+    ctx.stroke();
+    ctx.fillStyle = "#54708f";              // the body
+    rr(ctx, 3, 16, 28, 22, 5);
+    ctx.fill();
+    ctx.fillStyle = "#8fa6c4";
+    rr(ctx, 5, 18, 24, 18, 4);
+    ctx.fill();
+    ctx.fillStyle = "#39506c";               // the keyhole
+    ctx.beginPath();
+    ctx.arc(17, 25, 3.4, 0, Math.PI * 2);
+    ctx.fill();
+    rr(ctx, 15.4, 25, 3.2, 7, 1.4);
     ctx.fill();
   });
 

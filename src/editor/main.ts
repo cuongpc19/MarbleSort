@@ -24,11 +24,11 @@ import {
   type Cell,
   type CellKind,
 } from "../game/custom";
-import { Game, type Dir } from "../game/logic";
+import { Game, stepTarget, type ArrowDir, type Dir } from "../game/logic";
 import { HANDMADE } from "../game/handmade";
 import { makeLevel } from "../game/level";
 
-type Tool = "wall" | "floor" | "tile" | "hiddenTile" | "hatch" | "crate" | "pair" | "choc";
+type Tool = "wall" | "floor" | "tile" | "hiddenTile" | "hatch" | "crate" | "pair" | "choc" | "arrow";
 
 const TOOLS: { id: Tool; label: string; key: string; hint: string }[] = [
   { id: "wall", label: "Thành máy", key: "1", hint: "vẽ viền — ngoài hình" },
@@ -39,12 +39,15 @@ const TOOLS: { id: Tool; label: string; key: string; hint: string }[] = [
   { id: "crate", label: "Thùng gỗ", key: "6", hint: "vật cản, không bao giờ mất" },
   { id: "pair", label: "Khay đôi", key: "7", hint: "hai khay dính nhau, một chạm rơi cả hai" },
   { id: "choc", label: "Hộp socola", key: "8", hint: "che 2x2, đổ đủ số khay thì vỡ" },
+  { id: "arrow", label: "Khay mũi tên", key: "9", hint: "khoá đến khi đổ xong khay nó chỉ vào" },
 ];
 
 const hex = (c: Color) => "#" + PALETTE[c % PALETTE.length].base.toString(16).padStart(6, "0");
 
 let bp: Blueprint = loadCustom() ?? blankBlueprint(6, GRID_ROWS);
 let tool: Tool = "wall";
+/** Which way the next arrow tray will point. Sticky, so a row of them is one click each. */
+let arrowDir: ArrowDir = "down";
 let color: Color = 0;
 let selected = -1;
 /** which tray of the open hatch the colour buttons are aimed at */
@@ -67,6 +70,9 @@ const pairBox = $("pairBox");
 const pairSlots = $("pairSlots");
 const pairHidden = $<HTMLInputElement>("pairHidden");
 const chocBox = $("chocBox");
+const arrowBox = $("arrowBox");
+const aDir = $("aDir") as HTMLSelectElement;
+const aWhere = $("aWhere");
 const chocNeed = $<HTMLInputElement>("chocNeed");
 const chocRainbow = $<HTMLInputElement>("chocRainbow");
 const chocBorder = $("chocBorder");
@@ -111,6 +117,18 @@ function apply(i: number) {
       break;
     case "hiddenTile":
       bp.cells[i] = { kind: "tile", color, hidden: true };
+      break;
+    case "arrow":
+      // ⚠ Keeps the arrow of a tray that already has one, so clicking it just selects it — the
+      // direction is the part you come back to adjust, and re-stamping it with the panel's current
+      // value on every click makes the board fight the panel.
+      bp.cells[i] = {
+        kind: "tile",
+        color,
+        hidden: false,
+        arrow: cur.kind === "tile" && cur.arrow ? cur.arrow : arrowDir,
+      };
+      selected = i;
       break;
     case "pair": {
       // ⚠ The pair covers the cell to its right, so it needs one to cover. Refusing here rather
@@ -162,7 +180,8 @@ function apply(i: number) {
       selected = i;
       break;
   }
-  if (tool !== "hatch" && tool !== "pair" && tool !== "choc" && selected === i) selected = -1;
+  if (tool !== "hatch" && tool !== "pair" && tool !== "choc" && tool !== "arrow" && selected === i)
+    selected = -1;
   commit();
 }
 
@@ -304,9 +323,21 @@ function render() {
         face.style.backgroundColor = hex(c.color);
         // Eggs standing proud is the game's own readout for "this tray can move", so the editor
         // has to use it for the same thing or the two pictures disagree at a glance.
-        if (!preview || preview.canEscape(i)) face.classList.add("eggs");
+        // ⚠ `liftable`, the same test the game draws from — `canEscape` alone says an arrow-locked
+        // tray can move, and the editor would then promise something the game refuses.
+        if (!preview || preview.liftable(i)) face.classList.add("eggs");
       }
       if (c.hidden && !stillHidden) el.classList.add("revealed");
+      // The arrow lock. Drawn from the **settled** board, like everything else here: an arrow whose
+      // target cell was already empty in the drawing opens before the first frame, and showing it
+      // would be the editor promising a piece the player never meets.
+      const stillLocked = pt ? !!pt.arrow : !!c.arrow;
+      if (c.arrow) {
+        const mark = document.createElement("span");
+        mark.className = "arrowMark" + (stillLocked ? "" : " gone");
+        mark.textContent = { up: "↑", down: "↓", left: "←", right: "→" }[c.arrow];
+        el.appendChild(mark);
+      }
       // A linked pair: draw the clip on this cell's right edge and paint the neighbouring cell
       // with the mate's colour. The blueprint stores the pair once, at the left cell, so the
       // right cell is plain floor and would otherwise render as an empty slot.
@@ -328,7 +359,7 @@ function render() {
         el.appendChild(chip);
       } else {
         face.style.backgroundColor = hex(left.mate ?? left.color ?? 0);
-        if (!preview || preview.canEscape(i - 1)) face.classList.add("eggs");
+        if (!preview || preview.liftable(i - 1)) face.classList.add("eggs");
       }
       if (left.hidden && !stillHidden) el.classList.add("revealed");
       el.classList.add("linkedRight");
@@ -369,6 +400,13 @@ function render() {
     boardEl.appendChild(el);
   }
 }
+
+aDir.addEventListener("change", () => {
+  arrowDir = aDir.value as ArrowDir;
+  const c = activeArrow();
+  if (c) c.arrow = arrowDir;
+  commit();
+});
 
 function renderTools() {
   toolsEl.replaceChildren();
@@ -451,6 +489,36 @@ function renderSwatches() {
 function activePair(): Cell | null {
   const c = selected >= 0 ? bp.cells[selected] : null;
   return c && c.kind === "tile" && c.wide ? c : null;
+}
+
+/** The cell the arrow panel is aimed at: the selected one, if it is an arrow tray. */
+function activeArrow() {
+  const c = bp.cells[selected];
+  return c && c.kind === "tile" && c.arrow ? c : null;
+}
+
+function renderArrow() {
+  const c = activeArrow();
+  if (!c) {
+    arrowBox.hidden = true;
+    return;
+  }
+  arrowBox.hidden = false;
+  aDir.value = c.arrow ?? "down";
+  // ⚠ Says what the arrow is actually pointing **at**, not just which way it faces. The rule is
+  // about the neighbouring tray, and "chỉ xuống" is only half of it — the half that cannot tell
+  // you the arrow is aimed at a crate.
+  const at = stepTarget(selected, c.arrow ?? "down", bp.cols, bp.rows);
+  const NAME: Record<string, string> = {
+    wall: "thành máy — không bao giờ mở được",
+    crate: "thùng gỗ — không bao giờ mở được",
+    floor: "ô trống — mở ngay từ đầu",
+    tile: "một khay — phải đổ khay đó trước",
+    hatch: "cửa xả",
+    choc: "hộp socola",
+  };
+  aWhere.textContent =
+    at < 0 ? "Chỉ ra ngoài mép bảng — không bao giờ mở được." : "Đang chỉ vào " + (NAME[bp.cells[at].kind] ?? "?") + ".";
 }
 
 function renderPair() {
@@ -1111,6 +1179,7 @@ function commit() {
   renderHatch();
   renderPair();
   renderChoc();
+  renderArrow();
   renderStatus();
   renderBook();
   renderBadge();
@@ -1133,7 +1202,7 @@ boardEl.addEventListener("pointermove", (e) => {
   if (!t) return;
   const i = Number(t.dataset.i);
   // Dragging never re-enters the hatch editor; it would reselect on every pixel of movement.
-  if (tool === "hatch" || tool === "pair" || tool === "choc") return;
+  if (tool === "hatch" || tool === "pair" || tool === "choc" || tool === "arrow") return;
   apply(i);
 });
 const stopPaint = () => (painting = false);

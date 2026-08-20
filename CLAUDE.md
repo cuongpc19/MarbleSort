@@ -183,6 +183,74 @@ Board modifiers, all from the reference material:
   swatch row you have to click to find out is the rest of the awkwardness.
   The generator can place one (`Params.lids`) but its gate is `d >= 0.6 && level % 4 === 0`, and
   the sheet pins `d` near 0 — **no shipped level has one**.
+- **Arrow trays** — a tray with an arrow on its face pointing at one of its four neighbours. It is
+  **sealed until that cell is empty**: eggs flat, taps refused, exactly like a `?`. Pour the tray it
+  points at and it wakes up. `Tile.arrow`, and `stepTarget` is the one place a direction becomes a
+  cell index (`dispTarget` delegates to it, so a hatch and an arrow cannot disagree about "left").
+  ⚠ **`ArrowDir` is wider than `Dir` on purpose.** A hatch shutter can never face *up* — there is
+  nothing above to catch the tray — but an arrow only points, so all four make sense. One type for
+  both would either hand hatches an illegal direction or leave the arrow unable to say "that one".
+  ⚠ **It clears for good, like a `?` reveal.** A hatch can refill the cell that was emptied, and a
+  lock that snapped shut again after the player had already satisfied it is the board taking back
+  what it gave. `settleInto` deletes the field rather than deriving the state, so nothing can
+  re-close it.
+  ⚠ **`liftable`, not `canEscape`, is now what the eggs are drawn from** — in `GameScene`, in the
+  editor's preview, and in `bots.mjs`'s `availableTrays`. An arrow-locked tray has a way out and
+  still cannot be poured; raised eggs are the board's promise that it will move, so the two must
+  never disagree. This is the same one-test rule the `?` reveal has, with one more term in it.
+  ⚠ **It opens on the pour, not on the next tick** — `Game.lastUnlocked`, the same channel as
+  `lastOpened` for chocolate boxes and for the same reason: the marbles then spend seconds falling,
+  and an arrow still sitting on a tray the model has already freed reads as the tap not working.
+  ⚠ **Two ways to build one that can never open, and the engine refuses neither.** An arrow aimed
+  at casing, a crate, a bar or off the board never opens; and any *ring* of arrows waiting on each
+  other deadlocks while every arrow in it passes the per-arrow test. `checkBlueprint` raises both as
+  fatal, the ring via a fixpoint over "can this cell ever empty" — one message for the whole ring,
+  because it is one mistake, not four.
+  ⚠ **The arrow is white, with a shadow under it rather than a disc behind it.** White alone is
+  unreadable on the pale half of the palette — a yellow or cyan tray is nearly white itself, and the
+  badge sits on the *flat* face, which is the tray's own colour with no eggs to break it up. So one
+  darker pass goes down first, offset and fatter, which reads as depth on the dark swatches and as
+  an outline on the light ones. Same trick as the eggs on `trayFace`. The editor's CSS mirrors it
+  with `text-shadow`, because the two pictures have to agree.
+  The editor draws them with tool **9**, and its panel says what the arrow is pointing *at* rather
+  than which way it faces — "chỉ xuống" cannot tell you the arrow is aimed at a crate.
+  Nine shipped boards carry them: **41**, where the piece is introduced, and **42, 51, 56, 63, 64,
+  67, 68, 78** — the easiest 20% of the 42-80 run, three arrows each, placed by
+  `node scripts/arrows.mjs 42-80 --share 0.2 --arrows 3 --write`.
+  **Levels 86-205 are a run built from arrows**: the 40 boards of 46-85 laid down three times, each
+  pass with a different set of locks, by `node scripts/arrowset.mjs --from 46-85 --to 86 --copies 3
+  --arrows 5 --write`. 120 levels, 586 arrows, every one of them proved solvable.
+  ⚠ **Interleaved, not grouped.** Pass 1 lays the 40 boards down in order, then pass 2 lays the same
+  40 down again. Grouped the other way (three copies of a board back to back) the player reads it as
+  the game repeating itself; a pass apart it reads as a board they know with a new problem on it,
+  which is the only thing the copy has to offer.
+  ⚠ **The copy takes the resolved board, not the drawing.** Only 14 of the 40 sources pin their box
+  stacks; the rest are derived on load against the slot's own target, so copying the drawing alone
+  produces a different level from the one being copied. `levelDefFor` is asked for the stacks and
+  they are frozen onto the copy.
+  ⚠ **The quota is what the shape allows.** 76 boards took the full 5, but source 68 has exactly
+  **one** cell in the middle of its silhouette, and 71 and 84 have two — no search can do better, so
+  their copies carry 1-2. A board that cannot take its quota drops to fewer rather than being
+  skipped, because a gap in the run falls through to the generator and produces a board with no
+  arrows at all.
+  ⚠ This **replaced the old 86-115**, the deliberately-easy run built by `easy.mjs`. It is in git
+  history and nowhere else.
+  ⚠ **Adding a lock invalidates the board's pinned line.** These boards ship with `refTaps` frozen
+  onto the drawing, and a locked tray can make that exact order illegal — `toLevelDef` then drops
+  the line and the level is left with no proof of solvability and nothing for the hint button. The
+  script searches for a fresh line and pins it, then replays it exactly the way `custom.ts` does
+  before trusting one. **Never add an arrow to a pinned board by hand without redoing the line.**
+  ⚠ It never touches a **linked pair**: a pair is one piece across two cells and its right half has
+  no tile of its own, so a lock on the anchor is a lock the geometry cannot see from the cell alone.
+  ⚠ The generator never makes one. **Level 41 is where the piece is introduced**, hand-built and
+  deliberately gentle (B 90% / D 93%): the last row is the only thing tappable at the start, every
+  arrow above points at the row below, and the top row is locked by the ordinary escape rule
+  instead — so both reasons a tray sits flat are on the same board. It is also **the smallest board
+  for miles**, 12 trays against 30 on level 40, which is the trade a teaching board makes: a new
+  piece needs one with nothing else going on, and level 40 next door is a spike, so the breather
+  lands well. `FEATURES` counts down to it as ARROW TRAY, and the coach card fires there.
+  ⚠ Level 200 is a **spare slot** — unreachable in normal play — holding the tuned, pinned board
+  that used to be level 41, kept rather than thrown away when the demo was swapped up.
 - **Hatches** — a housing with a roller shutter and a count on its face, holding
   `DISPENSER_HOLD` trays. It shoves the next one out from under the shutter into the cell
   directly below whenever that cell frees up.
@@ -278,6 +346,13 @@ tangles the box stacks), then grid size and hidden fraction.
   (`verify()`); a board that does not clear is thrown away and regenerated. Do NOT ship a
   level the engine has not cleared — a jammed-from-the-start board is unrecoverable and the
   player cannot tell it apart from their own mistake.
+- ⚠ **A pinned board needs its line pinned too.** `Blueprint.columns` and `Blueprint.refTaps` are
+  captured from one derivation and belong together: with `columns` frozen, `toLevelDef` skips
+  `derive` entirely, so `line` comes back empty and a board with no stored `refTaps` ends up with
+  **no line at all** — no build-time proof it can be won, and `hint()` degraded to "the first cell
+  the scan finds tappable". Seven shipped boards (3, 4, 5, 7, 9, 13, 14) were in that state; they
+  were solvable in fact, which is exactly why nothing caught it. Lines were searched for and pinned.
+  The cheap standing check is that every entry in `HANDMADE` replays its `refTaps` to a win.
 - ⚠ **Solvable is not the same as playable, and shipping on `verify()` alone is not enough.**
   `verify` replays the generator's *own recorded line*, which the player cannot see. Levels 21
   and 27 both passed it and then won 7% and 0% of 120 games played by bots that had to work it
@@ -363,7 +438,180 @@ copies would drift, and the player should not have to learn two visual languages
 - No x2 bar card: `bars` is empty on every shipped level, so there is nothing to explain. Ship one
   and it needs its own entry in `MARKS`.
 
+## The daily reward — `src/game/daily.ts`
+
+Three days, 100/150/250 coins and 0/1/2 magnets, resetting the moment a day is missed. Unlocked
+after clearing `DAILY_FROM` = 10.
+
+⚠ **`DAILY_FROM` has been 10, then 5, then 10 again, each time on purpose.** The note on the
+constant carries what each move was for; do not read the history as a value to restore. The live
+cost of 10 is that a player jamming in the first few levels cannot afford the 50-coin revive on
+`WIN_COINS` = 10 a win, which is exactly what the drop to 5 was for. The card is drawn by `HomeScene`; the rule is a pure function of
+the clock and the save.
+
+**A win routes the player home to it** instead of offering NEXT LEVEL — the reward lives on the home
+screen, and handing them NEXT LEVEL means the feature's whole job is to be skipped. Both of the ways
+that went wrong were found in one day of real telemetry, and neither was visible from the code:
+
+- ⚠ **Offering and claiming are two different questions, and two different keys.** The gate was
+  `dailyReady()` — "is there something to take" — which stays true all day for anyone who does not
+  take it, so **every** win kicked them back to the home screen. 121 forced returns across 72
+  devices in a day; one player sent home **50 times**. `dailyOfferable()` adds `bf_dailyoffer`, the
+  day the offer was *shown*, and it is stamped when CLAIM REWARD is **drawn**, not pressed: a player
+  who saw it and chose HOME has been asked. The reward is never withheld — the calendar badge is
+  still on the home screen and `dailyReady()` still governs that.
+- ⚠ **The card opened 420ms after the home screen, which was live the whole time.** The player has
+  just tapped CLAIM REWARD and their finger is over the middle of the screen, where PLAY now is —
+  **36% of forced returns were back in a level inside 2 seconds**, 52% inside 3. Most of the people
+  this feature interrupts never saw it. `showDaily()` is called straight from `create()` now, so its
+  dimmer is up on the first frame and there is no window to tap through.
+
+⚠ **A claim that is not in the telemetry is not a claim that did not happen.** `send()` is
+fire-and-forget and `database.rules.json` validates the row shape, so until `ev: "daily"` was added
+there every claim was refused at the door in silence. It made the claim rate read 15% when the
+measurable figure was 35%, and the give-away was that all ten rows arrived after 14:04 on a build
+that had been live since 00:06. **Every new event type needs the rule redeployed**, and any funnel
+computed from a new event type should be checked for a start time that looks like a deploy.
+
 ## Layout
+
+## ⚠ Nothing may be positioned from the bottom with a number
+
+`GAME_H` is **not a constant**. It is the frame's own aspect clamped between `H_MIN` and `H_MAX`,
+so it is 1160 on a phone and **958 in a desktop CrazyGames frame** — the machine's own height plus
+a skirt. Two things shipped broken because they were written as if 1160 were guaranteed, and both
+were reported from the live frame as *"phần dưới của game bị khuất, vào game k click được button
+play"*:
+
+- The home screen's PLAY button was at y 952, which is 34px **below the bottom edge of the canvas**
+  at 918. The game looked launched and could not be started. Bottom furniture is now
+  `GAME_H - PLAY_UP`, offsets measured up from the foot of the box.
+- `MACHINE_H` subtracted `MACHINE_Y` — the cabinet's y *before* the booster row lifts it — instead
+  of its real top edge, so the machine reported itself `BOOST_LIFT` = 40px shorter than it is.
+  `H_MIN` is derived from that report, so the game declared it could live in a box whose bottom
+  40px were the box well, and the last row of boxes was cut off. `MACHINE_TOP` exists so the
+  subtraction cannot be written the wrong way again.
+
+⚠ **Never clip a container with a geometry mask.** The box well was given one, to stop the deepest
+box dipping below its floor during a clear, and it emptied the whole well on a real phone. Phaser
+renders a mask object through its **own** transform and ignores the container it belongs to, so a
+mask built in design units lands `root.scaleX` away from what it is masking — and `root.scaleX` is
+the device pixel ratio. That is **1 in the headless browser every screenshot is taken in** and 2 on
+a phone, so it passed every check here and shipped. `scripts/shot.mjs --dpr 2` is the second axis:
+shoot the layout at 1, and anything touching a transform at 2.
+
+⚠ **A column is drawn one box taller than the well is.** `slideColumn` offsets the whole container
+by a box and tweens it home, which is the right picture for the boxes already on screen and the
+wrong one for the deepest, which has nowhere to come from. That one sprite is **pinned** — its own y
+cancels the container's for the length of the tween — and fades up in place. Buying the 45px instead
+is ~8% off how big the game draws on every desktop, where `GAME_H` is clamped to the machine.
+⚠ Both callers go through `slideColumn`; the box-clear and the chocolate-burst drifting apart is how
+one of them ends up with the artefact and the other does not.
+
+⚠ **`WELL_FLOOR` is not padding.** Sized to the stack exactly, the last row lands flush on the rim
+and the two rounded edges sit a pixel apart — which reads as the bottom row being cut off, and was
+reported that way. Its 12px is what says "this is the bottom" instead of "there is more below".
+
+## The letterbox bars are read off the canvas, not written by hand
+
+The design box is 540 wide against a 16:9 desktop frame, so **about three quarters of the window is
+page rather than canvas**. `pageBackdrop` used to paint that with a flat violet under a radial glow
+and a vignette, tuned by eye — and it was wrong at every height, because the canvas edge is not one
+colour. Measured down the seam of a 1898x982 frame: Home runs #302e58 at the top, #423973 where the
+cover's own glow passes and #322d58 at the foot, while the board is a gradient **plus a halo behind
+the machine** that nothing in CSS was imitating. The bar was out by up to 31/255 on Home and
+**114/255 on the board**. Reported as the game being visibly cut off from its own background.
+
+`matchPageToCanvas` samples the canvas's first three columns after the first frame renders and turns
+them into a 20-stop `linear-gradient`. Worst-case error is now **7/255 on Home and 5 on the board**.
+
+- ⚠ **Sampled, because no hand-written value can be right at every height.** A flat colour, a
+  two-stop gradient and a glow are all approximations of a curve the canvas already has. Read it.
+- ⚠ **Via `renderer.snapshotArea`, not `readPixels`.** A WebGL canvas cannot be read back on demand
+  without `preserveDrawingBuffer`, which taxes every frame of the game to serve one read.
+- ⚠ **The `fallback` argument is what shows until the read lands**, so it has to be a sane background
+  in its own right — `pageBackdrop` still is, and is still what both scenes pass.
+- ⚠ **The vignette is anchored to the canvas**, transparent from its left edge to its right and only
+  darkening outside. Centred on the *page* instead — which is what a `radial-gradient at 50% 50%`
+  does — it lands some shade on the seam itself, the one place that has to match exactly.
+- ⚠ Costs nothing on a phone: the canvas covers the width, so it returns before snapshotting.
+- It re-runs on resize, debounced, and unhooks on `shutdown` — otherwise the listeners stack up one
+  per level and every resize fires a snapshot for each level ever played.
+- Check it with `npm run shot -- --size 1920x1080` and compare the pixel columns either side of the
+  seam. Both scenes need checking: they draw completely different backgrounds.
+
+## Home is the one screen that may be wide
+
+`GAME_H` is derived from the cabinet, so **the board can never be anything but a portrait strip** —
+widening its design box only adds empty canvas either side of a machine that cannot grow into it.
+Home has no machine on it: it is a picture and two buttons, and on a 16:9 frame it was using 28% of
+the width. `HomeScene.sizeStage` calls `setGameSize` to make the design box the shape of the window,
+and lays out landscape from `WIDE_FROM` = 1.2 up: cover on the left, PLAY and the wallet in a column
+beside it. Below that ratio nothing changes — a phone is pixel-identical.
+
+- ⚠ **`GameScene.create` puts the box back**, not `HomeScene` on the way out. `?level=N` and
+  `?custom=1` start on the board with Home never having run, so a reset written over there is a
+  reset half the entry points never reach.
+- ⚠ **The height never moves**, which is the only reason `this.scale.height / GAME_H` can be trusted
+  as the device pixel ratio. The width cannot: by the second visit to Home it has been widened once
+  already and no longer divides back.
+- ⚠ **Do not fill the width by scaling the cover up.** Covering a 16:9 box with the 2:3 render keeps
+  37% of its height, and the 37% in the middle is the tray — the lettering at the top goes, and that
+  lettering is the only place the game's name appears anywhere on the screen.
+- ⚠ **The gap either side of the art is the render's own edge column, stretched.** Two frames added
+  to the texture (`edgeL`/`edgeR`), not a flat fill: its edges are near-flat violet but not *one*
+  violet — #302e58 at the top, #353260 where the glow passes, back down at the foot — so any single
+  colour draws a soft rectangle around the art at exactly the height the eye is already on.
+- ⚠ **Art and column are laid out as one centred group** (`WIDE_COL`), not pinned to a share of the
+  width. At 21:9 a fixed share leaves them at 31% and 76% with a third of the screen of nothing in
+  between; capping the column puts the slack in the outside margins, where it reads as framing.
+- ⚠ **The PLAY button's scale is capped against the column.** Just past `WIDE_FROM` — a 5:4 monitor —
+  the space beside the art is 475 units and the button at 1.7 is 442 of them.
+- ⚠ The resize handler is **guarded on the width actually changing**: `setGameSize` emits `resize`
+  itself, so an unguarded handler restarts the scene, which resizes, which restarts it, forever.
+- The scrim over the lower third is portrait-only. It exists because PLAY lands on the funnel;
+  in the wide layout the button has its own column and the scrim would only dim the picture.
+- Check it at three ratios — `npm run shot -- --size 1280x1024`, `1920x1080`, `2560x1080` — plus a
+  phone, plus `--level 6` so the trip back to the portrait box is exercised.
+
+## The board's own wide layout — the HUD moves aside and the machine grows
+
+⚠ **Height buys width, and the HUD strip was the most expensive height on the screen.** `H_MIN` is
+the machine's own bottom edge, `GAME_H` clamps to it on every landscape frame, and FIT then sets the
+canvas from `frameH / GAME_H` — so the 114px of HUD sitting on top of the cabinet was costing the
+desktop build 114px it paid for in width. On a landscape frame the HUD now goes into a **column
+beside the machine** and the machine rides up into the space. Measured on a 1898x982 frame: `H_MIN`
+970 → 856, and the cabinet 518px wide → **587px. 13% bigger, for nothing.**
+
+- `WIDE_HUD` in `config.ts` is the switch, at frame ratio **1.2**. ⚠ It must stay the same number as
+  `HomeScene`'s `WIDE_FROM`: the two screens hand off to each other, and a frame that gets the wide
+  home screen and the portrait board reads as the game changing shape when you press PLAY.
+- ⚠ **Read once at module load**, exactly like `GAME_H` — the whole layout derives from it. A phone
+  that is rotated keeps the layout it booted with, which is what `GAME_H` has always done.
+- ⚠ `HUD_LIFT` comes off `FUNNEL_SHOULDER`, `GRID_TOP` **and** `MACHINE_Y` together, so `MACHINE_H`
+  is unchanged and the block moves as one. Take it off one of the three and the chute's 33° becomes
+  something shallower — the angle at which the marbles stop sliding.
+- `STAGE_PAD` = 156 is added **each side**, not just the left. The right one is empty, and it is
+  there so the machine stays centred and every `GAME_W / 2` in `GameScene` — every card, every
+  dimmer, every `CX` — goes on meaning the middle of the screen without being touched.
+  ⚠ It is genuinely free, and provably so: FIT takes `min(frameW/852, frameH/856)`, and 852/856 is
+  0.995 — far under the 1.2 that earns the layout in the first place — so the width can never be
+  what binds. Widen `STAGE_PAD` past that ratio and the pads start costing the machine its size.
+- ⚠ `root` is **shifted**, not re-origined: `root.x = STAGE_PAD * scale`. Every coordinate in
+  `config.ts` is in the machine's own 540-wide space and so is Matter; moving the container leaves
+  all of it alone and carries the hit zones with it, because Phaser tests those through the
+  transform. Re-origining would strand the physics at the old offset.
+- ⚠ **Dimmers must be `STAGE_W` wide** — `stageDim()`, not a `GAME_W`-wide rectangle. At `GAME_W`
+  the two pads and the HUD standing in one of them stay at full brightness beside a dimmed machine,
+  which reads as the card having failed to cover the screen.
+- ⚠ The background halo is anchored to `L.machine`, not to the old hardcoded y 520. A glow left
+  behind sits under the machine's feet instead of behind it. Same for the PREVIEW label, which at
+  `L.hudY` would print across a cabinet whose top edge is now at y 20.
+- The four controls have **one set of coordinates chosen by a flag**, not two branches of drawing
+  code. Two branches is how the coin label ends up on the row in one and the column in the other.
+- **Portrait is untouched** — `STAGE_PAD` and `HUD_LIFT` are both 0, and a phone is pixel-identical.
+- Check it with `npm run shot -- --size 1920x1080 --level 4`, plus `--pause`, `--auto` (the result
+  card), `--tutor`, a phone size, and `--page "index.html?level=4"` for the entry that never runs Home.
 
 ## Board size — up to 7x7, and the chute never moves
 
@@ -373,6 +621,25 @@ lands on 57 against the usual 64. Sprites are baked at `L.cell` and scaled by `c
 
 - ⚠ **A 5-row board must stay pixel-identical.** Cell 64, pitch 71, centred in `gridPanel`. Every
   shipped level is 5 rows and every art decision was settled against those numbers.
+- ⚠ **Cells are sized against the *shape*, not against `cols x rows`.** A board is declared on a
+  grid and then a silhouette is cut out of it, so the declaration is an upper bound and usually not
+  the board: **71 of the 115 shipped levels** declare a grid bigger than the shape inside it, and
+  level 7 declares 6x6 for a board that is 5x5. Sizing off the declaration drew it at 45px in a
+  cabinet it used two thirds of — reported as *"level này sao bé thế"*. `boardBounds` (casing out,
+  crates in — a crate is inside the board) feeds `gridMetrics`, which centres the **occupied** part
+  and still returns `x`/`y` as the origin of cell (0,0), so every caller keeps reading
+  `gm.x + col * gm.pitch`. Rows of pure casing may fall outside the panel and that costs nothing:
+  `drawGridCavity` draws playable cells only, and a pointer out there hits a walled cell.
+  Result: **91 of 115 levels at the full 56px**, 18 at 45 (really six rows), 6 at 38 (really seven).
+- ⚠ **A board may not grow *down* into the funnel.** `GRID_MAX_H` was 60px more than the panel the
+  grid sits in, so every board over five rows — **63 of the 115 shipped levels** — hung past the
+  bottom of the cavity and covered the top of the chute. At six rows that is 57px of a 136px funnel:
+  the V loses half its height and the board looks like it is sitting on the belt. Reported from
+  level 40. It is now `FUNNEL_SHOULDER - GRID_TOP`, so the cap and the panel cannot drift apart.
+  ⚠ The price is **smaller cells on tall boards** — six rows land on 45 and seven on 38, against 56
+  — and that is the trade being made knowingly. The alternative is more height, and height is the
+  one thing the desktop has none of: `GAME_H` is clamped to the machine there, so every pixel spent
+  on the grid comes off how big the game draws on every PC. Four- and five-row boards are untouched.
 - ⚠ **The chute is fixed and must not be shortened to make room.** It was tried: compressing it
   from 186px to 120px so a 7-row grid would fit takes the cone from 33° to 22.5°, and at 22.5° the
   marbles stop sliding — they string out along the slope and sit there, which is the failure the
@@ -989,6 +1256,16 @@ the same three steps in the same order, or it is showing a board nothing plays.
   phone asking for `/?level=31`, and the query string *was* the bug. **When a report and every
   local test disagree, log what the device actually asked for.** The editor's two "open the game"
   links are those same two URLs, so every hand-built board previewed that way was dead too.
+- **`?reset=1` must run after `platform.init()`.** It was a top-level IIFE in `main.ts`, so it ran
+  before the CrazyGames SDK had loaded: `sdk` was still null inside `platform.storage.removeItem`,
+  the host branch was a silent no-op, and only `localStorage` was cleared. `dualStore.getItem` reads
+  **the host store first**, so every value came straight back and the reset appeared to do nothing.
+  ⚠ **It reproduces only if the keys were written through `save.ts`.** Seeding `localStorage` by hand
+  to test it writes one store and passes on a build where real progress does not — which is exactly
+  how it shipped. Seed with `CrazyGames.SDK.data.setItem` as well, or play the levels.
+  ⚠ It clears **`SAVE_KEYS`**, not the keys `localStorage` happens to hold: a player arriving on a
+  new device has their cloud save in the host store and nothing local, so the enumeration finds
+  nothing to delete. Add a key to `save.ts`, add it to that list — nothing can check it for you.
 - `src/game/save.ts` — localStorage behind the `ms_` prefix. ⚠ The prefix must stay distinct
   from other games or they share storage.
 - `src/game/audio.ts` — synthesised WebAudio, no sample files. The marble knocks (`sfx.tumble`)
@@ -1013,6 +1290,11 @@ Conventions kept from the previous project:
    ⚠ **One exception, and it is deliberate:** `src/assets/home-cover.webp`, the 3D cover render on
    the home screen. There is no procedure that draws it. Imported rather than dropped in
    `public/` so Vite fingerprints it and it ships in `assets/` — 34 KB, against a 20 MB budget.
+   ⚠ **The render carried a Gemini sparkle watermark** at 989-1025 x 1525-1561, which showed on
+   screen as a small ✦ near the foot of the art. Painted out by bridging each row between the clean
+   pixels either side of it — the backdrop there is a near-flat violet, so a 37px linear span is
+   indistinguishable from what was under it — and re-encoded at webp q82, which came back **smaller**
+   than the original (50122 B against 52262) for a mean deviation of 1.6/765 over the whole image.
    ⚠ Home paints its own two violets (`COVER_BG` sampled from the render's corner pixels,
    `HOME_FOOT`) instead of `UI.bgTop`/`UI.bgBottom`, and has **no halo and no rays**. Those sat
    behind the cover, so all they could do was brighten what it was *not* covering; at 5.6x the

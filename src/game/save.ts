@@ -10,6 +10,7 @@
 // renaming `bf_*` after launch restores the old names into a game that reads the new ones and
 // every player loses everything. Before launch it is free; after, it never is.
 
+import { FREE_MAGNETS } from "./config";
 import { platform } from "../platform";
 
 const K_LEVEL = "bf_level";
@@ -45,6 +46,56 @@ const K_TRIES = "bf_tries";
  * whatever it held.
  */
 const K_DAILY = "bf_daily";
+/**
+ * The day the daily reward was last **offered** — not claimed. `bf_daily` records the claim.
+ *
+ * ⚠ Two keys because they answer two different questions, and one of them decides whether the
+ * player's run gets interrupted. A win routes the player home to the card, and the gate for that
+ * used to be "is there something to take", which stays true all day for anyone who does not take
+ * it — so every single win kicked them back to the home screen. Measured on one day of real play:
+ * 121 forced returns across 72 devices, one player sent home **50 times**.
+ *
+ * ⚠ Stamped when the offer is **shown**, not when it is pressed. A player who saw CLAIM REWARD and
+ * chose HOME has been asked; asking again after the next win is the same interruption.
+ *
+ * ⚠ A **new** key — see the note on `K_DAILY`.
+ */
+const K_OFFERED = "bf_dailyoffer";
+/**
+ * Magnets the player **owns**. The badge under the button is this number.
+ *
+ * ⚠ A **new** key, never a rename of a shipped one. CrazyGames' Automatic Progress Save mirrors
+ * localStorage verbatim, so renaming after launch restores the old name into a game that reads the
+ * new one. This key was renamed once, from `bf_freemag`, before any build carrying it was uploaded
+ * — the only window in which that is free.
+ *
+ * ⚠ It defaults to `FREE_MAGNETS`, not 0, so a player already partway up the ladder when this ships
+ * gets them too. Defaulting to zero would silently withhold what the tutorial is about to promise.
+ */
+const K_MAGNET = "bf_magnet";
+
+/**
+ * Every key this game owns.
+ *
+ * ⚠ **A reset cannot enumerate `localStorage` and call it done.** On CrazyGames the host store is
+ * the one that is read first, and a player who arrives on a new device has their cloud save in the
+ * host store with `localStorage` still empty — so a loop over `localStorage` finds nothing to
+ * delete and the reset silently does nothing at all. This list is what has to be cleared.
+ *
+ * ⚠ Add a key above, add it here. There is nothing that can check it for you.
+ */
+export const SAVE_KEYS = [
+  K_LEVEL,
+  K_STARS,
+  K_COINS,
+  K_MUTE,
+  K_TUTOR,
+  K_COACH,
+  K_TRIES,
+  K_DAILY,
+  K_OFFERED,
+  K_MAGNET,
+] as const;
 
 function read<T>(key: string, fallback: T): T {
   try {
@@ -64,6 +115,20 @@ function write(key: string, value: unknown) {
 }
 
 export const save = {
+  /**
+   * Magnet boosters in hand. One is spent per use; at zero the button asks whether to buy.
+   *
+   * ⚠ Clamped at read as well as at write. A hand-edited or corrupted value must not hand out an
+   * endless booster, and this is a number a curious player can reach from the console in one line.
+   */
+  get magnets(): number {
+    const n = read<number>(K_MAGNET, FREE_MAGNETS);
+    return Number.isFinite(n) ? Math.max(0, Math.min(99, Math.floor(n))) : 0;
+  },
+  set magnets(v: number) {
+    write(K_MAGNET, Math.max(0, Math.min(99, Math.floor(v))));
+  },
+
   /** highest level the player has unlocked (1-based) */
   get unlocked() {
     return Math.max(1, read<number>(K_LEVEL, 1));
@@ -91,6 +156,14 @@ export const save = {
     return all[String(n)];
   },
 
+  /** Day key the reward was last offered on, or "" — see `K_OFFERED`. */
+  get dailyOffered(): string {
+    return read<string>(K_OFFERED, "");
+  },
+  set dailyOffered(v: string) {
+    write(K_OFFERED, v);
+  },
+
   /** Login streak state. `last` empty means the player has never claimed. */
   get daily(): { streak: number; last: string } {
     const v = read<{ streak?: number; last?: string }>(K_DAILY, {});
@@ -114,9 +187,9 @@ export const save = {
   },
 
   get coins() {
-    // ⚠ A new player starts on **nothing** and earns their way in — `WIN_COINS` = 10 a level,
-    // against 40 for an undo and 50 for a revive. So the first four levels have no boosters and
-    // the first five have no revive, which means a jam in that stretch has exactly one outcome:
+    // ⚠ A new player starts on **nothing** and earns their way in — `WIN_COINS` = 20 a level,
+    // against 40 for an undo and 50 for a revive. So the first two levels have no boosters and
+    // the first three have no revive, which means a jam in that stretch has exactly one outcome:
     // the JAMMED card. That is the decision; the levels down there are the gentle ones and are
     // meant to be winnable without help.
     return read<number>(K_COINS, 0);

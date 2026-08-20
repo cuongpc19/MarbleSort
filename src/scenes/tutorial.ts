@@ -62,6 +62,57 @@ export function coachRing(scene: Phaser.Scene, x: number, y: number, grow = 1): 
 }
 
 /**
+ * The same marker, turned up: **a steady ring plus two staggered pulses.**
+ *
+ * ⚠ Why the plain one is not enough here. `coachRing` is a single expanding pulse that fades to
+ * nothing, so for a good part of every 1.1s cycle there is *nothing on screen* — fine for a ring
+ * sitting on a tray the caption is already naming, and not fine for the booster, which is a small
+ * button outside the machine, above the HUD, in a part of the screen the player has never had to
+ * look at. The steady ring is what makes it continuously visible; the pulses are what make it move.
+ *
+ * ⚠ Still gold, still the same texture, still the same shape. Louder is a matter of how much of it
+ * there is — a different colour or a different marker would be a second visual language for the
+ * one thing the player is being asked to look at.
+ *
+ * ⚠ Returned as a container so the caller destroys one object. Three loose images on a layer is
+ * three chances to leave one spinning after the lesson ends.
+ */
+export function coachRingBold(
+  scene: Phaser.Scene,
+  x: number,
+  y: number,
+  grow = 1,
+): Phaser.GameObjects.Container {
+  const c = scene.add.container(x, y);
+  const steady = img(scene, K.ring, 0, 0).setTint(UI.gold).setAlpha(0.9).setScale((1.05 * grow) / TS);
+  c.add(steady);
+  scene.tweens.add({
+    targets: steady,
+    alpha: { from: 0.5, to: 1 },
+    scale: { from: (1.0 * grow) / TS, to: (1.15 * grow) / TS },
+    duration: 540,
+    yoyo: true,
+    repeat: -1,
+    ease: "Sine.easeInOut",
+  });
+  // ⚠ Two, half a cycle apart. One pulse leaves a gap; two overlap so the outward movement never
+  // stops, which is what the eye actually catches from the corner of the screen.
+  for (let k = 0; k < 2; k++) {
+    const r = img(scene, K.ring, 0, 0).setTint(UI.gold).setAlpha(0.95).setScale((0.95 * grow) / TS);
+    c.add(r);
+    scene.tweens.add({
+      targets: r,
+      scale: (1.9 * grow) / TS,
+      alpha: 0,
+      duration: 1100,
+      delay: k * 550,
+      repeat: -1,
+    });
+  }
+  return c;
+}
+
+/**
  * The caption, on a plate.
  *
  * ⚠ A plate behind the words, not bare text. The caption sits over the chute, which is white
@@ -193,7 +244,7 @@ export class Tutorial {
       this.ring = coachRing(this.scene, step.at.x, step.at.y);
       this.layer.add(this.ring);
 
-      // Offset down-right of the target so the finger tip lands on it rather than the palm.
+      // Offset down-right of the target so the fingertip lands on it rather than the palm.
       this.hand = img(this.scene, K.hand, step.at.x + 16, step.at.y + 40);
       this.layer.add(this.hand);
       this.scene.tweens.add({

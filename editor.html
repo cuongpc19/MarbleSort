@@ -245,6 +245,29 @@
         pointer-events: none;
         z-index: 2;
       }
+      /* The arrow lock, on the tray's face. Dark disc + white glyph, the same two tones the
+         game bakes, because a coloured arrow on a coloured tray is the one pair that vanishes. */
+      .arrowMark {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        width: 26px;
+        height: 26px;
+        line-height: 26px;
+        text-align: center;
+        color: #fff;
+        font-size: 22px;
+        font-weight: 700;
+        /* White only, like the game. The shadow is what carries it on a yellow or cyan tray —
+           see the note on the baked texture. */
+        text-shadow: 0 2px 2px rgba(16, 26, 48, 0.55), 0 0 3px rgba(16, 26, 48, 0.5);
+        pointer-events: none;
+        z-index: 3;
+      }
+      .arrowMark.gone {
+        opacity: 0.4;
+      }
       .cell.sel::before {
         content: "";
         position: absolute;
@@ -594,7 +617,7 @@
       <div class="stage">
         <div class="stage-body"><div id="board"></div></div>
         <p class="hint">
-          Bấm để đặt, giữ và kéo để vẽ liên tục. Phím <b>1</b>–<b>8</b> đổi công cụ nhanh.
+          Bấm để đặt, giữ và kéo để vẽ liên tục. Phím <b>1</b>–<b>9</b> đổi công cụ nhanh.
           Bấm vào cửa xả đã đặt để sửa hàng đợi màu của nó.
         </p>
 
@@ -717,6 +740,31 @@
             </label>
             <button id="chocSame" class="ghost">Tô cả 4 cùng màu</button>
           </div>
+        </div>
+
+        <div class="box" id="arrowBox" hidden>
+          <h2>Khay mũi tên</h2>
+          <div class="row">
+            <label class="inline">
+              Mũi tên chỉ
+              <select id="aDir">
+                <option value="up">lên trên</option>
+                <option value="down">xuống dưới</option>
+                <option value="left">sang trái</option>
+                <option value="right">sang phải</option>
+              </select>
+            </label>
+          </div>
+          <div class="row"><span class="hint" id="aWhere"></span></div>
+          <p class="hint">
+            Khay này <b>khoá</b> — chín quả nằm bẹp, chạm không ăn — cho tới khi ô mà mũi tên chỉ
+            vào trống ra. Đổ khay bên cạnh đó xong là khay này bung lên.
+          </p>
+          <p class="hint">
+            Mũi tên chỉ vào <b>thành máy, thùng gỗ hay ra ngoài mép bảng</b> thì không bao giờ mở
+            được, và level không thể thắng — bảng Tình trạng báo đỏ. Chỉ vào ô trống thì nó mở ngay
+            từ đầu, người chơi không kịp thấy mũi tên.
+          </p>
         </div>
 
         <div class="box" id="hatchBox" hidden>

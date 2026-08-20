@@ -145,7 +145,7 @@ export const sfx = {
    * a struck bell over it reads as an object leaving instead of a fanfare, and the descent
    * contrasts against `seat`, whose pitch has just climbed across the three holes.
    */
-  boxClear() {
+  boxClear(): number {
     const now = performance.now();
     chain = now - chainAt < CHAIN_MS ? Math.min(chain + 1, CHAIN_STEPS.length - 1) : 0;
     chainAt = now;
@@ -160,6 +160,13 @@ export const sfx = {
     // and decaying fast so it never overlaps the next box.
     play({ freq: 784 * step, dur: 0.22, type: "triangle", gain: 0.06, delay: 0.03 });
     play({ freq: 1176 * step, dur: 0.16, type: "sine", gain: 0.032, delay: 0.03 });
+
+    // ⚠ Returns how many boxes this run is up to, 1-based, because the scene throws fireworks on
+    // the third and there must be **one** definition of "in a row". A second timer in `GameScene`
+    // would be measuring the same thing from a different clock: the two drift within a frame or
+    // two of `CHAIN_MS`, and the run where the bell climbs but nothing lights up reads as the
+    // fireworks being broken. The ear already knows what a run is — let the eye ask it.
+    return chain + 1;
   },
 
   starPop(n: number) {

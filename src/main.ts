@@ -2,6 +2,7 @@ import Phaser from "phaser";
 import { platform } from "./platform";
 import { GameScene, GAME_W, GAME_H } from "./scenes/GameScene";
 import { HomeScene } from "./scenes/HomeScene";
+import { SAVE_KEYS } from "./game/save";
 
 // Warm the game font before Phaser draws any canvas text — a canvas texture baked
 // with a font that has not finished loading keeps the fallback shape forever.
@@ -11,26 +12,42 @@ try {
   /* no Font Loading API — the font still swaps in when ready */
 }
 
-// Wipe saved progress from a phone, where there is no DevTools console: ?reset=1
-(() => {
+/**
+ * Wipe saved progress: `?reset=1`. The only way to start over on a phone, where there is no
+ * DevTools console — and the way this project resets between playtests.
+ *
+ * ⚠ **It must run after `platform.init()`, and it did not.** As a top-level IIFE it ran before the
+ * CrazyGames SDK had loaded, so `sdk` was still null inside `platform.storage.removeItem` and the
+ * host branch was a silent no-op — `localStorage` was cleared and the host store was not. `getItem`
+ * reads the **host store first**, so every value came straight back and the reset appeared to do
+ * nothing. Reported as "k được" on a build where it demonstrably worked with seeded local keys,
+ * because seeding by hand writes only the local store and never reproduces it. Progress earned by
+ * *playing* goes through `save.ts` into both.
+ *
+ * ⚠ **Clear `SAVE_KEYS`, not the keys `localStorage` happens to hold.** A player arriving on a new
+ * device has their cloud save in the host store and nothing local at all, so the enumeration finds
+ * nothing to delete.
+ *
+ * ⚠ Nothing may read progress before this, which is the same rule `platform.init()` already has —
+ * `save` is all getters, and the Phaser game does not exist yet when this runs.
+ */
+function applyReset() {
   try {
     const p = new URLSearchParams(location.search);
     if (!p.get("reset")) return;
-    // ⚠ Both stores. Clearing only the local one on a host that syncs saves means the cloud
-    // copy restores everything on the next load, and the reset silently did nothing.
-    Object.keys(localStorage)
-      .filter((k) => k.startsWith("bf_"))
-      .forEach((k) => {
-        localStorage.removeItem(k);
-        platform.storage.removeItem(k);
-      });
+    const keys = new Set<string>(SAVE_KEYS);
+    for (const k of Object.keys(localStorage)) if (k.startsWith("bf_")) keys.add(k);
+    for (const k of keys) {
+      localStorage.removeItem(k);
+      platform.storage.removeItem(k);
+    }
     p.delete("reset");
     const qs = p.toString();
     history.replaceState(null, "", location.pathname + (qs ? "?" + qs : "") + location.hash);
   } catch {
     /* storage unavailable */
   }
-})();
+}
 
 // ⚠ **No dev wallet float.** A dev build used to top the wallet up to 1000 at boot, and that made
 // the economy unreadable from the machine it is being tuned on: 1000 coins is twenty revives, while
@@ -50,6 +67,7 @@ try {
 // drop older phones for one keyword.
 async function boot() {
   await platform.init();
+  applyReset();
   platform.loadingStart();
 
   // Render at the device pixel ratio so the baked textures stay crisp, capped at 2 —
