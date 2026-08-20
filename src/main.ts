@@ -34,7 +34,7 @@ try {
 
 // ⚠ **No dev wallet float.** A dev build used to top the wallet up to 1000 at boot, and that made
 // the economy unreadable from the machine it is being tuned on: 1000 coins is twenty revives, while
-// a real new player starts on **nothing** and earns `WIN_COINS` = 10 a level. To exercise a booster
+// a real new player starts on **nothing** and earns `WIN_COINS` = 20 a level. To exercise a booster
 // now, grant the coins deliberately in the console —
 // `localStorage.setItem('bf_coins','200'); location.reload()` — so the grant is visible instead of
 // standing silently behind every dev session.
