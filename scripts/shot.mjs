@@ -22,7 +22,11 @@ const OUT = join(HERE, ".shots");
 // Not 9222: on Windows some vendor helper apps (Lenovo Vantage, for one) already hold
 // that port with their own embedded browser, and CDP would attach to that instead.
 const PORT = Number(process.env.MS_CDP_PORT ?? 9333);
-const URL_BASE = process.env.MS_URL ?? "http://localhost:5173/";
+// ⚠ The trailing slash is not cosmetic: every use below is `URL_BASE + page`, so an MS_URL
+// given without one builds "http://localhost:5173editor.html", which the browser cannot navigate
+// to — it stays on whatever page was already open and the run screenshots the wrong thing while
+// reporting success.
+const URL_BASE = (process.env.MS_URL ?? "http://localhost:5173/").replace(/\/?$/, "/");
 
 const arg = (name, dflt) => {
   const i = process.argv.indexOf(`--${name}`);

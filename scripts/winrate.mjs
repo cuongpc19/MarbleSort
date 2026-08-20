@@ -24,10 +24,15 @@
 // Real games come from the game itself: Settings -> COPY N GAMES, pasted into playlog.jsonl.
 
 import { readFileSync, existsSync } from "node:fs";
-import { loadGame, rate as botRate, best as botBest, bd, noiseAt, D_SLIP } from "./bots.mjs";
+import { loadGame, rate as botRate, best as botBest, bd, cuongxs1Rate, noiseAt, D_SLIP } from "./bots.mjs";
 
 const M = await loadGame();
-const { makeLevel, levelFingerprint } = M;
+// ⚠ **`levelDefFor`, never the generator.** 205 of the levels a player can reach are hand-built,
+// so scoring the generated board measures one nobody plays — and every real game is then thrown
+// away on a fingerprint that could never match. This file's whole job is ranking models against
+// real games, and it was scoring the wrong board at all four sites: `--fit` and `--models` had
+// never seen a single real game.
+const { levelDefFor, levelFingerprint } = M;
 
 // ── the calibration ─────────────────────────────────────────────────────────
 // ⚠ ONE definition, used by every consumer. Pixel Flow learned this the hard way: coefficients
@@ -56,6 +61,14 @@ export const calibrate = (raw) => sigmoid(A_CAL + B_CAL * logit(raw));
  * probability p. p = 0 is perfect play, p = 1 is careless, and a person sits between — so if
  * any single model works, it is probably one of these.
  */
+/**
+ * ⚠ **The `s<N>` suffix is how long the rail must go quiet before the bot pours again.** Without
+ * it every model here plays at maximum pour rate on a machine whose only way to lose is congestion
+ * — see `holdForBelt` in bots.mjs. It is scanned rather than chosen, for the same reason `slip` is:
+ * this file exists so the data picks the model, and Pixel Flow's note is that arguing about which
+ * model is right produced a confidently stated wrong answer.
+ */
+export const SETTLE_SCAN = [0, 8, 16, 24, 34];
 export const MODELS = {
   greedy: (def, n) => botRate(M, def, "greedy", n),
   patient: (def, n) => botRate(M, def, "patient", n),
@@ -63,6 +76,10 @@ export const MODELS = {
   best: (def, n) => botBest(M, def, n),
   bd: (def, n) => bd(M, def, n).raw,
 };
+for (const st of SETTLE_SCAN) {
+  if (st) MODELS[`bd_s${st}`] = (def, n) => bd(M, def, n, st).raw;
+  MODELS[`cx_s${st}`] = (def, n) => cuongxs1Rate(M, def, Math.min(n, 30), st).rate;
+}
 
 export const SLIP_SCAN = Array.from({ length: 19 }, (_, i) => i * 0.05);
 export const slipModel = (p) => (def, n) => botRate(M, def, "greedy", n, p);
@@ -122,7 +139,7 @@ function realGames(want) {
 
 const sigOf = (lvl) => {
   try {
-    return levelFingerprint(makeLevel(lvl));
+    return levelFingerprint(levelDefFor(lvl));
   } catch {
     return null;
   }
@@ -161,9 +178,26 @@ function fitCurve(keys, R, X) {
 if (process.argv.includes("--models") || process.argv.includes("--fit")) {
   const N = Number(process.env.N || 120);
   const R = realGames(sigOf);
-  const levels = Object.keys(R)
-    .map(Number)
-    .sort((a, b) => a - b);
+  // ⚠ **Two filters, and the ranking is meaningless without either.**
+  //
+  // A level with one or two games contributes a 0%/100% point, and the curve fit chases it — the
+  // exact mistake Pixel Flow's note warns about, arriving through the back door as sample size.
+  //
+  // And levels past the hand-built ladder are not levels. `HANDMADE` stops, `levelDefFor` falls
+  // through to the generator, and the generator hands out a **nine-tray board at every level** — one
+  // player ran 206 to 372 winning all 130 games in nine taps each. Leaving those in makes "predict
+  // high everywhere" the winning model, on 167 boards nobody designed.
+  const MIN_PER_LEVEL = Number(process.env.MINLV || 8);
+  const TOP = Math.max(...Object.keys(M.HANDMADE).map(Number));
+  const all = Object.keys(R).map(Number).sort((a, b) => a - b);
+  const levels = all.filter((k) => k <= TOP && R[k][1] >= MIN_PER_LEVEL);
+  const dropped = all.length - levels.length;
+  if (dropped) {
+    console.log(
+      `(bo ${all.filter((k) => k > TOP).length} level ngoai bac thang dung tay (>${TOP}) ` +
+        `+ ${all.filter((k) => k <= TOP && R[k][1] < MIN_PER_LEVEL).length} level duoi ${MIN_PER_LEVEL} van — MINLV de doi)`,
+    );
+  }
   const games = levels.reduce((a, k) => a + R[k][1], 0);
 
   if (games < MIN_GAMES || levels.length < 5) {
@@ -194,7 +228,7 @@ if (process.argv.includes("--models") || process.argv.includes("--fit")) {
 
   const rows = [];
   const defs = {};
-  for (const k of levels) defs[k] = makeLevel(k);
+  for (const k of levels) defs[k] = levelDefFor(k);
   for (const [name, model] of candidates) {
     const X = {};
     for (const k of levels) X[k] = model(defs[k], N);
@@ -260,7 +294,7 @@ if (process.argv.includes("--build")) {
   let flagged = 0;
   for (let n = 1; n <= upto; n++) {
     const t0 = Date.now();
-    const def = makeLevel(n);
+    const def = levelDefFor(n);
     const ms = Date.now() - t0;
     const { b, d, raw, gap } = bdParts(def, N);
     const wide = def.tiles.filter((t) => t && t.wide).length;
@@ -323,7 +357,7 @@ for (const c of cols) {
 console.log(`lv   | ${cols.map((c) => c.padStart(7)).join(" |")} |${OFFICIAL ? " du doan |" : ""} van that`);
 const pct = (r) => (r ? `${Math.round((100 * r[0]) / r[1])}% (${r[0]}/${r[1]})` : "-");
 for (const n of nums) {
-  const def = makeLevel(n);
+  const def = levelDefFor(n);
   const vals = cols.map((c) => MODELS[c](def, RN));
   const shown = OFFICIAL ? `  ${String(Math.round(calibrate(vals[0]) * 100)).padStart(3)}%   |` : "";
   console.log(

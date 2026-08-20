@@ -28,9 +28,14 @@ import { Game, stepTarget, type ArrowDir, type Dir } from "../game/logic";
 import { HANDMADE } from "../game/handmade";
 import { makeLevel } from "../game/level";
 
-type Tool = "wall" | "floor" | "tile" | "hiddenTile" | "hatch" | "crate" | "pair" | "choc" | "arrow";
+type Tool = "pick" | "wall" | "floor" | "tile" | "hiddenTile" | "hatch" | "crate" | "pair" | "choc" | "arrow";
 
 const TOOLS: { id: Tool; label: string; key: string; hint: string }[] = [
+  // ⚠ First in the list and on key 0, because it is the only tool that **cannot** damage the
+  // drawing. Every other tool paints on contact: to reach an arrow tray's direction you had to
+  // click it with the arrow tool, and one wrong tool selected meant the piece was overwritten
+  // before you saw what it was. Reaching a piece to read or adjust it should not be a bet.
+  { id: "pick", label: "Chọn / xem", key: "0", hint: "bấm vào một vật thể để sửa nó — không vẽ đè" },
   { id: "wall", label: "Thành máy", key: "1", hint: "vẽ viền — ngoài hình" },
   { id: "floor", label: "Ô trống", key: "2", hint: "trong hình, khay trượt sang được" },
   { id: "tile", label: "Ô màu", key: "3", hint: "khay, hiện màu" },
@@ -41,6 +46,17 @@ const TOOLS: { id: Tool; label: string; key: string; hint: string }[] = [
   { id: "choc", label: "Hộp socola", key: "8", hint: "che 2x2, đổ đủ số khay thì vỡ" },
   { id: "arrow", label: "Khay mũi tên", key: "9", hint: "khoá đến khi đổ xong khay nó chỉ vào" },
 ];
+
+/**
+ * Tools whose click means **edit this piece**, not paint over it — so the cell they land on stays
+ * selected and its panel stays open.
+ *
+ * ⚠ One definition, three call sites. This list lived inline in all three (the end of `apply`,
+ * the tool buttons, the number keys) and had already drifted: two of them named the arrow tool and
+ * the third did not. Adding "pick" to two of the three left the select tool selecting a cell and
+ * then dropping it again on the same click, which looks exactly like a tool that does nothing.
+ */
+const KEEPS_SELECTION = new Set<Tool>(["pick", "hatch", "pair", "choc", "arrow"]);
 
 const hex = (c: Color) => "#" + PALETTE[c % PALETTE.length].base.toString(16).padStart(6, "0");
 
@@ -103,6 +119,13 @@ const measureEl = $<HTMLInputElement>("measure");
 function apply(i: number) {
   const cur = bp.cells[i];
   switch (tool) {
+    // Selects and nothing else. The four contextual panels already key off `selected` plus the
+    // cell's own kind, so pointing at a hatch opens the queue editor, at a pair the colour pair,
+    // at an arrow tray the direction — no per-kind branch here, and a piece added later is
+    // reachable the day it exists.
+    case "pick":
+      selected = i;
+      break;
     case "wall":
       bp.cells[i] = { kind: "wall" };
       break;
@@ -180,8 +203,7 @@ function apply(i: number) {
       selected = i;
       break;
   }
-  if (tool !== "hatch" && tool !== "pair" && tool !== "choc" && tool !== "arrow" && selected === i)
-    selected = -1;
+  if (!KEEPS_SELECTION.has(tool) && selected === i) selected = -1;
   commit();
 }
 
@@ -416,14 +438,16 @@ function renderTools() {
     b.setAttribute("aria-pressed", String(tool === t.id));
     b.onclick = () => {
       tool = t.id;
-      if (t.id !== "hatch" && t.id !== "pair" && t.id !== "choc") selected = -1;
+      if (!KEEPS_SELECTION.has(t.id)) selected = -1;
       commit();
     };
 
     const chip = document.createElement("span");
     chip.className = "chip";
     chip.style.background =
-      t.id === "wall"
+      t.id === "pick"
+        ? "transparent"
+        : t.id === "wall"
         ? "var(--body)"
         : t.id === "floor"
           ? "var(--slot)"
@@ -433,6 +457,9 @@ function renderTools() {
               ? "#5b6a86"
               : hex(color);
     if (t.id === "wall" || t.id === "floor") chip.style.border = "1px solid #c8d1e2";
+    // A dashed ring rather than a colour: this tool paints nothing, so a filled swatch would
+    // promise a material it never lays down.
+    if (t.id === "pick") chip.style.border = "2px dashed #8c98b4";
 
     const label = document.createElement("span");
     label.textContent = t.label;
@@ -485,6 +512,29 @@ function renderSwatches() {
   });
 }
 
+/**
+ * Bring a contextual panel into view the moment it opens.
+ *
+ * ⚠ **A panel that opens below the fold has not opened**, as far as the hand is concerned. The
+ * tool list is 507px tall on its own, so at an 800px-high window the arrow tray's direction picker
+ * lands at y 799 — one pixel under the edge. Reported as "chưa chọn được chiều mũi tên", and the
+ * picker was there and working the whole time; nothing on screen said so.
+ *
+ * ⚠ Only on the **transition** from hidden to shown. `commit()` re-renders every panel on every
+ * keystroke and every painted cell, so scrolling whenever an open panel happens to be off-screen
+ * would drag the page out from under a drag-paint.
+ */
+const wasOpen = new WeakMap<HTMLElement, boolean>();
+function reveal(box: HTMLElement) {
+  const open = !box.hidden;
+  const before = wasOpen.get(box) ?? false;
+  wasOpen.set(box, open);
+  if (!open || before) return;
+  const r = box.getBoundingClientRect();
+  if (r.top >= 0 && r.bottom <= window.innerHeight) return;
+  box.scrollIntoView({ block: "nearest", behavior: "smooth" });
+}
+
 /** The linked pair currently open for editing, or null. */
 function activePair(): Cell | null {
   const c = selected >= 0 ? bp.cells[selected] : null;
@@ -501,6 +551,7 @@ function renderArrow() {
   const c = activeArrow();
   if (!c) {
     arrowBox.hidden = true;
+    reveal(arrowBox);
     return;
   }
   arrowBox.hidden = false;
@@ -519,12 +570,14 @@ function renderArrow() {
   };
   aWhere.textContent =
     at < 0 ? "Chỉ ra ngoài mép bảng — không bao giờ mở được." : "Đang chỉ vào " + (NAME[bp.cells[at].kind] ?? "?") + ".";
+  reveal(arrowBox);
 }
 
 function renderPair() {
   const c = activePair();
   if (!c) {
     pairBox.hidden = true;
+    reveal(pairBox);
     return;
   }
   pairBox.hidden = false;
@@ -545,6 +598,7 @@ function renderPair() {
     };
     pairSlots.appendChild(b);
   });
+  reveal(pairBox);
 }
 
 /** Paint the selected tray under a chocolate box, then step to the next one. */
@@ -566,6 +620,7 @@ function renderChoc() {
   const c = activeChoc();
   if (!c) {
     chocBox.hidden = true;
+    reveal(chocBox);
     return;
   }
   chocBox.hidden = false;
@@ -627,6 +682,7 @@ function renderChoc() {
   // under the box can never count toward opening it — they are not tappable while it is closed —
   // so this is the number the counter has to stay under or the box never opens at all.
   chocSupply.textContent = `Bàn có ${chocSupplyCount(c)} khay thỏa mãn (không tính 4 khay bị che)`;
+  reveal(chocBox);
 }
 
 /** Trays outside this box that would count toward its counter. */
@@ -678,6 +734,7 @@ function renderHatch() {
   const c = activeHatch();
   if (!c) {
     hatchBox.hidden = true;
+    reveal(hatchBox);
     return;
   }
   hatchBox.hidden = false;
@@ -706,6 +763,7 @@ function renderHatch() {
     };
     queueEl.appendChild(b);
   });
+  reveal(hatchBox);
 }
 
 // ── Status ───────────────────────────────────────────────────────────────────
@@ -1202,7 +1260,7 @@ boardEl.addEventListener("pointermove", (e) => {
   if (!t) return;
   const i = Number(t.dataset.i);
   // Dragging never re-enters the hatch editor; it would reselect on every pixel of movement.
-  if (tool === "hatch" || tool === "pair" || tool === "choc" || tool === "arrow") return;
+  if (tool === "hatch" || tool === "pair" || tool === "choc" || tool === "arrow" || tool === "pick") return;
   apply(i);
 });
 const stopPaint = () => (painting = false);
@@ -1215,7 +1273,7 @@ window.addEventListener("keydown", (e) => {
   const t = TOOLS.find((x) => x.key === e.key);
   if (t) {
     tool = t.id;
-    if (t.id !== "hatch" && t.id !== "pair" && t.id !== "choc") selected = -1;
+    if (!KEEPS_SELECTION.has(t.id)) selected = -1;
     commit();
   }
 });

@@ -353,6 +353,16 @@ tangles the box stacks), then grid size and hidden fraction.
   the scan finds tappable". Seven shipped boards (3, 4, 5, 7, 9, 13, 14) were in that state; they
   were solvable in fact, which is exactly why nothing caught it. Lines were searched for and pinned.
   The cheap standing check is that every entry in `HANDMADE` replays its `refTaps` to a win.
+- ⚠ **`derive()` finding no line is not evidence the board cannot be won.** It runs its own search,
+  and that search taps whenever a tray is legal — on a machine whose only way to lose is congestion,
+  that is the worst policy there is. Two hand-edited boards were reported as unsolvable on that
+  basis while `best()` was winning **30-38%** of games on them, which is proof a winning order
+  exists. A search that adds the two things `patient` has — the belt-room filter
+  (`beltFree() >= load(i)`) and `holdForBelt`'s settle wait — found lines for both on the first
+  few seeds. So: **a bot winrate above zero outranks a failed derivation**, and a board is only
+  condemned when the bots cannot win it either. The cost of getting this backwards is throwing away
+  a good board; the cost of the reverse is shipping a dead one, so check the bots first and say
+  which test failed.
 - ⚠ **Solvable is not the same as playable, and shipping on `verify()` alone is not enough.**
   `verify` replays the generator's *own recorded line*, which the player cannot see. Levels 21
   and 27 both passed it and then won 7% and 0% of 120 games played by bots that had to work it
@@ -881,6 +891,69 @@ numbers:
 ⚠ `refTaps` is *a* winning line, not a proven optimal one — it is what the generator happened to
 record. Nothing here searches for a better one.
 
+## The bots could not wait, and that is where the whole difficulty model was wrong
+
+Every bot in `bots.mjs` tapped **on every single tick a legal tray existed**. `patient` and
+Cuongxs1's belt discipline only ever *filtered out* trays the rail had no room for; neither could
+decline a turn while a tray still fit. So they played at maximum pour rate — on a machine whose only
+way to lose is congestion. A person does the opposite: pour one tray, watch it go round, pour again.
+
+Measured on level 20, same seed and same scoring: pouring flat out **loses** with the rail at 30/30
+after 22 taps; waiting for the rail to settle **wins**, peak 24, all 34 trays poured.
+
+`holdForBelt` is the fix, shared by `play`, `playCuongxs1` and `rollout`: hold while the belt is
+still draining, give up once it has been flat for `SETTLE` ticks.
+
+- ⚠ **Only while waiting can still achieve something** (`hasPendingMatch`). Without that guard a bot
+  sat on level 9 for 28,000 ticks with one tray left and three free slots that were never going to
+  become nine — the deadlock Cuongxs1's own note already records.
+- ⚠ **`SETTLE=0` is the old behaviour byte for byte** — `holdForBelt` returns before it touches the
+  RNG or the board. Every number published before 2026-08-20 stays reproducible, the same way the
+  `open` scorer is still in the pool.
+- ⚠ **24 was chosen by the data.** Leave-one-out LL on 2061 real games over 27 levels, constant
+  baseline -700.0: (B+D)/2 goes -680.8 → **-647.7**, Cuongxs1 -710.2 → -691.4, both optima in the
+  16-24 band. The full table is on the constant in `bots.mjs`.
+- ⚠ **The ranking does not crown a model and must not be read as doing so.** `random` came second
+  and `slip0.80` first, which are not credible models of a player winning 89% of their games: the
+  real winrate is nearly flat across these levels, so little separates the candidates and the fitted
+  slope collapses to 0.46. What is solid is the **within-family** comparison — same data, same
+  candidates, one parameter moved.
+- ⚠ **It invalidates the ladder, and the ladder has not been retuned.** What the shipped levels now
+  read, against what they were built to:
+
+  | lv | target | settle 0 | settle 24 |
+  |----|--------|----------|-----------|
+  | 20 | 40% | 18% | **60%** |
+  | 25 | 6%  | 1%  | **35%** |
+  | 35 | 5%  | 0%  | **23%** |
+  | 45 | 25% | 5%  | **32%** |
+  | 50 | 25% | 24% | **54%** |
+
+  Real players over 12 hours won level 20 at 91% and level 25 at 86%, so the new numbers are the
+  ones moving toward the truth — but `LADDER`, `VARIANTS`, the `SHEET` check and the box-order
+  search in `custom.ts` were all landed against settle 0 and are now measuring something else.
+  **Retune before trusting any of them.**
+
+## ⚠ `winrate.mjs` was scoring boards nobody plays
+
+`sigOf`, the `--models` level set, `--build` and the main table all called **`makeLevel`** — the
+generator — while 205 of the levels a player reaches are hand-built. So it scored a board nobody
+plays, and every real game was then discarded on a fingerprint that could never match: `--fit` and
+`--models` had **never seen a single real game** since `HANDMADE` existed. All four now call
+`levelDefFor`, the one answer to "which board is level N".
+
+Two filters had to go in with it, and the ranking is meaningless without either:
+
+- ⚠ **A per-level minimum** (`MINLV`, default 8). A level with one game contributes a 0%/100% point
+  and the curve fit chases it.
+- ⚠ **Nothing past the hand-built ladder.** `HANDMADE` stops at 205, `levelDefFor` falls through to
+  the generator, and **the generator hands out a nine-tray board at every level** — `makeLevel(110)`
+  is nine trays too, it is simply never seen because hand-built boards cover 1-205. One player ran
+  206 → 372 winning all 130 games at nine taps each. Left in, they were 167 of the 251 levels in the
+  ranking, the baseline read 89%, and "predict high everywhere" won.
+  ⚠ **That cliff is live and shipping.** Past 205 the game runs forever on a trivial board. It needs
+  content, a cap, or a generator that does not produce nine-tray boards.
+
 ## ⚠ One bot, one definition — scripts/bots.mjs
 
 `sim.mjs`, `winrate.mjs` and `tune.mjs` each grew their own copy of the same three bots, and
@@ -956,6 +1029,23 @@ dev purpose needs the same treatment or it ships.
   person ever clear it), and **clean winrate** — games with no booster and no revive. Clean is the
   one to compare against a bot, for the same reason `PURE=1` exists: a level bought with coins is
   not a game any bot could have played, and the whole ladder is tuned against them.
+- **% of L1** in the by-level table is the **funnel**: that row's `Starts (user)` over level 1's.
+  ⚠ **It divides the two numbers on the row, and that is the requirement.** It was first written as
+  the *cohort* — the intersection of the two device sets, i.e. of the people who started level 1
+  inside the window, how many reached this board — which is the more defensible statistic and was
+  rejected on sight in real use: a row reading 15 beside a base of 131 and printing 10% instead of
+  11% reads as arithmetic that failed, and a dashboard nobody can check by hand is a dashboard
+  nobody believes. The cohort number is still computed and lives in the cell's **hover**, together
+  with how many of the players here started level 1 before the window.
+  ⚠ **So it can exceed 100%**, and is highlighted when it does. Someone on level 30 today mostly
+  started level 1 weeks ago, so a short window counts them here and not at level 1. For the same
+  reason the column **rises as the window shortens**, which is the opposite of what a funnel should
+  do — read it on 7 or 30 days. That asymmetry is the price of the readable arithmetic, which is
+  why the hover exists rather than the caveat being left to memory.
+  ⚠ **Uncoloured otherwise, and `<1%` is not `0%`.** A funnel decays by construction, so banding it
+  on the absolute value paints the whole bottom of the ladder red for behaving like a ladder; the
+  step is what matters and Drop-off beside it already flags that. And deep down the base is hundreds
+  against a handful, so whole percent rounds a level somebody did reach to "0%".
 - **D1 retention** is a **cohort**: of the players whose *first* game was that day, the share who
   came back on **exactly** the next day. This is the number CrazyGames reports.
   ⚠ **It is not the "% returning" column beside it**, and reading one as the other is the whole
@@ -1190,6 +1280,23 @@ the same three steps in the same order, or it is showing a board nothing plays.
   3" is to say the generator makes 9 trays there and this one has 13. First real report of a
   hand-built level was exactly that: a level-20-sized board saved as level 3, jamming on the
   belt, and nothing on screen said so.
+- **Tool 0, `Chọn / xem`, selects without painting.** Every other tool paints on contact, so
+  reaching an arrow tray's direction meant clicking it with the arrow tool and one wrong tool
+  destroyed the piece before you saw what it was. It sets `selected` and nothing else; the four
+  contextual panels already key off `selected` plus the cell's own kind, so a piece added later is
+  reachable the day it exists without a new branch here.
+  ⚠ **"Which tools own their selection" lived in three inline copies** — the end of `apply`, the
+  tool buttons, the number keys — and they had already drifted: two named the arrow tool and one did
+  not. Adding the new tool to two of the three left it selecting a cell and dropping it again inside
+  the same click, which looks exactly like a dead tool. One `KEEPS_SELECTION`, three readers.
+- ⚠ **A contextual panel that opens below the fold has not opened.** The tool list alone is 507px,
+  so on an 800px-high window the arrow tray's direction picker landed at y **799** — one pixel under
+  the edge. Reported as "chưa chọn được chiều mũi tên", and the picker was there and working the
+  whole time. Two fixes, and both were needed: `Lưu vào level` moved to the left column so the
+  panel stack starts higher, and every contextual panel now scrolls itself into view.
+  ⚠ Only on the **transition** from hidden to shown. `commit()` re-renders every panel on every
+  painted cell, so scrolling whenever an open panel happens to be off-screen drags the page out from
+  under a drag-paint.
 - ⚠ Every `addIssue` has to come **after** `issuesEl.replaceChildren()`. A warning raised above
   it is added and wiped in the same frame, which reads exactly like a condition that never
   fired — and the one lost that way was the heaviest signal on the panel.

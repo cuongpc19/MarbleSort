@@ -163,6 +163,19 @@
       because a few hundred of them played on a build that sent no start row. Dividing one by the
       other is only meaningful once the whole window is start-logging builds; until then a ratio
       under 1 is a gap in the data, not players who somehow started less than once.
+      <b>% of L1</b> = this row's <b>Starts (user)</b> divided by level 1's — the funnel, in the
+      two numbers you can check by hand on the row itself. ⚠ It is a ratio of two headcounts, not a
+      cohort: someone on level 30 today mostly started level 1 weeks ago, so a short window counts
+      them here and not at level 1, and the column <b>can go over 100%</b> — highlighted when it
+      does, because that is the shape of the window rather than a board more popular than the first.
+      ⚠ For the same reason it <em>rises</em> as the window shortens, which is the opposite of what
+      a funnel should do; read it on 7 or 30 days, where most of the people on a late board did
+      start level 1 inside it. <b>Hover the cell</b> for the cohort reading — of the people who
+      started level 1 <em>inside</em> this window, how many reached this board, and how many of the
+      players here began before the window and so are in the ratio's top half only. Level 1 is 100%
+      by construction; <b>&lt;1%</b> means somebody got there and whole percent would have rounded
+      them away, which is not the same as <b>0%</b>. Blank until level 1 has at least 8 players in
+      the window.
       <b>Completed</b> = how many of those players ever cleared it.
       <b>Quit</b> = <em>attempts</em> that reached the board and never came back with a result —
       someone who walked away mid-level. ⚠ It is a percentage of <b>Starts (event)</b>, not of
@@ -565,6 +578,23 @@ function render() {
   for (const r of g) mark(r.lvl, r.dev);
   for (const r of st) mark(r.lvl, r.dev);
 
+  // The funnel's base: everyone seen at level 1 inside this window, from starts *and* from
+  // finished attempts — the same union `Starts (user)` is counted from, so the two columns divide
+  // against each other honestly.
+  //
+  // ⚠ **An intersection, not a ratio of two headcounts.** `seen(N).size / seen(1).size` is the
+  // obvious way to write this and it is not a funnel: the people at level 30 in a 7-day window are
+  // mostly people who cleared level 1 *before* it, so they are counted in the numerator and not in
+  // the denominator, and the column can read over 100% on a board nobody new ever reached. Counting
+  // only devices that are in **both** sets answers the question the column is named for — of the
+  // people who started at level 1 here, how many ever got this far — and cannot exceed 100%.
+  //
+  // ⚠ It is therefore **a floor, and it falls as the window gets shorter**: a player who started
+  // level 1 a fortnight ago and is on level 40 today is in neither set, so a 24-hour window shows
+  // almost nobody past the first few boards. Read it on a window long enough to contain the
+  // playthrough it is measuring, the same caution D1 retention carries.
+  const funnelBase = seen.get(1);
+
   const nums = [...new Set([...lv.keys(), ...reach.keys()])].sort((a, b) => a - b);
   const lvRows = nums.map((n) => {
     const o = lv.get(n) ?? { devs:new Set(), pass:new Set(), passT:new Set(), wtByDev:new Map(), n:0, w:0, wt:0, ms:0, taps:0, peak:0, belt:0, used:{}, sigs:new Set() };
@@ -599,6 +629,34 @@ function render() {
     // is not a small error but an impossible table. Everyone who finished an attempt here plainly
     // started it, whatever their build could report.
     const started = (seen.get(n) ?? o.devs).size;
+    // ⚠ **It divides the two numbers on the row**: `Starts (user)` here over `Starts (user)` at
+    // level 1. That is what the column was asked for and it is the only reading that survives
+    // being checked by hand — a column showing 15 beside 131 and printing anything other than 11%
+    // reads as arithmetic that failed, however defensible the other number is.
+    //
+    // ⚠ **So it is a ratio of two headcounts, not a cohort, and the two are different questions.**
+    // Someone on level 30 today mostly started level 1 weeks ago, so in a short window they are
+    // counted upstairs and not downstairs and the column **can exceed 100%** — flagged when it
+    // does, because that is the shape of the data rather than a level more popular than the first.
+    // The cohort figure — of the people who started level 1 *inside* this window, how many got
+    // here — is the intersection, and it rides along in the hover instead of replacing this.
+    const fHits = funnelBase ? [...(seen.get(n) ?? [])].filter((d) => funnelBase.has(d)).length : 0;
+    const fBase = funnelBase ? funnelBase.size : 0;
+    const fRate = fBase >= MIN_N ? pct(started, fBase) : null;
+    // Deep in the ladder the base is hundreds against a handful, so whole percent rounds a level
+    // somebody did reach to "0%". Nobody at all is "0%"; one in three hundred is "<1%".
+    const funnel =
+      fRate == null ? "—"
+      : started === 0 ? "0%"
+      : 100 * started < fBase ? "&lt;1%"
+      : fRate + "%";
+    const fTitle = !funnelBase
+      ? "no level 1 rows in this window"
+      : fBase < MIN_N
+        ? `level 1 has only ${fBase} players in this window — too few to divide by`
+        : `${started} here ÷ ${fBase} at level 1. Of those ${started}, ${fHits} also started ` +
+          `level 1 inside this window` +
+          (started > fHits ? ` and ${started - fHits} started it earlier, before the window` : "");
     /**
      * `winrate_c` — the same completes-over-starts, but counting **only the players who got
      * through in the end**.
@@ -617,7 +675,9 @@ function render() {
     const cStarts = rc ? [...o.passT].reduce((a, d) => a + (rc.byDev.get(d) || 0), 0) : 0;
     return `<tr><td>L${n}</td>
       <td class="${band(pct(o.wt, rc ? rc.n : 0), rc ? rc.n : 0)}">${rc ? pct(o.wt, rc.n) + "%" : "—"}</td>
-      <td>${rc ? rc.n : "—"}</td><td>${started}</td><td>${o.pass.size}</td>
+      <td>${rc ? rc.n : "—"}</td><td>${started}</td>
+      <td class="${fRate != null && fRate > 100 ? "warn" : ""}" title="${fTitle}">${funnel}</td>
+      <td>${o.pass.size}</td>
       <td class="${quit == null ? "" : quit > 40 ? "bad" : quit > 20 ? "warn" : ""}">${quit == null ? "—" : quit + "%"}</td>
       <td>${wonLeft || ""}</td>
       <td class="${wl == null ? "" : wl > 50 ? "bad" : wl > 25 ? "warn" : ""}">${wl == null ? "—" : wl + "%"}</td>
@@ -631,7 +691,7 @@ function render() {
       <td style="text-align:left">${bs}</td>
       <td class="${o.sigs.size > 1 ? "warn" : ""}" style="text-align:left">${[...o.sigs].join(" ")}</td></tr>`;
   }).join("");
-  $("tLv").innerHTML = `<thead><tr><th>Level</th><th>Winrate<br>/game</th><th>Starts<br>(event)</th><th>Starts<br>(user)</th><th>Completed</th><th>Quit</th><th>Won &amp;<br>left</th><th>%</th><th>Games</th>
+  $("tLv").innerHTML = `<thead><tr><th>Level</th><th>Winrate<br>/game</th><th>Starts<br>(event)</th><th>Starts<br>(user)</th><th>% of<br>L1</th><th>Completed</th><th>Quit</th><th>Won &amp;<br>left</th><th>%</th><th>Games</th>
     <th>Winrate<br>/player</th><th>Winrate<br>_c</th><th>Games<br>/player</th><th>Drop-<br>off</th><th>Time</th><th>Taps</th><th>Peak<br>belt</th>
     <th style="text-align:left">Boosters</th><th style="text-align:left">Fingerprint</th></tr></thead><tbody>${lvRows}</tbody>`;
 

@@ -374,14 +374,77 @@ function polarise(raw) {
  * anything the turn can affect, and a model that chooses on what is five boxes away is choosing on
  * information no plan can act upon.
  */
+/**
+ * How long the rail has to go quiet before a bot will pour again, in ticks.
+ *
+ * ⚠ **Every bot in this file taps on every single tick a legal tray exists.** `patient` and
+ * Cuongxs1's belt discipline only *filter out* trays the rail has no room for — neither can decline
+ * a turn while a tray still fits. So they play at maximum pour rate, on a machine whose only way to
+ * lose is congestion, and a person does the opposite: pour one tray, watch it go round, pour again.
+ * Measured on level 20, same seed, same scoring: pouring flat out loses with the rail at 30/30
+ * after 22 taps; waiting for the rail to settle **wins** with a peak of 24 and all 34 trays poured.
+ *
+ * ⚠ **0 is the old behaviour**, kept reachable so every number published before this can still be
+ * reproduced — the same reason the `open` scorer is still in the pool. Every number in this project
+ * dated before 2026-08-20 was measured at 0.
+ *
+ * ⚠ **24 was chosen by the data, not by argument.** Ranked on 2061 real games over 27 levels with
+ * `PURE=1 N=40 MINLV=15 npm run winrate -- --models`, leave-one-out log-likelihood against a
+ * constant's -700.0:
+ *
+ * | model    | settle 0 | 8      | 16     | 24         | 34     |
+ * |----------|----------|--------|--------|------------|--------|
+ * | (B+D)/2  | -680.8   | -682.5 | -657.3 | **-647.7** | -650.0 |
+ * | Cuongxs1 | -710.2   | -707.3 | -691.4 | -694.5     | -698.1 |
+ *
+ * Both families improve by a wide margin — 33 LL points for (B+D)/2, 19 for Cuongxs1 — and both
+ * put their optimum in the 16-24 band. 24 is (B+D)/2's best and within 3 points of Cuongxs1's, so
+ * one number serves both. `BELT_SLOTS` is 30, so it reads as "pour again once the rail has been
+ * quiet for about four fifths of a lap".
+ *
+ * ⚠ **The ranking as a whole does not crown a model, and must not be read as doing so.** `random`
+ * came second and `slip0.80` first, which are not credible models of a player who wins 89% of
+ * their games — the real winrate is nearly flat across these levels, so almost nothing separates
+ * the candidates and the fitted slope collapses to 0.46. What is solid here is the **within-family**
+ * comparison: same data, same candidates, one parameter changed. Pixel Flow's warning stands.
+ *
+ * ⚠ **Adopting this invalidates the ladder.** `LADDER`, `VARIANTS`, the `SHEET` check and the box
+ * order search in `custom.ts` were all landed against settle 0. Retune before trusting any of them.
+ */
+export const SETTLE = Number(process.env.SETTLE ?? 24);
+
+/**
+ * Should this bot decline the turn and let the rail run?
+ *
+ * The rule is "pour the next tray once the last one has finished being eaten": hold while the belt
+ * is still draining, give up once it has been flat for `settle` ticks. State lives in the caller so
+ * one game cannot leak into the next.
+ *
+ * ⚠ **Only while waiting can still achieve something.** If nothing on the rail fits an open box,
+ * waiting changes nothing and the bot must pour or the game deadlocks — Cuongxs1's note records a
+ * bot sitting on level 9 for 28,000 ticks with one tray left and three free slots that were never
+ * going to become nine. `hasPendingMatch` is the same guard, reused rather than rewritten.
+ */
+export function holdForBelt(g, st, settle) {
+  const used = g.beltUsed();
+  if (used < st.used) st.quiet = 0;
+  else st.quiet++;
+  st.used = used;
+  if (settle <= 0) return false;
+  if (!g.hasPendingMatch()) return false;
+  return st.quiet < settle;
+}
+
 export function playCuongxs1(M, def, seed, keepLog = false, opt = {}) {
-  const { discipline = true, blind = false, rollouts = 0 } = opt;
+  const { discipline = true, blind = false, rollouts = 0, settle = SETTLE } = opt;
+  const st = { used: 0, quiet: 0 };
   const rng = makeRng(seed);
   const g = new M.Game(def);
   const log = [];
   for (let ticks = 0; g.status === "play" && ticks < 60000; ticks++) {
+    const hold = holdForBelt(g, st, settle);
     let open = [];
-    for (let i = 0; i < g.tiles.length; i++) if (g.canTap(i)) open.push(i);
+    if (!hold) for (let i = 0; i < g.tiles.length; i++) if (g.canTap(i)) open.push(i);
 
     // ⚠ Belt discipline, and the model had none — it tipped whenever the *chute* had room, which
     // is `greedy`'s behaviour, not a person's. Anyone watching the rail fill up stops. Adding it
@@ -492,9 +555,11 @@ export function playCuongxs1(M, def, seed, keepLog = false, opt = {}) {
  * needs a fast opinion about "does this line finish", not a good one.
  */
 function rollout(M, g, rng, opt) {
+  const st = { used: 0, quiet: 0 };
   for (let t = 0; g.status === "play" && t < 4000; t++) {
+    const hold = holdForBelt(g, st, opt.settle ?? SETTLE);
     let open = [];
-    for (let i = 0; i < g.tiles.length; i++) if (g.canTap(i)) open.push(i);
+    if (!hold) for (let i = 0; i < g.tiles.length; i++) if (g.canTap(i)) open.push(i);
     if (opt.discipline && g.hasPendingMatch()) open = open.filter((i) => g.beltFree() >= g.load(i));
     if (open.length) {
       // No map-gain probe in here: it costs a snapshot per candidate and this runs thousands of
@@ -563,10 +628,10 @@ export function playPerfect(M, def, keepLog = false) {
  * sampled games, and **only the sampled games count**. The perfect game is a check, not a result
  * — folding it in would add a guaranteed win to every level and lift every score by 1/(n+1).
  */
-export function cuongxs1Rate(M, def, n = 50) {
+export function cuongxs1Rate(M, def, n = 50, settle = SETTLE) {
   const perfect = playPerfect(M, def);
   let wins = 0;
-  for (let s = 0; s < n; s++) if (playCuongxs1(M, def, seedFor(def.level, s)).win) wins++;
+  for (let s = 0; s < n; s++) if (playCuongxs1(M, def, seedFor(def.level, s), false, { settle }).win) wins++;
   return { perfect: perfect.win, rate: wins / n, games: n };
 }
 
@@ -582,15 +647,17 @@ export function cuongxs1Rate(M, def, n = 50) {
  *
  * `slip` is how often a thinking bot just taps something anyway; it interpolates greedy → random.
  */
-export function play(M, def, mode, seed, slip = 0) {
+export function play(M, def, mode, seed, slip = 0, settle = SETTLE) {
+  const st = { used: 0, quiet: 0 };
   const rng = makeRng(seed);
   const g = new M.Game(def);
   const legacy = mode.endsWith("-open");
   const base = legacy ? mode.slice(0, -5) : mode;
   const score = SCORERS[legacy ? "open" : "net"];
   for (let ticks = 0; g.status === "play" && ticks < 60000; ticks++) {
+    const hold = holdForBelt(g, st, settle);
     let open = [];
-    for (let i = 0; i < g.tiles.length; i++) if (g.canTap(i)) open.push(i);
+    if (!hold) for (let i = 0; i < g.tiles.length; i++) if (g.canTap(i)) open.push(i);
     if (base === "patient") open = open.filter((i) => g.beltFree() >= g.load(i));
     if (open.length) {
       let pick = open[(rng() * open.length) | 0];
@@ -618,9 +685,9 @@ export function play(M, def, mode, seed, slip = 0) {
  *  play the same games and can be compared directly. */
 export const seedFor = (level, i) => level * 7919 + i * 104729 + 1;
 
-export function rate(M, def, mode, n, slip = 0) {
+export function rate(M, def, mode, n, slip = 0, settle = SETTLE) {
   let w = 0;
-  for (let s = 0; s < n; s++) if (play(M, def, mode, seedFor(def.level, s), slip).win) w++;
+  for (let s = 0; s < n; s++) if (play(M, def, mode, seedFor(def.level, s), slip, settle).win) w++;
   return w / n;
 }
 
@@ -636,12 +703,12 @@ export function rate(M, def, mode, n, slip = 0) {
  * that is about a point, which is inside the ±1.5 the measurement carries anyway; at 12 games it
  * would not be, so do not read a pooled B off a cheap run.
  */
-export const best = (M, def, n) =>
+export const best = (M, def, n, settle = SETTLE) =>
   Math.max(
-    rate(M, def, "greedy", n),
-    rate(M, def, "patient", n),
-    rate(M, def, "greedy-open", n),
-    rate(M, def, "patient-open", n),
+    rate(M, def, "greedy", n, 0, settle),
+    rate(M, def, "patient", n, 0, settle),
+    rate(M, def, "greedy-open", n, 0, settle),
+    rate(M, def, "patient-open", n, 0, settle),
   );
 
 /**
@@ -653,9 +720,9 @@ export const best = (M, def, n) =>
  * model believed. Callers must not quietly average that away.
  */
 export const D_SLIP = Number(process.env.D_SLIP ?? 0.25);
-export function bd(M, def, n) {
-  const b = best(M, def, n);
-  const d = rate(M, def, "greedy", n, D_SLIP);
+export function bd(M, def, n, settle = SETTLE) {
+  const b = best(M, def, n, settle);
+  const d = rate(M, def, "greedy", n, D_SLIP, settle);
   return { b, d, raw: (b + d) / 2, gap: Math.abs(b - d) };
 }
 

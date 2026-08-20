@@ -104,17 +104,94 @@
       a.btn.primary:hover { background: #1f49c4; }
       button.ghost { border-style: dashed; color: var(--ink-soft); }
 
+      /* Three columns: the save box hard against the left edge, the board in the middle, the tools
+         on the right. ⚠ **Named areas, not column order**, because the save box has to change
+         *shape* rather than just position as the window narrows — at three columns it is a tall
+         narrow card, and below that it lies across the top as one wide strip. Ordering plain grid
+         items would instead push it into whatever cell came next and leave the board sharing a row
+         with a half-width save card. */
       .wrap {
         display: grid;
-        grid-template-columns: minmax(320px, 1fr) minmax(300px, 380px);
+        grid-template-columns: minmax(220px, 264px) minmax(320px, 1fr) minmax(300px, 380px);
+        grid-template-areas: "save board tools";
         gap: 28px;
         align-items: start;
-        max-width: 1180px;
+        /* ⚠ Widened with the new column, not shared with it. Left at 1180 the third column comes
+           straight out of the board, and the board is the thing being edited. */
+        max-width: 1480px;
         margin: 0 auto;
         padding: 28px 24px 80px;
       }
+      .savecol { grid-area: save; min-width: 0; }
+      .left { grid-area: board; }
+      .panel { grid-area: tools; }
+
+      /* Below this the three columns no longer fit without the board paying for it, so the save box
+         goes back to a full-width strip above the board — still the first thing on the page, which
+         is the point of moving it. */
+      @media (max-width: 1240px) {
+        .wrap {
+          grid-template-columns: minmax(320px, 1fr) minmax(300px, 380px);
+          grid-template-areas:
+            "save save"
+            "board tools";
+          max-width: 1180px;
+        }
+      }
       @media (max-width: 860px) {
-        .wrap { grid-template-columns: 1fr; }
+        .wrap {
+          grid-template-columns: 1fr;
+          grid-template-areas:
+            "save"
+            "board"
+            "tools";
+        }
+      }
+
+      /* In the narrow column the three buttons stack; across the top strip they sit in one row.
+         Both fall out of `.row`'s existing wrap — nothing here forces either. */
+      .savecol .box { gap: 12px; }
+      /* ⚠ Sticky like `.panel`, and for the same reason: the board grows to seven rows and its key
+         runs long, so a save button pinned to the top of a column is a save button off the screen.
+         `top` matches the panel's, so the two columns line up against the header. */
+      @media (min-width: 1241px) {
+        .savecol { position: sticky; top: 82px; }
+        .savecol .row { gap: 8px; }
+        /* The level picker keeps its own line; the actions fill the width underneath, which reads
+           as one group rather than two buttons and an orphan. */
+        .savecol .row > .btn,
+        .savecol .row > button { flex: 1 1 100%; justify-content: center; text-align: center; }
+      }
+
+      /* ⚠ Across the top the same card must lie **flat**, not deep. Stacked — which is what the
+         column layout wants — its heading, three notes and two button rows are ~350px of a 900px
+         window standing between the header and the board, so the fix for a save button below the
+         fold pushes the board itself below the fold. Laid out in a row it is two lines. */
+      @media (min-width: 861px) and (max-width: 1240px) {
+        .savecol .box {
+          flex-direction: row;
+          flex-wrap: wrap;
+          align-items: center;
+          gap: 10px 20px;
+        }
+        .savecol .box > h2 { flex: 1 1 100%; }
+        .savecol .box > .hint { margin: 0; flex: 1 1 240px; }
+        .savecol .box > #book { flex: 0 1 auto; }
+      }
+
+      /* ⚠ "Lưu vào level" is not in this column and must not come back to it. It began at the top
+         of the right-hand panel, where its level picker, four buttons, saved-level list and two
+         notes pushed "Công cụ" — the control reached on every single edit — a long way down and
+         shoved Khay đôi, Khay mũi tên and Cửa xả off the bottom of the screen; an arrow tray's
+         direction picker that has to be scrolled to reads as one that does not exist, and was
+         reported that way. Moved under the board next, which cleared the panel but left the save
+         button below the fold on a 1000px window — the board and its four-row key are taller than
+         that on their own. It now has a column of its own at the left edge. */
+      .left {
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+        min-width: 0;
       }
 
       .stage {
@@ -614,37 +691,7 @@
     </header>
 
     <div class="wrap">
-      <div class="stage">
-        <div class="stage-body"><div id="board"></div></div>
-        <p class="hint">
-          Bấm để đặt, giữ và kéo để vẽ liên tục. Phím <b>1</b>–<b>9</b> đổi công cụ nhanh.
-          Bấm vào cửa xả đã đặt để sửa hàng đợi màu của nó.
-        </p>
-
-        <!-- The board is drawn as the game will show it, so its three tells need naming: a
-             symbol nobody can look up is a symbol nobody reads. -->
-        <div class="key">
-          <div class="keyrow">
-            <span class="keyart"><span class="kdot"></span></span>
-            <span>Chấm vàng: ô <b>?</b> này sẽ lộ màu ngay khi vào màn — khay hở một hướng thì
-              không úp được. Hàng dưới cùng luôn hở, vì nó nằm trên miệng phễu</span>
-          </div>
-          <div class="keyrow">
-            <span class="keyart"><span class="keggs"></span></span>
-            <span>Trứng nổi: khay bấm được ngay. Phẳng lì: đang bị khoá</span>
-          </div>
-          <div class="keyrow">
-            <span class="keyart"><span class="khid">?</span><span class="kchip"></span></span>
-            <span>Ô <b>?</b> xám: người chơi chưa thấy màu. Chấm nhỏ góc dưới là màu thật, chỉ editor thấy</span>
-          </div>
-          <div class="keyrow">
-            <span class="keyart"><span class="kghost"></span></span>
-            <span>Ô mờ: khay do cửa xả phía trên đẩy xuống trước khi màn bắt đầu</span>
-          </div>
-        </div>
-      </div>
-
-      <div class="panel">
+      <div class="savecol">
         <div class="box">
           <h2>Lưu vào level</h2>
           <div class="row">
@@ -677,7 +724,42 @@
             <button id="exportAll">Xuất tất cả</button>
           </div>
         </div>
+      </div>
 
+      <div class="left">
+        <div class="stage">
+          <div class="stage-body"><div id="board"></div></div>
+          <p class="hint">
+            Bấm để đặt, giữ và kéo để vẽ liên tục. Phím <b>0</b>–<b>9</b> đổi công cụ nhanh — <b>0</b> là chọn, không vẽ đè.
+            Bấm vào cửa xả đã đặt để sửa hàng đợi màu của nó.
+          </p>
+
+          <!-- The board is drawn as the game will show it, so its three tells need naming: a
+               symbol nobody can look up is a symbol nobody reads. -->
+          <div class="key">
+            <div class="keyrow">
+              <span class="keyart"><span class="kdot"></span></span>
+              <span>Chấm vàng: ô <b>?</b> này sẽ lộ màu ngay khi vào màn — khay hở một hướng thì
+                không úp được. Hàng dưới cùng luôn hở, vì nó nằm trên miệng phễu</span>
+            </div>
+            <div class="keyrow">
+              <span class="keyart"><span class="keggs"></span></span>
+              <span>Trứng nổi: khay bấm được ngay. Phẳng lì: đang bị khoá</span>
+            </div>
+            <div class="keyrow">
+              <span class="keyart"><span class="khid">?</span><span class="kchip"></span></span>
+              <span>Ô <b>?</b> xám: người chơi chưa thấy màu. Chấm nhỏ góc dưới là màu thật, chỉ editor thấy</span>
+            </div>
+            <div class="keyrow">
+              <span class="keyart"><span class="kghost"></span></span>
+              <span>Ô mờ: khay do cửa xả phía trên đẩy xuống trước khi màn bắt đầu</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="panel">
         <div class="box">
           <h2>Công cụ</h2>
           <div class="tools" id="tools"></div>
