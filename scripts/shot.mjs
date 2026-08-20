@@ -99,6 +99,7 @@ async function main() {
 
   // Browser frame, `WxH`. Default is the phone box the art was designed against.
   const SIZE = (arg("size", "540x1160") + "").replace("x", ",");
+  const DPR = Number(arg("dpr", 1)) || 1;
   const profile = join(OUT, "profile"); // gitignored; reused so Chrome starts warm
   const child = spawn(
     exe,
@@ -113,6 +114,13 @@ async function main() {
       // — so every screenshot taken here exercises the *phone* build and says nothing whatever
       // about how the game looks in a 16:9 iframe, which is every frame the host uses.
       `--window-size=${SIZE}`,
+      // ⚠ `--dpr 2` is the second axis, and it is not cosmetic. `GameScene.root` is scaled by the
+      // device pixel ratio, so anything that has to agree with the game's own transform — a mask, a
+      // hit test built in screen space, a value read back off the canvas — is right by coincidence
+      // at DPR 1 and wrong everywhere else. This browser is DPR 1 by default, which is why a build
+      // whose box well was empty on a phone passed every screenshot taken here. Shoot the layout at
+      // 1 and anything that touches a transform at 2.
+      ...(DPR === 1 ? [] : [`--force-device-scale-factor=${DPR}`]),
       "--hide-scrollbars",
       URL_BASE,
     ],
