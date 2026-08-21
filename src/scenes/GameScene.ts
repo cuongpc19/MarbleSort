@@ -1038,6 +1038,29 @@ export class GameScene extends Phaser.Scene {
     this.buildBooster("magnet", col ? hc.x : L.boostX, col ? hc.boostY : L.boostY);
   }
 
+  /**
+   * The booster's two faces, live and not-yet.
+   *
+   * ⚠ **One function, three call sites.** `refreshHud` sets this texture from two different
+   * branches and `buildBooster` from a third; written inline, the phone would keep the green face
+   * in whichever branch was added last, and it would be the locked state — the one a reviewer sees
+   * for the first five levels and nobody tests.
+   */
+  private boosterBtn(on: boolean): string {
+    if (WIDE_HUD) return K.btn(on ? "green" : "greenOff");
+    /**
+     * ⚠ **One face on a phone, and nothing else dims either — so "not yet" is not shown there at
+     * all.** Out on the violet the face goes to "greenOff" whenever the belt has no plan for the
+     * booster, which is most of a level. In the HUD row the button has to be the same purple as the
+     * level pill and the coin, and everything tried for saying "not yet" on top of that was worse
+     * than saying nothing: a darker square reads as the one control that failed to draw, and a
+     * greyed magnet reads as a broken icon. Pressing it with no plan still refuses, with the deny
+     * sound — the state is audible rather than visible. Deliberate, and asked for.
+     */
+    return K.btn("purpleSq");
+  }
+
+
   private buildBooster(kind: BoosterKind, x: number, y: number) {
     const c = this.add.container(x, y);
     /**
@@ -1066,14 +1089,22 @@ export class GameScene extends Phaser.Scene {
     // be darker than the thing mounted on it or the two merge into one flat blob: the face is baked
     // #7fe06a → #3fb43f → #2c8330, and against a pad of the same brightness its light top edge —
     // the only thing making it read as raised — disappears.
-    pad.fillStyle(UI.green, 0.16).fillRoundedRect(-R - PAD - 20, -R - PAD - 20, 2 * (R + PAD + 20), 2 * (R + PAD + 20), R + PAD + 20);
-    pad.fillStyle(UI.green, 0.34).fillRoundedRect(-R - PAD - 9, -R - PAD - 9, 2 * (R + PAD + 9), 2 * (R + PAD + 9), R + PAD + 9);
-    pad.fillStyle(UI.green, 1).fillRoundedRect(-R - PAD, -R - PAD, 2 * (R + PAD), 2 * (R + PAD), R + PAD);
+    // ⚠ **No disc at all on a phone — the square face is the whole button.** All three of these are
+    // `fillRoundedRect` at a corner radius of half the side, which is a circle; the square the player
+    // sees is the face drawn on top of them. Out in the wide layout's pad the booster stands alone on
+    // the violet and the disc is what gives it a ground of its own. In the HUD row it has no such
+    // problem — it is one of four controls on a line — and the disc there is a 74px green circle
+    // behind a 56px purple square, which is two shapes doing one job.
+    if (WIDE_HUD) {
+      pad.fillStyle(UI.green, 0.16).fillRoundedRect(-R - PAD - 20, -R - PAD - 20, 2 * (R + PAD + 20), 2 * (R + PAD + 20), R + PAD + 20);
+      pad.fillStyle(UI.green, 0.34).fillRoundedRect(-R - PAD - 9, -R - PAD - 9, 2 * (R + PAD + 9), 2 * (R + PAD + 9), R + PAD + 9);
+      pad.fillStyle(UI.green, 1).fillRoundedRect(-R - PAD, -R - PAD, 2 * (R + PAD), 2 * (R + PAD), R + PAD);
+    }
 
     // ⚠ The frame is drawn **around** the icon again, not hidden behind it. On the HUD line there
     // was no room for both and the icon won; on its own row the button reads as a button, which is
     // what a control the player is asked to press has to look like.
-    const face = img(this, K.btn("green"), 0, 0).setScale(L.boostSize / 76);
+    const face = img(this, this.boosterBtn(true), 0, 0).setScale(L.boostSize / 76);
     this.boosterFace = face;
     // ⚠ The icon is 44px baked and is drawn at 54 — **larger than its 60px frame allows for**, so it
     // breaks slightly out of the button. At 1.32 it came out 58px wide inside a 60px face and the
@@ -2005,6 +2036,10 @@ export class GameScene extends Phaser.Scene {
     // whose colour has six marbles on the rail" is the common case early in a level, when the belt
     // is nearly empty.
     const face = this.boosterFace;
+    // ⚠ **This is the face, not the icon**, and the name has been lying since it was written:
+    // index 1 of `[pad, face, icon, badge, …]` is the face. Left as it is because what it does —
+    // fade the button while the booster is locked — is right, and is what shipped; renaming it to
+    // `face` collides with the real `face` two lines up. The magnet itself is `this.boosterIcon`.
     const icon = this.boosterBtns.magnet.list[1] as Phaser.GameObjects.Image;
     const own = save.magnets;
 
@@ -2015,9 +2050,16 @@ export class GameScene extends Phaser.Scene {
     // that simply appears at level 6 would be the reward arriving with no build-up. This is the
     // build-up.
     this.boosterLock.setVisible(this.magnetLocked);
-    icon.setAlpha(this.magnetLocked ? 0.45 : 1);
+    // ⚠ **This fades the face, not the magnet** — `icon` is index 1; see the note where it is read.
+    // ⚠ **And it does not fade at all on a phone.** 0.45 alpha over the violet is very nearly black,
+    // which put a black square in a row of bright purple pills for the first five levels — the run
+    // every new player and every reviewer sees, and it was reported from a real phone as simply
+    // "button rất tối". Out on the wide layout's pad the booster stands alone and dimming is how the
+    // locked state reads; in the row the padlock says it on its own, and the missing count says it
+    // again.
+    icon.setAlpha(this.magnetLocked && WIDE_HUD ? 0.45 : 1);
     if (this.magnetLocked) {
-      face.setTexture(K.btn("greenOff"));
+      face.setTexture(this.boosterBtn(false));
       this.boosterCost.setText("");
       this.boosterBadge.clear();
       return;
@@ -2029,7 +2071,7 @@ export class GameScene extends Phaser.Scene {
     // doing something sensible, and greying the button then hides the price behind a control they
     // have been taught not to press.
     const usable = own > 0 ? !!this.board.revivePlan() : true;
-    face.setTexture(usable ? K.btn("green") : K.btn("greenOff"));
+    face.setTexture(this.boosterBtn(usable));
 
     // ⚠ **The badge is how many you have, and at zero there is no badge at all.** It said the price
     // before, which put a red 60 on a button the player already owned two free uses of — the number

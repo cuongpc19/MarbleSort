@@ -136,7 +136,18 @@ export const MAGNET_TUTOR_LEVEL = 6;
 // for in width on every desktop frame. The row is gone because the line had space once the pill
 // moved left against the gear and the coin moved right against the wall; the booster took the gap
 // in the middle that opened up between them.
-const BOOST_LIFT = 84;
+// ⚠ **94 since the booster's two soft rings came off on a phone.** The button keeps its seat in
+// the middle of the HUD line, but the pad it sits on went from ±57 to ±37 — the rings were the
+// widest thing on the row by a long way, and the cabinet had to start clear of them. Ten pixels
+// here and eight on `TRIM_TOP` take the strip above the cabinet from 90 to 72, which leaves the
+// solid pad overlapping the cabinet's top rim by about three pixels. That overlap is allowed
+// deliberately: the rim is white casing with nothing on it, and three pixels of it is a far better
+// use of the column than eighteen pixels of empty violet.
+// ⚠ **This lever is portrait-only even though nothing here says so.** `HUD_LIFT` subtracts
+// `BOOST_LIFT` and `MACHINE_TOP` adds it back, so on a wide frame the cabinet's top edge is
+// `WIDE_MACHINE_TOP` whatever this is — and `FUNNEL_SHOULDER_BASE` and `GRID_TOP` cancel it the
+// same way. Changing it cannot move the desktop layout by a pixel.
+const BOOST_LIFT = 94;
 
 /**
  * Is the frame landscape enough to put the HUD in a column beside the machine?
@@ -185,7 +196,11 @@ export const STAGE_PAD = WIDE_HUD ? 156 : 0;
  */
 
 /** Margin above the HUD: 24 was a comfortable gap on a phone and is pure cost on a desktop frame. */
-const TRIM_TOP = 16;
+// ⚠ 16 -> 24 once the booster's rings came off: the HUD line no longer carries a 114px-tall green
+// pad that ran off the top of the canvas at y −11, so the row can sit closer to the edge. It moves
+// the HUD and the machine together, and it cancels on a wide frame for the same reason
+// `BOOST_LIFT` does.
+const TRIM_TOP = 24;
 /** The cabinet's top rim, 42px of grey bar above the grid cavity. 26 still reads as a lip. */
 const TRIM_RIM = 16;
 /** `gridPanel` carried 382 for a grid that is 348 at five rows — 34 of centring slack. */
@@ -606,7 +621,16 @@ export const UI = {
   beltLight: 0x8b93a3,
   chrome: 0xf3f6fc,
   ink: "#2b3550",
-  pill: 0x8f7ce8,
+  /**
+   * The level pill and the coin, and now the mount under the booster too.
+   *
+   * ⚠ **The middle stop of the `btn("purple")` bake, and `textures.ts` reads it from here.** It was
+   * 0x8f7ce8 and nothing read it at all: the pills were three hex literals a hundred lines away in
+   * the bake, so this token was a colour the game did not use, sitting under the name of a colour it
+   * did. Anything that has to match the pills — the booster's mount does, on a phone — would have
+   * been a fourth copy.
+   */
+  pill: 0x7f6ada,
   pillEdge: 0x6a56c4,
   gold: 0xffc21e,
   green: 0x4bc84b,

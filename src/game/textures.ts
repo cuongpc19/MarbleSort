@@ -760,8 +760,28 @@ function bakeChrome(scene: Phaser.Scene) {
   bake(scene, K.btn("greenOff"), S, S, (ctx, w, h) =>
     face(ctx, w, h, "#5f9c62", "#40734a", "#2b4d35", 17),
   );
+  // ⚠ The middle stop comes from `UI.pill`, not from a literal beside the other two. The booster's
+  // mount is drawn in that same token on a phone, and two hexes that have to stay equal are two
+  // hexes that will not.
   bake(scene, K.btn("purple"), 120, 46, (ctx, w, h) =>
-    face(ctx, w, h, "#a596f2", "#7f6ada", "#5b48ab", 20),
+    face(ctx, w, h, "#a596f2", hex(UI.pill), "#5b48ab", 20),
+  );
+  // The booster's face on a phone, where it stands in a row of purple pills rather than out on the
+  // violet. It has to read as bright as the level pill beside it, and these three stops are what
+  // measures that way — the pill's own ramp lifted **half a step**.
+  //
+  // ⚠ **The pill's exact stops are not the answer, and that is not obvious.** Brightness is read
+  // over the whole control, and a magnet covering half of a 56px square is a lot of dark where the
+  // pill's thin lettering is almost none. Measured as the mean over each control, against the pill's
+  // 169/255: the pill's own ramp gives 160, a full step up gives 177-182, half a step gives 168-171.
+  // ⚠ So do not "tidy" this back to `UI.pill` and the pill's neighbours. It would look like removing
+  // a duplicate and it is the one thing that has already been tried and reported from a real phone
+  // as the button being too dark.
+  // ⚠ **There is no muted twin and nothing dims this face** — see `GameScene.boosterBtn` and the
+  // note on the locked alpha in `refreshHud`. Dimming is how "not yet" and "locked" are said out on
+  // the violet; in a bright row a dimmed square reads as the one control that failed to draw.
+  bake(scene, K.btn("purpleSq"), S, S, (ctx, w, h) =>
+    face(ctx, w, h, "#b7a9f8", "#9280e6", "#6d59c2", 17),
   );
   bake(scene, K.btn("gold"), 46, 46, (ctx, w, h) =>
     face(ctx, w, h, "#ffd964", "#f5a91a", "#c67a06", 14),
