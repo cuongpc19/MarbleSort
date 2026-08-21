@@ -52,6 +52,21 @@
       }
       #game canvas {
         display: block;
+        /* ⚠ **Chrome's focus ring, and it is not a decoration we can leave on.** Since M86 the
+           default ring is drawn two-tone — a dark inner band and a **white outer band** — precisely
+           so it stays visible on any background. Ours is dark violet, so what shows is the white
+           half: a hairline down each side of the canvas. Reported from the live CrazyGames desktop
+           frame as "vạch trắng hai bên", and it never appeared locally because nothing here takes
+           the focus; the host focuses the game frame so its keyboard controls work, and the ring
+           comes with it. The give-away was that clicking the page *outside* the game made it
+           vanish — a picture the game drew could not do that, a focus ring does nothing else.
+           The board is driven entirely by pointer taps and the canvas is not a control anyone
+           tabs to, so there is no keyboard affordance being taken away here. */
+        outline: none;
+      }
+      #game canvas:focus,
+      #game canvas:focus-visible {
+        outline: none;
       }
       /* Pure HTML boot screen — paints in the first frame, before the Phaser
          bundle has downloaded. HomeScene hides it once the game is up. */
