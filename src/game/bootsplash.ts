@@ -163,7 +163,22 @@ export function matchPageToCanvas(scene: Phaser.Scene, fallback: string): void {
           h: number,
           cb: (img: unknown) => void,
         ) => void
-      )(0, 0, strip, cv.height, (img) => readStrip(img, b, winW, winH));
+      )(0, 0, strip, cv.height, (img) => {
+        // ⚠ **Where the canvas sits is read here, not where the snapshot was asked for.** The
+        // colours come back a frame or more later, and in between the canvas can have moved: this
+        // runs from `create()`, one statement after `setGameSize`, and again on the trailing edge
+        // of a resize the browser may not have laid out yet. Placing the bars against the box the
+        // canvas had *before* all that puts the transparent window and the seam in different
+        // places, and the strip between them is the one part of the page painted in canvas colours
+        // with none of the shade — a light band hugging the game on both sides.
+        const nb = scene.scale.canvasBounds;
+        const w2 = window.innerWidth;
+        const h2 = window.innerHeight;
+        if (!w2 || !h2 || nb.width <= 0 || nb.height <= 0) return;
+        // It grew to cover the window while we were waiting — there is no bar left to paint.
+        if (nb.width >= w2 - 1 && nb.height >= h2 - 1) return;
+        readStrip(img, nb, w2, h2);
+      });
     } catch {
       /* no canvas, no WebGL, or a browser that refuses the read — the fallback stands */
     }

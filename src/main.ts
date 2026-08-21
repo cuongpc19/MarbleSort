@@ -79,7 +79,15 @@ async function boot() {
     parent: "game",
     width: Math.round(GAME_W * DPR),
     height: Math.round(GAME_H * DPR),
-    backgroundColor: "#b3ddf5",
+    // ⚠ **The same violet as the page and as `#boot`, and it must stay that way.** This is the
+    // colour the canvas is cleared to every frame, under everything the scenes draw — so it is
+    // what shows through any pixel of canvas nothing has covered yet. It said "#b3ddf5" from the
+    // day the project was scaffolded off Beads Out: a pale sky blue, i.e. the one near-white in
+    // the whole stack, sitting where a hairline down the edge of the canvas would pick it up.
+    // Nobody ever saw it on purpose, because the boot poster covers the canvas until a scene is
+    // up, which is exactly why it survived. Matching it to the page costs nothing and means a
+    // pixel that goes uncovered is invisible instead of white.
+    backgroundColor: "#2f2c63",
     render: { powerPreference: "low-power" },
     // Marbles tumble down the chute on real physics — that fall is the whole tactile pay-off
     // of a tap, and hand-animating it would never pile up the same way twice. Full gravity:
