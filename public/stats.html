@@ -225,6 +225,18 @@
       level to be absent from, and someone who cleared a board minutes ago has not had time to
       start the one after it — both push this number up on their own.
       <b>Drop-off</b> = players who started this level and never started the next one.
+      <b>% drop by lose</b> splits that into the part difficulty explains: of the players who left
+      after this board, how many had just <em>lost</em>. The rest had just <em>won</em> it and
+      stopped anyway. ⚠ Two levels with the same Drop-off can be opposite problems — a high number
+      here is a board beating people, a low one is churn the board cannot be blamed for and cannot
+      fix. ⚠ It counts each player's <b>last</b> attempt, so someone who lost twice and then cleared
+      it counts as a winner who left; they were not beaten. ⚠ The hover gives its own base, which is
+      the real set of people who left; the Drop-off percentage beside it is a ratio of two
+      headcounts, so the two are not meant to reconcile by hand.
+      ⚠ Under 8 leavers it shows the <b>raw pair</b> instead, greyed — <b>4/6</b>, not 67%. Its
+      base is a set difference and is far smaller than any other column&rsquo;s, so on a short window
+      most rows sit below any sane threshold; blanking them made the table read as though nobody
+      ever left after losing, when the counts were there all along.
       <b>Time</b> is the <b>median</b> finished attempt on this board — half the attempts were
       quicker, half slower — not the average. ⚠ The mean is the wrong middle here: an attempt is
       timed until the player finishes it, so somebody who leaves the tab sitting on the board writes
@@ -711,7 +723,7 @@ function render() {
   // ---- by level
   const lv = new Map();
   for (const r of g) {
-    if (!lv.has(r.lvl)) lv.set(r.lvl, { devs:new Set(), pass:new Set(), passT:new Set(), lost:new Set(), wtByDev:new Map(), n:0, w:0, wt:0, ms:0, msList:[], taps:0, peak:0, belt:0, used:{}, sigs:new Set() });
+    if (!lv.has(r.lvl)) lv.set(r.lvl, { devs:new Set(), pass:new Set(), passT:new Set(), lost:new Set(), wtByDev:new Map(), lastAt:new Map(), lastRes:new Map(), n:0, w:0, wt:0, ms:0, msList:[], taps:0, peak:0, belt:0, used:{}, sigs:new Set() });
     const o = lv.get(r.lvl);
     o.devs.add(r.dev); o.n++; o.ms += r.ms || 0; o.taps += r.taps || 0;
     if (Number.isFinite(r.ms)) o.msList.push(r.ms);   // see the note by the by-day copy
@@ -721,6 +733,19 @@ function render() {
     // some third value is not a loss, and counting it as one would put people in this column who
     // never lost anything.
     if (r.result === "lose") o.lost.add(r.dev);
+    // How this player's time on the board **ended**, which is what "% drop by lose" turns on.
+    //
+    // ⚠ Not `o.lost`, and the difference is the whole point: somebody who lost twice and then
+    // cleared it did not leave beaten, and counting them as a difficulty casualty is exactly the
+    // misreading the column exists to prevent.
+    // ⚠ Compared on `at` rather than trusting the order rows arrive in. They do come back sorted
+    // today — the query is `orderBy="at"` and push ids sort chronologically — but "last" silently
+    // becoming "whichever landed last in the object" is not a dependency worth taking.
+    const prevAt = o.lastAt.get(r.dev);
+    if (prevAt === undefined || r.at >= prevAt) {
+      o.lastAt.set(r.dev, r.at);
+      o.lastRes.set(r.dev, r.result);
+    }
     if (r.result === "win") {
       o.w++;
       o.pass.add(r.dev);
@@ -805,6 +830,45 @@ function render() {
     const rc = reach.get(n);
     const nx = lv.get(n + 1);
     const drop = nx ? 100 - pct(nx.devs.size, o.devs.size) : null;
+    /**
+     * **% drop by lose** — of the players who dropped off here, the share whose last attempt on
+     * this board was a **loss**.
+     *
+     * ⚠ It splits Drop-off into the half difficulty can explain and the half it cannot. A level
+     * losing a quarter of its players reads the same in that column whether they were beaten or
+     * simply stopped playing, and those need opposite fixes: one is the board, the other is
+     * whatever is happening around it. Measured on real data the two look nothing alike — level 10
+     * dropped mostly losers, level 6 mostly winners.
+     *
+     * ⚠ **The base is the real set difference**, `devs(n) \ devs(n+1)`, not the headcount ratio
+     * the Drop-off percentage beside it is computed from. Those are not the same number: `nx.devs`
+     * can hold people who were never at level n at all, so a ratio of the two sizes is not the
+     * count of anybody in particular. The hover carries this column's own base for that reason,
+     * and the two percentages are not expected to reconcile by hand.
+     *
+     * ⚠ **Under `MIN_N` leavers it prints the raw pair — `4/6`, greyed — rather than blanking.**
+     * A percentage of six is not a rate and must not be coloured like one, but the alternative
+     * tried first was "—", and on a 12-hour window that emptied the column from level 5 down: L5
+     * had 7 leavers, L6 six, L10 six, so nearly every row went blank and the page read as *nobody
+     * ever leaves after losing*, which is the opposite of what the rows held. The denominator here
+     * is a set difference and is an order of magnitude smaller than any other column's, so the
+     * threshold that suits those is far too coarse for this one. Show the fraction, withhold the
+     * claim.
+     */
+    const gone = nx ? [...o.devs].filter((d) => !nx.devs.has(d)) : [];
+    const goneLost = gone.filter((d) => o.lastRes.get(d) === "lose").length;
+    const dbl = gone.length >= MIN_N ? pct(goneLost, gone.length) : null;
+    const dblCell = !nx || !gone.length ? "—" : dbl == null ? `${goneLost}/${gone.length}` : dbl + "%";
+    const dblClass = !nx || !gone.length ? ""
+      : dbl == null ? "thin"
+      : dbl > 60 ? "bad" : dbl > 30 ? "warn" : "";
+    const dblTitle = !nx
+      ? "no level " + (n + 1) + " in this window to be absent from"
+      : !gone.length
+        ? `everyone who played L${n} went on to L${n + 1}`
+        : `${goneLost} of the ${gone.length} who left after L${n} had just lost; ` +
+          `${gone.length - goneLost} had just won it` +
+          (dbl == null ? ` — too few to read as a percentage, so the count is shown instead` : "");
     const bs = Object.entries(o.used).map(([k, v]) => `${k}×${v}`).join(" ");
     const belt = o.belt ? pct(o.peak, o.belt) : 0;
     // ⚠ Only judged once there are enough starts. With one or two, "100%" is one person closing a
@@ -942,13 +1006,14 @@ function render() {
       <td class="${band(pct(cWins, cStarts), cStarts)}">${cStarts ? pct(cWins, cStarts) + "%" : "—"}</td>
       <td>${(o.n / o.devs.size).toFixed(1)}</td>
       <td class="${drop == null ? "" : drop > 40 ? "bad" : drop > 20 ? "warn" : ""}">${drop == null ? "—" : drop + "%"}</td>
+      <td class="${dblClass}" title="${dblTitle}">${dblCell}</td>
       <td title="${o.msList.length ? `median of ${o.msList.length} finished attempts; mean ${Math.round(o.ms / o.n / 1000)}s` : "no attempt here reported its length"}">${o.msList.length ? Math.round(median(o.msList) / 1000) + "s" : "—"}</td><td>${(o.taps / o.n).toFixed(1)}</td>
       <td class="${belt > 90 ? "warn" : ""}">${belt}%</td>
       <td style="text-align:left">${bs}</td>
       <td class="${o.sigs.size > 1 ? "warn" : ""}" style="text-align:left">${[...o.sigs].join(" ")}</td></tr>`;
   }).join("");
   $("tLv").innerHTML = `<thead><tr><th>Level</th><th>Winrate<br>/game</th><th>Starts<br>(event)</th><th>Starts<br>(user)</th><th>% of<br>L1</th><th>Completed</th><th>Lost or<br>retried</th><th>%<br>of starts</th><th>Quit</th><th>Won &amp;<br>left</th><th>%</th><th>Games</th>
-    <th>Winrate<br>/player</th><th>Winrate<br>_c</th><th>Games<br>/player</th><th>Drop-<br>off</th><th>Time<br>(median)</th><th>Taps</th><th>Peak<br>belt</th>
+    <th>Winrate<br>/player</th><th>Winrate<br>_c</th><th>Games<br>/player</th><th>Drop-<br>off</th><th>% drop<br>by lose</th><th>Time<br>(median)</th><th>Taps</th><th>Peak<br>belt</th>
     <th style="text-align:left">Boosters</th><th style="text-align:left">Fingerprint</th></tr></thead><tbody>${lvRows}</tbody>`;
 
   // ⚠ The fingerprint column is the whole reason not to read winrate out of Google Analytics.
