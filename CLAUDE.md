@@ -1095,6 +1095,16 @@ dev purpose needs the same treatment or it ships.
   on the absolute value paints the whole bottom of the ladder red for behaving like a ladder; the
   step is what matters and Drop-off beside it already flags that. And deep down the base is hundreds
   against a handful, so whole percent rounds a level somebody did reach to "0%".
+- **Lost (user)** and **% lost** — distinct players who lost at least once, over `Starts (user)`.
+  ⚠ **Not the complement of Completed**, and they overlap on purpose: someone who failed twice and
+  then cleared it is in both. Read together they separate a board that teaches (nearly everyone
+  loses once, nearly everyone finishes) from a wall (same Lost, half the Completed). The hover
+  carries the complement — how many never cleared it, and how many lost and went on to win.
+  ⚠ Counted by **intersecting** the start set with the winners, never by subtracting two totals:
+  `Completed` includes people on builds too old to send a start row, so `started − completed` can
+  come out negative.
+  ⚠ **Uncoloured**, like `% of L1`: the ladder aims some levels at 25%, so players losing there is
+  the design working. Banding it would paint the intended shape of the game as a fault.
 - **D1 retention** is a **cohort**: of the players whose *first* game was that day, the share who
   came back on **exactly** the next day. This is the number CrazyGames reports.
   ⚠ **It is not the "% returning" column beside it**, and reading one as the other is the whole
