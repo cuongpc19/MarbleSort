@@ -1409,6 +1409,21 @@ the same three steps in the same order, or it is showing a board nothing plays.
   is the right default and it is not a design tool: it builds ~10 candidate layouts, scores each
   with bot games and keeps whichever lands nearest the slot's target, and a designer who wants this
   colour third and that one last has no way to say so. Dragging says it.
+  ⚠ **Four shuffle buttons** sit beside `Sắp lại tự động`: the first 12 boxes, the first 16, the
+  last 30, and positions 12-30. They re-roll only their own stretch, so pressing several in turn is
+  several independent decisions rather than one cancelling the last.
+  ⚠ **Positions count row by row from the top of the well**, not down one column and back up the
+  next — every column's open box is live at once, so a range counted per column would scramble
+  boxes the player meets minutes apart while leaving a whole row untouched. `wellSlots` is that
+  order, and it is what "the first 12" means.
+  ⚠ **Colours move between slots, so the multiset is untouched by construction** — the level still
+  has exactly the boxes its trays need, which is the one property a shuffle must not break.
+  ⚠ **`Math.random`, deliberately**, where everything else in the editor is seeded off the drawing.
+  These are buttons pressed repeatedly to *look for* an arrangement; a seeded shuffle would hand
+  back the same one every time. What gets pinned afterwards is fixed, which is where determinism
+  matters.
+  ⚠ The line is found **inline** on these presses, unlike the edit path where it is debounced: one
+  deliberate press is worth ~200ms of `lineFor` for a panel that tells the truth immediately.
   ⚠ **A hand-arranged order is a pinned order** (`Blueprint.columns`), so from then on the board
   stops rebuilding itself against the slot it sits in. The label above the well says which state it
   is in — derived or pinned — and `Sắp lại tự động` is the way back.

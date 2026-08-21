@@ -495,6 +495,8 @@ function renderWell() {
   wellAutoEl.hidden = !pinned;
   wellAutoEl.textContent = "Sắp lại tự động";
   wellAutoEl.title = "Bỏ thứ tự hiện tại và để máy xếp lại, nhắm vào độ khó của level này";
+  // Same rule as the button beside them: offered whenever there is an order to shuffle.
+  for (const b of shuffleBtns) b.hidden = !pinned;
   const g = preview;
   const stacks = g ? g.boxes.map((b) => b.stack) : [];
   if (!stacks.some((st) => st.length)) {
@@ -743,12 +745,80 @@ function applyMove(from: { col: number; idx: number }, to: { col: number; idx: n
   // column is one place too far. Off by one here silently swaps two boxes instead of moving one.
   const at = from.col === to.col && to.idx > from.idx ? to.idx - 1 : to.idx;
   cols[to.col].splice(Math.min(at, cols[to.col].length), 0, moved);
+  pinCols(cols);
+}
+
+/**
+ * Adopt an arrangement: pin it, find it a line, redraw, and put a run back on its feet.
+ *
+ * ⚠ One definition for every way the well can be rearranged — the drag and all four shuffles.
+ * Each of them has to do the same three things, and the one that gets forgotten is the line: a
+ * pinned board skips `derive`, so nothing else will ever produce a `refTaps` for it.
+ * ⚠ Searched **inline here**, unlike the edit path where it is debounced: these are single
+ * deliberate presses, not a drag-paint firing once per cell, and ~200ms once is worth the panel
+ * telling the truth immediately.
+ */
+function pinCols(cols: Color[][]) {
   const wasPlaying = !!play;
   const sofar = [...playTaps];
   bp.columns = cols;
   bp.refTaps = lineFor(bp, cols);
   commit();
+  // Rearranging under a running game replays it against the new stacks — the whole point of being
+  // able to do it mid-run.
   if (wasPlaying) startPlay(sofar);
+}
+
+/**
+ * The well read as one list, **row by row from the top**: the four open boxes first, then the four
+ * behind them, and so on.
+ *
+ * ⚠ That order is what "the first 12 boxes" means, and it is not the same as reading a column at a
+ * time. The player meets the well in rows — every column's open box is live at once — so a range
+ * counted down one column and then back to the top of the next would scramble boxes the player
+ * reaches minutes apart while leaving a whole row untouched.
+ */
+function wellSlots(cols: Color[][]): { col: number; idx: number }[] {
+  const deepest = Math.max(0, ...cols.map((c) => c.length));
+  const out: { col: number; idx: number }[] = [];
+  for (let d = 0; d < deepest; d++) {
+    for (let j = 0; j < cols.length; j++) if (d < cols[j].length) out.push({ col: j, idx: d });
+  }
+  return out;
+}
+
+/**
+ * Shuffle the boxes that occupy one stretch of the well, leaving every other box where it is.
+ *
+ * `from`/`to` are 1-based positions in `wellSlots` order, `to` past the end meaning "to the bottom".
+ * Both are clamped, so a range wider than the well shuffles what there is rather than refusing —
+ * these are exploratory buttons and a press that does nothing looks broken.
+ *
+ * ⚠ The colours move between **slots**, so the multiset is untouched by construction: the level
+ * still has exactly the boxes its trays need. That is the one property a shuffle must not break.
+ * ⚠ `Math.random`, deliberately. Everything else in this file is seeded off the drawing so the
+ * level the editor measured is the level the player gets — but this is a design tool being pressed
+ * repeatedly to *look for* an arrangement, and a seeded shuffle would hand back the same one every
+ * time. What gets pinned afterwards is fixed, which is where determinism actually matters.
+ */
+function shuffleRange(from: number, to: number) {
+  const cols = wellStacks();
+  const slots = wellSlots(cols);
+  // A negative `from` counts back from the bottom — "the last 30" is a stretch measured from the
+  // end, and the well's depth changes with every tray added.
+  const lo = from < 0 ? Math.max(0, slots.length + from) : Math.max(0, from - 1);
+  const hi = Math.min(slots.length, to);
+  if (hi - lo < 2) return;
+  const picked = slots.slice(lo, hi);
+  const colours = picked.map(({ col, idx }) => cols[col][idx]);
+  for (let i = colours.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [colours[i], colours[j]] = [colours[j], colours[i]];
+  }
+  picked.forEach(({ col, idx }, k) => {
+    cols[col][idx] = colours[k];
+  });
+  pinCols(cols);
 }
 
 wellEl.addEventListener("pointerdown", (e) => {
@@ -784,12 +854,41 @@ function endDrag() {
 wellEl.addEventListener("pointerup", endDrag);
 wellEl.addEventListener("pointercancel", endDrag);
 
+/**
+ * The shuffle buttons, in the ranges asked for. Positions count from the top of the well, row by
+ * row — see `wellSlots`.
+ *
+ * ⚠ Meant to be pressed **repeatedly and in combination**: each one re-rolls only its own stretch,
+ * so shuffling the first twelve and then the tail is two independent decisions rather than one
+ * cancelling the other.
+ */
+const SHUFFLES: { id: string; label: string; from: number; to: number; hint: string }[] = [
+  { id: "sh12", label: "Trộn 12 hộp đầu", from: 1, to: 12, hint: "Xáo ngẫu nhiên 12 hộp đầu tiên tính từ trên xuống (3 hàng đầu)" },
+  { id: "sh16", label: "Trộn 16 hộp đầu", from: 1, to: 16, hint: "Xáo ngẫu nhiên 16 hộp đầu tiên tính từ trên xuống (4 hàng đầu)" },
+  { id: "shTail", label: "Trộn 30 hộp cuối", from: -30, to: Infinity, hint: "Xáo ngẫu nhiên 30 hộp cuối cùng của giếng" },
+  { id: "sh1230", label: "Trộn hộp 12–30", from: 12, to: 30, hint: "Xáo ngẫu nhiên các hộp ở vị trí 12 đến 30" },
+];
+
 wellAutoEl.onclick = () => {
   // Back under the normal derivation: the search rebuilds the stacks against this slot's target.
   delete bp.columns;
   delete bp.refTaps;
   commit();
 };
+
+// ⚠ Built once and only toggled afterwards. Rebuilding them inside `renderWell` would re-create
+// four nodes on every commit — including every cell of a drag-paint — and drop the button under
+// the pointer mid-click.
+const shuffleBtns = SHUFFLES.map((sh) => {
+  const b = document.createElement("button");
+  b.id = sh.id;
+  b.className = "ghost";
+  b.textContent = sh.label;
+  b.title = sh.hint;
+  b.onclick = () => shuffleRange(sh.from, sh.to);
+  wellAutoEl.parentElement!.appendChild(b);
+  return b;
+});
 
 aDir.addEventListener("change", () => {
   arrowDir = aDir.value as ArrowDir;
