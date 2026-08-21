@@ -155,7 +155,10 @@ async function main() {
   const page = arg("page", "");
   if (page && page !== true) {
     await cdp.send("Page.navigate", { url: URL_BASE + page });
-    await sleep(2000);
+    // ⚠ 2s is enough for a static page and not for one that boots Phaser — an iframe harness shows
+    // the boot poster and the shot then "succeeds" on a picture of the loading screen. --wait is
+    // how you pay for a page that has real work to do before it is worth photographing.
+    await sleep(Number(arg("wait", 2000)) || 2000);
     // --js runs before the shot, so a page that boots from storage can be given something to
     // show. It reloads afterwards, because storage is read once at start-up.
     const js = arg("js", "");

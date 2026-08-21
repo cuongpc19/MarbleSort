@@ -608,6 +608,13 @@ them into a 20-stop `linear-gradient`. Worst-case error is now **7/255 on Home a
 - ⚠ **The vignette is anchored to the canvas**, transparent from its left edge to its right and only
   darkening outside. Centred on the *page* instead — which is what a `radial-gradient at 50% 50%`
   does — it lands some shade on the seam itself, the one place that has to match exactly.
+- ⚠ **It does not cost nothing on a phone, and the first version said it did.** Inside the host's
+  frame a phone gets bars of about 13px a side, so the sampler runs — and the vignette, written for
+  the ~460px bars of a desktop, compressed 0.55 alpha into 9px and drew a **hard dark stripe** down
+  both edges of the game. Measured on a 393x660 frame: 128/765 of colour range inside the bar.
+  Reported from an iPhone 16 as "sọc sọc". The shade is now scaled to the bar's own width — full
+  strength from a quarter of the page out, nothing when the bar is a rounding error — which takes
+  the same measurement to **12/765**.
 - ⚠ Costs nothing on a phone: the canvas covers the width, so it returns before snapshotting.
 - It re-runs on resize, debounced, and unhooks on `shutdown` — otherwise the listeners stack up one
   per level and every resize fires a snapshot for each level ever played.

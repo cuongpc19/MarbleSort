@@ -72,7 +72,7 @@ export function setPageBackground(css: string): void {
 const EDGE_STOPS = 20;
 
 /** How dark the far edges of the page go. Zero at the seam, so it can never reintroduce a step. */
-const EDGE_SHADE = "rgba(9,7,30,0.55)";
+const EDGE_ALPHA = 0.55;
 const EDGE_CLEAR = "rgba(9,7,30,0)";
 
 /**
@@ -96,13 +96,24 @@ function edgeBackdrop(
   // fade the last sampled colour into nothing over the strip the eye is actually looking at.
   stops.unshift(`${cols[0]} 0%`);
   stops.push(`${cols[cols.length - 1]} 100%`);
-  const left = pct((100 * b.x) / winW);
-  const right = pct((100 * (b.x + b.width)) / winW);
+  const leftN = (100 * b.x) / winW;
+  const rightN = (100 * (b.x + b.width)) / winW;
+  const left = pct(leftN);
+  const right = pct(rightN);
+  // ⚠ **The shade is scaled to how much page there is to shade.** It exists to stop a field the
+  // size of three quarters of a desktop window reading as emptiness — and at full strength across
+  // a *narrow* bar it does the opposite: 0.55 alpha falling to nothing over 9px is not framing, it
+  // is a hard dark stripe hugging the edge of the game. Reported from an iPhone 16 in the host's
+  // frame as "sọc sọc", where the bars are 13px of a 393px screen and the seam moved 128/765 of
+  // the colour range inside them. Full strength from a quarter of the width out; nothing at all
+  // when the bar is a rounding error.
+  const bar = Math.min(leftN, 100 - rightN) / 100;
+  const shade = `rgba(9,7,30,${Math.min(EDGE_ALPHA, bar * 2.2).toFixed(3)})`;
   return [
     // ⚠ The vignette is **anchored to the canvas**, not to the middle of the page: transparent
     // from edge to edge of the canvas and only darkening outside it. Centred on the page instead
     // it lands some shade on the seam itself, which is the one place that has to match exactly.
-    `linear-gradient(to right, ${EDGE_SHADE} 0%, ${EDGE_CLEAR} ${left}%, ${EDGE_CLEAR} ${right}%, ${EDGE_SHADE} 100%)`,
+    `linear-gradient(to right, ${shade} 0%, ${EDGE_CLEAR} ${left}%, ${EDGE_CLEAR} ${right}%, ${shade} 100%)`,
     `linear-gradient(to bottom, ${stops.join(", ")})`,
   ].join(", ");
 }
