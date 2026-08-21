@@ -1355,6 +1355,27 @@ the same three steps in the same order, or it is showing a board nothing plays.
   ⚠ **Board taps play instead of paint while a run is on.** Painting through would edit the drawing
   under a game already running on the old one, and both are drawn from the same elements — the
   damage would not be visible until the run ended.
+- ⚠ **An edit patches the box order; it never re-deals it.** Adding one tray used to reshuffle the
+  whole well, and it read as a bug because nothing about it is local: `derive` does not extend an
+  arrangement, it builds ~10 fresh candidates from the new drawing, scores each with bot games and
+  keeps whichever lands nearest the slot's target — so one new tray means a different candidate wins
+  and every column is re-dealt. Reported from real use as the order "tự dưng thay đổi".
+  `patchColumns` now fixes the multiset and only the multiset: the boxes a colour gained are
+  appended, the ones it no longer needs are taken away, everything else stays put.
+  ⚠ **Surplus comes off the deepest box up, new boxes go to the shortest column.** What the player
+  meets first is what the design is about, and piling every new box onto one column buries it.
+  ⚠ **The derivation is adopted onto the drawing** the first time a well exists, so a board being
+  built from scratch has an order to keep rather than re-dealing itself on every stroke.
+  ⚠ **The price, and it is real: a board that holds its order is no longer aimed at its slot.**
+  `toLevelDef` skips the search whenever `columns` is set, so the difficulty search that targets
+  `targetWin(level)` only runs when asked. `Sắp lại tự động` is the ask, and it is the only thing
+  that re-deals the well.
+  ⚠ **The line is not searched for on the edit path.** `lineFor` plays up to `LINE_TRIES` games —
+  ~200ms — and `commit` runs once per cell of a drag-paint. It is left stale deliberately
+  (`toLevelDef` replays a stored line and drops it if it no longer wins, so nothing downstream is
+  fooled) and `scheduleLine` finds a fresh one 400ms after the hand stops. ⚠ That debounce is *not*
+  behind `Đo độ khó`, unlike the bot check: a line is not a measurement, it is the level's proof it
+  can be won.
 - **The well can be arranged by hand** — drag a box to another place in any column. The derivation
   is the right default and it is not a design tool: it builds ~10 candidate layouts, scores each
   with bot games and keeps whichever lands nearest the slot's target, and a designer who wants this

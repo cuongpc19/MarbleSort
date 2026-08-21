@@ -486,10 +486,15 @@ function renderWell() {
   // level and rewriting it. Say which, and always offer the way back.
   const pinned = !!bp.columns?.length;
   wellStateEl.textContent = pinned
-    ? "Thứ tự đang ghim vào bản vẽ (kéo hộp để sắp lại)"
-    : "Thứ tự do máy suy ra — kéo một hộp là ghim lại theo ý bạn";
+    ? "Thứ tự đang giữ nguyên — thêm/bớt khay chỉ thêm hoặc bớt hộp. Kéo hộp để đổi chỗ."
+    : "Chưa có hộp nào để giữ";
   wellStateEl.classList.toggle("on", pinned);
+  // ⚠ Always offered while there is an order at all. It is the only thing that re-deals the well,
+  // and a control that appears and disappears is one the designer has to go looking for at exactly
+  // the moment they have decided the order is wrong.
   wellAutoEl.hidden = !pinned;
+  wellAutoEl.textContent = "Sắp lại tự động";
+  wellAutoEl.title = "Bỏ thứ tự hiện tại và để máy xếp lại, nhắm vào độ khó của level này";
   const g = preview;
   const stacks = g ? g.boxes.map((b) => b.stack) : [];
   if (!stacks.some((st) => st.length)) {
@@ -1599,6 +1604,62 @@ $("exportAll").onclick = () => {
 // ── Wiring ───────────────────────────────────────────────────────────────────
 
 /**
+ * Keep the box order across a tray edit, instead of deriving a fresh one.
+ *
+ * ⚠ **Adding a tray used to reshuffle the whole well**, and it looked like a bug because nothing
+ * about it is local: the boxes are derived, and `derive` does not extend an arrangement — it builds
+ * ~10 fresh candidates from the new drawing, scores each with bot games and keeps whichever lands
+ * nearest the slot's target. One new tray is a different drawing, so a different candidate wins and
+ * every column is re-dealt. Reported from real use as the order "tự dưng thay đổi".
+ *
+ * So an edit now **patches** the order it already had: the boxes a colour has gained are appended,
+ * the ones it no longer needs are taken away, and everything else stays exactly where it was.
+ *
+ * ⚠ The multiset is not negotiable — each tray needs `TRAY_N / BOX_SLOTS` boxes of its own colour
+ * or the level cannot be finished by anyone — so this fixes the counts and only the counts.
+ * ⚠ **Surplus goes from the deepest box up, and new boxes go to the shortest column.** What the
+ * player meets first is what the design is about; taking a box off the top would rewrite the part
+ * of the level that was already settled, and piling every new box onto one column would bury it.
+ * ⚠ Returns null when there is nothing to keep — no previous order, or no trays left — and the
+ * caller falls back to a normal derivation.
+ */
+function patchColumns(cols: Color[][]): Color[][] | null {
+  const counts = trayCounts(bp);
+  if (!counts.size || !cols.some((c) => c.length)) return null;
+  const per = TRAY_N / BOX_SLOTS;
+  const need = new Map<Color, number>();
+  for (const [color, trays] of counts) need.set(color, trays * per);
+
+  const work = cols.map((c) => [...c]);
+  const have = new Map<Color, number>();
+  for (const c of work) for (const col of c) have.set(col, (have.get(col) ?? 0) + 1);
+
+  // Too many of a colour: drop them from the bottom of the well upward.
+  for (const [color, n] of have) {
+    let surplus = n - (need.get(color) ?? 0);
+    for (let depth = Math.max(...work.map((c) => c.length)) - 1; depth >= 0 && surplus > 0; depth--) {
+      for (let j = work.length - 1; j >= 0 && surplus > 0; j--) {
+        if (work[j][depth] === color) {
+          work[j].splice(depth, 1);
+          surplus--;
+        }
+      }
+    }
+  }
+  // Too few: add them to whichever column is shortest, so the well stays level.
+  for (const [color, want] of need) {
+    let missing = want - (have.get(color) ?? 0);
+    while (missing > 0) {
+      let shortest = 0;
+      for (let j = 1; j < work.length; j++) if (work[j].length < work[shortest].length) shortest = j;
+      work[shortest].push(color);
+      missing--;
+    }
+  }
+  return work.some((c) => c.length) ? work : null;
+}
+
+/**
  * The tray drawing, as a string. Everything the box stacks are derived *from*, and nothing else —
  * a selection, a level number or a hand-arranged well must not read as a changed board.
  */
@@ -1635,12 +1696,33 @@ function commit() {
   // survived exactly until the next click, which makes the tool look broken rather than strict.
   const sig = traySig(bp);
   if (bp.columns?.length && pinSig !== null && pinSig !== sig) {
-    delete bp.columns;
-    delete bp.refTaps;
+    // ⚠ **Patched, not dropped.** Dropping put the drawing back under the derivation, which is the
+    // correct board and the wrong *behaviour*: the designer added one tray and the whole well was
+    // re-dealt. Nothing here moves until they ask for it — `Sắp lại tự động` is the ask.
+    const patched = patchColumns(bp.columns);
+    if (patched) {
+      bp.columns = patched;
+      // ⚠ The line is **not** searched for here. `lineFor` plays up to `LINE_TRIES` games — ~200ms
+      // — and `commit` runs once per cell of a drag-paint, so doing it inline would put a fifth of
+      // a second between the brush and the screen. It is left stale on purpose: `toLevelDef`
+      // replays a stored line and discards it if it no longer wins, so nothing downstream can be
+      // fooled by it, and `scheduleLine` finds a fresh one once the hand stops.
+    } else {
+      delete bp.columns;
+      delete bp.refTaps;
+    }
   }
-  pinSig = bp.columns?.length ? sig : null;
   saveCustom(bp);
   rebuildPreview();
+  // ⚠ **Adopt whatever the derivation produced**, so the *next* edit has an order to keep. Without
+  // this only boards that were already pinned are stable and a drawing being built from scratch
+  // still re-deals itself on every stroke — which is the case the report came from.
+  if (!bp.columns?.length && previewDef?.columns?.some((c) => c.length)) {
+    bp.columns = previewDef.columns.map((c) => [...c]);
+    bp.refTaps = [...previewDef.refTaps];
+    saveCustom(bp);
+  }
+  pinSig = bp.columns?.length ? traySig(bp) : null;
   render();
   renderTools();
   renderSwatches();
@@ -1653,6 +1735,34 @@ function commit() {
   renderBadge();
   renderPlayLinks();
   scheduleBotCheck();
+  scheduleLine();
+}
+
+/**
+ * Find a winning line for the stacks now on the drawing, once the editing has stopped.
+ *
+ * ⚠ Debounced for the same reason the bot check is: a drag-paint commits once per cell, and this
+ * plays up to `LINE_TRIES` games. Unlike the bot check it is **not** behind `Đo độ khó` — the line
+ * is not a measurement, it is the level's proof that it can be won, and a board saved without one
+ * is a board every tool downstream reports as unsolvable.
+ *
+ * ⚠ Skipped while `previewDef` already has one: `toLevelDef` replays whatever is stored and keeps
+ * it only if it still wins, so a non-empty `refTaps` there means the stored line survived the edit
+ * and searching again would spend 200ms to find the same thing.
+ */
+let lineTimer = 0;
+function scheduleLine() {
+  clearTimeout(lineTimer);
+  lineTimer = window.setTimeout(() => {
+    // A run owns `preview` while it is going, and the board it is playing is already fixed.
+    if (play || !bp.columns?.length || previewDef?.refTaps.length) return;
+    const line = lineFor(bp, bp.columns);
+    if (!line.length) return;                    // the panel's fatal warning is the right answer
+    bp.refTaps = line;
+    saveCustom(bp);
+    rebuildPreview();
+    renderStatus();
+  }, 400);
 }
 
 boardEl.addEventListener("pointerdown", (e) => {
