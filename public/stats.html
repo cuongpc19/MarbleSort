@@ -82,6 +82,9 @@
     .wr5 { color:#4fc27e; }
   }
   .thin { color:var(--soft); }
+  /* The build labels carry two timestamps, and a select sizes itself to its widest option — left
+     alone it pushes the rest of the toolbar off the row. The popup still shows the full text. */
+  #build { max-width: 20rem; }
   .spark { display:inline-block; height:9px; background:var(--accent); border-radius:2px; vertical-align:middle; }
   .spark.n2 { background:var(--line); }
   code { background:var(--bg); padding:1px 5px; border-radius:4px; }
@@ -141,6 +144,11 @@
     <div class="scroll" style="max-height:44vh"><table id="tDay"></table></div>
 
     <h2>By level</h2>
+    <div class="scroll" style="max-height:70vh"><table id="tLv"></table></div>
+
+    <p class="note" id="foot"></p>
+
+    <h2>Reading the columns</h2>
     <p class="note">
       <b>Winrate</b> — here, in the by-day table and on the cards at the top — runs low to high:
       <span class="wr1">under 30%</span>,
@@ -249,9 +257,6 @@
       <b>Peak belt</b> is how full the conveyor ever got, averaged — the thing stars are scored on,
       so a level near 100% is one nobody has slack on.
     </p>
-    <div class="scroll" style="max-height:70vh"><table id="tLv"></table></div>
-
-    <p class="note" id="foot"></p>
   </div>
 </div>
 
@@ -396,7 +401,13 @@ async function load() {
   // every total and halve every winrate. Rows written before start-logging existed carry no `ev`
   // at all — those are ends, and treating a missing field as "start" would silently delete the
   // entire history from every table.
-  const all = Object.values(j || {}).filter((r) => r && r.at && r.lvl != null);
+  // ⚠ **`Object.entries`, so the push key survives.** Firebase generates it from the *server's*
+  // clock and it sorts lexicographically in write order — the one ordering in this data that a
+  // player's device cannot get wrong. `at` is `Date.now()` on the phone, and real rows have
+  // arrived five hours early and twelve hours late from people whose clocks are simply off.
+  const all = Object.entries(j || {})
+    .map(([_k, r]) => (r && typeof r === "object" ? { ...r, _k } : r))
+    .filter((r) => r && r.at && r.lvl != null);
   starts = all.filter((r) => r.ev === "start");
   claims = all.filter((r) => r.ev === "daily");
   // ⚠ End rows are **named**, not inferred. `ev !== "start"` was exactly right while the log held
@@ -405,10 +416,70 @@ async function load() {
   // with no result, i.e. a loss on a level nobody played. Rows written before `ev` existed carry
   // none at all, and those are ends.
   rows = all.filter((r) => r.ev === "end" || r.ev === undefined);
-  const builds = [...new Set(rows.map((r) => r.build).filter(Boolean))].sort();
+  /*
+   * The build list, labelled with when players were actually on each one.
+   *
+   * ⚠ **No times on this control, on purpose.** `__APP_BUILD__` is a git short hash and carries no
+   * build time, so the only stamps available were `first` and `last` seen — both read off `at`,
+   * which is `Date.now()` on the player's own device. Build `cd41090` advertised a window of
+   * *09:15 → next-day 03:20* for a commit that was ninety minutes old: one player's clock ran five
+   * hours slow and another's half a day fast. A label that wrong about time is worse than no label,
+   * because it is read as deploy history.
+   *
+   * ⚠ Built from **every** row kind, not from `rows` alone. A build whose only trace in the window
+   * is a start row or a claimed reward is still one you might want to isolate, and leaving it out
+   * makes it unfilterable rather than merely absent.
+   *
+   * ⚠ Skewed clocks are skipped here as well as in `filtered()`. Real data has carried rows dated
+   * days into the future, and one of them would own the whole label — a build would advertise a
+   * last-seen it never had, on the one control whose job is to say when it was live.
+   *
+   * ⚠ Sorted **newest first**, because the build you want is almost always the live one. Sorting
+   * by hash — which is what `.sort()` on the bare strings did — puts it anywhere in the list.
+   */
+  const cutoff = Date.now() + 36e5;
+  const seenB = new Map();
+  for (const r of all) {
+    if (!r.build || r.at > cutoff) continue;
+    const o = seenB.get(r.build) ?? { firstKey: "\uffff", lastKey: "", last: 0, n: 0 };
+    // ⚠ Ordered on the **push key**, not on `at`. The key is minted by the server in write order,
+    // so the smallest one a build ever carried is when it genuinely first appeared, whatever the
+    // phone that sent it believed the time was.
+    if (r._k) {
+      if (r._k < o.firstKey) o.firstKey = r._k;
+      if (r._k > o.lastKey) o.lastKey = r._k;
+    }
+    o.last = Math.max(o.last, r.at);
+    o.n++;
+    seenB.set(r.build, o);
+  }
+  /*
+   * ⚠ **The list is in deploy order, and the top entry is often NOT the one being served.**
+   * Several builds take rows at the same time, because a player keeps whatever version their tab
+   * loaded until they reload it — so a build uploaded at 14:21 can fall silent at 14:46 while one
+   * first seen at 09:15 is still collecting players. Sorting by first-seen answers "what did I put
+   * up, and when"; it cannot answer "what are people on now", and read as though it did it points
+   * at the wrong build. `· live` marks the ones with a row in the last quarter of an hour, which
+   * is the question the ordering leaves open.
+   */
+  // ⚠ The one number here still read off the player's clock. A device running fast keeps its
+  // build marked live long after everybody left it, so treat this as a hint and not a fact.
+  const LIVE_MS = 15 * 60e3;
+  // Newest deploy first: the build whose earliest server-written row is the latest.
+  const builds = [...seenB].sort((a, b) => (a[1].firstKey < b[1].firstKey ? 1 : a[1].firstKey > b[1].firstKey ? -1 : 0));
   const sel = $("build"), keep = sel.value;
-  sel.innerHTML = '<option value="">all builds</option>' + builds.map((b) => `<option>${b}</option>`).join("");
-  sel.value = builds.includes(keep) ? keep : "";
+  sel.innerHTML =
+    '<option value="">all builds</option>' +
+    builds
+      .map(
+        ([b, o]) =>
+          `<option value="${b}">${b} · ${o.n} rows` +
+          `${Date.now() - o.last < LIVE_MS ? " · live" : ""}</option>`,
+      )
+      .join("");
+  // ⚠ Keyed on the map, not on the label: the option text now changes with the window, and
+  // matching on it would drop the user's chosen build every time they moved the dates.
+  sel.value = seenB.has(keep) ? keep : "";
   $("status").textContent = "";
   render();
 }
