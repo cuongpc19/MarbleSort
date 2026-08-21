@@ -392,7 +392,12 @@ export class GameScene extends Phaser.Scene {
     this.hardWarnUntil = 0;
     // ⚠ The editor's scratch board has no place on the ladder, so the number rule cannot speak for
     // it — only an explicit flag on the drawing can.
-    const tag = this.board.def.hard ? "superhard" : this.custom ? null : levelTag(this.level);
+    // ⚠ Order: the board's own label, then the old boolean, then the slot's number rule. A drawing
+    // that says `tag: "none"` is declining a badge its slot would otherwise hand it — which is the
+    // only way to move a board out of a 15th slot without the SUPER HARD promise following it.
+    const own = this.board.def.tag;
+    const tag =
+      own === "none" ? null : own ?? (this.board.def.hard ? "superhard" : this.custom ? null : levelTag(this.level));
     if (!tag) return;
     const look = TAG_LOOK[tag];
     // Below the board's own lowest row, in the throat of the chute.

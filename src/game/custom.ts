@@ -141,6 +141,20 @@ export interface Blueprint {
    * from bots run offline.
    */
   hard?: boolean;
+  /**
+   * The badge this board shows, instead of the one its slot would give it: `"hard"`,
+   * `"superhard"`, or `"none"` to show nothing at all.
+   *
+   * ⚠ **`"none"` is the reason this exists rather than a second boolean.** `levelTag` labels every
+   * 15th slot SUPER HARD from the number alone — a promise the ladder makes — so a board that is
+   * *moved* into one of those slots has no way to decline it. `hard: true` could only ever add a
+   * badge; this can also take one away.
+   *
+   * ⚠ Like `hard`, it travels **with the drawing** rather than living in a table of level numbers.
+   * The ladder moves — two levels traded places the day this was added — and a label pinned to a
+   * number ends up describing whatever board inherited it.
+   */
+  tag?: "hard" | "superhard" | "none";
 }
 
 /** The drawing currently open in the editor. One slot, overwritten as you draw. */
@@ -841,6 +855,7 @@ export function toLevelDef(bp: Blueprint, level = 0, target = 1): LevelDef {
   // A line stored on the drawing wins only if it still clears the board — see `Blueprint.refTaps`.
   def.refTaps = bp.refTaps?.length && replayWins(def, bp.refTaps) ? [...bp.refTaps] : line;
   def.hard = bp.hard;
+  def.tag = bp.tag;
   return def;
 }
 

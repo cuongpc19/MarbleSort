@@ -196,6 +196,18 @@ export interface LevelDef {
    * rule reads it, and the headless sim is unaffected.
    */
   hard?: boolean;
+  /**
+   * The difficulty badge this board carries, overriding the one its slot number would give it.
+   *
+   * `"none"` is a real value and the reason this is not just a second boolean: the number rule in
+   * `levelTag` labels every 15th level SUPER HARD whatever is standing there, so a board moved into
+   * such a slot needs a way to say the promise does not apply to it. Absent means "let the slot
+   * decide", which is what almost every board wants.
+   *
+   * ⚠ Presentation only, exactly like `hard`. Nothing in the engine reads it and the bots cannot
+   * see it, so it can never move a measured winrate.
+   */
+  tag?: "hard" | "superhard" | "none";
   /** silhouette the board was built from — reporting only, the engine never reads it */
   shape?: string;
   /** the tap order the generator solved it with — proof it is winnable, and the hint source */

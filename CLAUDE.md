@@ -436,6 +436,35 @@ is false (`bf_tutor`).
 - ⚠ Its layer is added **after** `uiLayer`, so the hand and caption sit over the HUD rather than
   under it.
 
+## The difficulty badge — `levelTag`, `Blueprint.tag`
+
+Every 15th slot is billed **SUPER HARD** and, past level 10, every 5th slot that is not already one
+is **HARD**. Read off the *number*, because it is a promise the ladder makes and `targetWin` already
+digs a dip at 15, 20, 25 and 30 to keep it — a badge read off a live bot score would flicker every
+time a level was retuned.
+
+⚠ **A drawing can overrule its slot** (`Blueprint.tag` → `LevelDef.tag`), and `"none"` is the reason
+that field is not just a second boolean: `hard: true` could only ever *add* a badge, so a board
+moved into a 15th slot had no way to decline the SUPER HARD promise that came with the address. The
+scene asks the board first, then the old `hard` flag, then the number.
+
+⚠ **Presentation only.** No rule reads it and no bot can see it, so it can never move a measured
+winrate — the same standing as `hard`.
+
+⚠ **Levels 11 and 15 traded boards** on 2026-08-21, on instruction. The 25-tray spike that was 15 is
+now **11**, badged `hard` rather than superhard; the 11-tray board that was 11 is now **15** with
+`tag: "none"`, so slot 15 shows nothing. Measured after the swap (`npm run levels 16`, which is
+`levelDefFor` and not the generator): L10 20%, **L11 47%**, L12 97%, L13 91%, L14 51%, **L15 97%**,
+L16 83% on (B+D)/2.
+⚠ **The board moving down had to have its stacks pinned first.** It carried none, so the move alone
+would have rebuilt its boxes against slot 15's target — the same trap `Blueprint.columns` exists for.
+The stacks and line it actually plays with were frozen onto the drawing before it moved.
+⚠ **Slot 15's `targetWin` still asks for a dip** it no longer gets: the board sitting there now
+reads 97%. The badge is gone, the curve's intent is not, so the sheet check and any retune will
+still expect a spike at 15.
+⚠ `npm run sim` **cannot see any of this** — it measures `makeLevel`, the generator. For a shipped
+board use `npm run levels`, which goes through `levelDefFor`.
+
 ## Teaching the pieces — `src/scenes/coach.ts`
 
 The walkthrough teaches the *machine*. It cannot teach the *pieces*, because none of them are on
