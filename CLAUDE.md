@@ -451,11 +451,13 @@ scene asks the board first, then the old `hard` flag, then the number.
 ⚠ **Presentation only.** No rule reads it and no bot can see it, so it can never move a measured
 winrate — the same standing as `hard`.
 
-⚠ **Levels 11 and 15 traded boards** on 2026-08-21, on instruction. The 25-tray spike that was 15 is
-now **11**, badged `hard` rather than superhard; the 11-tray board that was 11 is now **15** with
-`tag: "none"`, so slot 15 shows nothing. Measured after the swap (`npm run levels 16`, which is
-`levelDefFor` and not the generator): L10 20%, **L11 47%**, L12 97%, L13 91%, L14 51%, **L15 97%**,
-L16 83% on (B+D)/2.
+⚠ **The 25-tray spike has been moved twice**, both on instruction, on 2026-08-21. It was level 15
+(badged SUPER HARD by the number rule), went to **11** badged `hard`, and is now **12**. The board
+it displaced each time took its old slot: the 11-tray board that was 11 is now **15** with
+`tag: "none"` so that slot shows nothing, and the 14-tray board that was 12 is now **11**.
+Measured after the second swap (`npm run levels 16`, which is `levelDefFor` and not the generator):
+L10 20%, L11 95%, **L12 61%**, L13 91%, L14 51%, L15 97%, L16 83% on (B+D)/2 — so the spike still
+reads as the hard board of its neighbourhood, and 11 is now a breather.
 ⚠ **The board moving down had to have its stacks pinned first.** It carried none, so the move alone
 would have rebuilt its boxes against slot 15's target — the same trap `Blueprint.columns` exists for.
 The stacks and line it actually plays with were frozen onto the drawing before it moved.
