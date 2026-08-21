@@ -1107,12 +1107,14 @@ function renderChoc() {
     b.style.background = hex(idx);
     b.title = sw.name;
     b.onclick = () => {
+      // ⚠ **The ribbon does not touch the four trays inside, and it used to.** A single-colour
+      // ribbon is the box's *unlock condition* — which colour of tray, poured on the board
+      // outside, brings the counter down — and nothing more. `creditLids` compares `lid.color`
+      // against the tray just poured and never reads `lid.tiles`, so the four hidden trays may be
+      // four different colours and the engine has always allowed it. Repainting them here made a
+      // rule out of a convention and quietly cost every such box three of its colours.
+      // `Tô cả 4 cùng màu` is still there for when that really is what you want.
       c.border = idx;
-      // ⚠ And the four trays with it. A single-colour box is one whose contents are that colour —
-      // "cả 2 dải ruy băng đều cùng màu với màu khay" — so making the ribbon and then painting
-      // four trays one at a time is four extra clicks to reach the only sensible state. Reported
-      // as the colour picking being awkward, and this is most of why.
-      c.under = (c.under ?? []).map((u) => ({ ...u, color: idx }));
       commit();
     };
     chocBorder.appendChild(b);

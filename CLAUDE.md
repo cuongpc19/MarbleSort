@@ -148,10 +148,14 @@ Board modifiers, all from the reference material:
   loudest thing on the piece after the number — and it is a **cross, not a rim**: a rim reads as
   "a tray of this colour" and the box comes out looking like one more tile in the row, where a
   ribbon plainly wraps something.
-  ⚠ **A single-colour box holds four trays of its own colour** — "cả 2 dải ruy băng đều cùng màu
-  với màu khay". That is a design convention rather than an engine rule, so the editor enforces it
-  the cheap way: clicking a ribbon swatch repaints all four trays. A rainbow box's four trays are
-  free, and `Tô cả 4 cùng màu` is how you build a one-colour interior under rainbow ribbons.
+  ⚠ **The ribbon is the unlock condition, not a description of the contents.** A single-colour
+  ribbon says which colour of tray, poured *outside* the box, brings the counter down —
+  `creditLids` compares `lid.color` against the tray just poured and never reads `lid.tiles`. So
+  **the four trays inside may be four different colours**, on a single-colour box as much as a
+  rainbow one, and the engine has always allowed it. The editor used to repaint all four the moment
+  you picked a ribbon, which turned a convention into a rule and cost every such box three of its
+  colours; it no longer does. `Tô cả 4 cùng màu` is still there for when a one-colour interior is
+  actually what you want.
   ⚠ **A single-colour counter can outrun its own supply, and the failure is silent.** The four
   trays underneath cannot be tapped while the box is closed, so they never count toward opening
   it — `need` has to be reachable from the trays *outside*, hatch queues included. `isWon` refuses

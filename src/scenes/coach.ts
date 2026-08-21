@@ -120,16 +120,15 @@ const MARKS: Mark[] = [
   {
     id: "lid",
     present: (b) => b.lids.length > 0,
+    // ⚠ **Two steps, and it was four.** At `HOLD` each that was nearly thirteen seconds of held
+    // captions on a board the player has not touched yet — reported as too long. What had to
+    // survive the cut is the *counter*: read as "boxes filled" it looks broken, because clearing a
+    // box the lid plainly wanted does not move the number. Everything else the picture already
+    // says — a brown slab sitting over four cells reads as covering them, and a counter reaching
+    // zero reads as the thing it was counting down to.
     steps: [
       {
-        text: "A chocolate box locks the four trays under it",
-        find: (b) => (b.lids.length ? b.lids[0].at : -1),
-        off: { x: 0.5, y: 0.5 },
-        grow: 1.8,
-      },
-      {
-        // ⚠ The sentence this whole sequence exists for. Read as "boxes filled" the counter looks
-        // broken: the player clears a box the lid plainly wanted and the number does not move.
+        // ⚠ The sentence this card exists for. If only one line survives, it is this one.
         text: "Its number counts trays you pour, not boxes filled",
         find: (b) => (b.lids.length ? b.lids[0].at : -1),
         off: { x: 0.5, y: 0.5 },
@@ -137,17 +136,12 @@ const MARKS: Mark[] = [
       },
       {
         // ⚠ Describes the box actually on screen rather than teaching both cases. The ribbon is
-        // half the rule, and a player holding a rainbow box does not need the single-colour one.
+        // the other half of the rule, and a player holding a rainbow box does not need the
+        // single-colour one. The burst rides along here rather than costing a step of its own.
         text: (b) =>
           b.lids.length && b.lids[0].color == null
-            ? "Rainbow ribbons: a tray of any colour counts"
-            : "These ribbons count only trays of their colour",
-        find: (b) => (b.lids.length ? b.lids[0].at : -1),
-        off: { x: 0.5, y: 0.5 },
-        grow: 1.8,
-      },
-      {
-        text: "At zero it bursts and the four trays join the board",
+            ? "Rainbow ribbons: any colour counts. At zero it frees the four inside"
+            : "These ribbons: only their own colour. At zero it frees the four inside",
         find: (b) => (b.lids.length ? b.lids[0].at : -1),
         off: { x: 0.5, y: 0.5 },
         grow: 1.8,
