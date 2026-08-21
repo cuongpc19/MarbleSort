@@ -6,7 +6,11 @@
 // change — so in practice they were checked once and never again.
 //
 //   ?teach=1        replay everything on this board, from the first step
-//   ?teach=lid      replay one card by id: crate | hidden | hatch | pair | lid
+//   ?teach=lid      replay one card by id: hatch | arrow | lid
+//
+// ⚠ Crates, `?` trays and linked pairs no longer have a card, so their old ids do nothing here —
+// see the note on `MARKS`. They are read off their own faces; the three that are left are the ones
+// a player cannot guess.
 //
 // ⚠ **Replay mode writes nothing.** Neither `tutorialDone` nor `markCoach` fires while it is on,
 // so looking at a card does not consume it — otherwise checking a card would silently spend the

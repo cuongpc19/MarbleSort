@@ -444,9 +444,23 @@ crate on **11**, the linked pair on **15**, the chocolate box on **31**. A playe
 chocolate box thirty levels in has no way to guess its number counts *trays poured* rather than
 boxes filled — and that is exactly the misreading the number is most likely to get.
 
-So each piece gets one card, once ever: a ring on the piece and a caption on the same plate the
-walkthrough uses (one definition, `coachRing`/`coachPlate`, exported from `tutorial.ts` — two
-copies would drift, and the player should not have to learn two visual languages for "look here").
+So **three** pieces get one card each, once ever: the hatch, the arrow tray and the chocolate box.
+A ring on the piece and a caption on the same plate the walkthrough uses (one definition,
+`coachRing`/`coachPlate`, exported from `tutorial.ts` — two copies would drift, and the player
+should not have to learn two visual languages for "look here").
+
+⚠ **Crates, `?` trays and linked pairs deliberately have no card.** They had one and it was taken
+out, on instruction. Each of the three says what it is on its own face: a crate never looks
+tappable, a `?` turns over the moment it can move, and a pair is drawn with a clip across two trays
+that empty together on the first tap of it. A card costs a card's worth of attention whatever it
+explains, and spending it on those means the three that genuinely cannot be guessed — a hatch's
+number, an arrow pointing at a *different* tray, a chocolate box counting **trays poured** rather
+than boxes filled — arrive to a player who has already learned to dismiss the plate they appear on.
+Adding one back is a decision about attention, not about coverage.
+⚠ Their `?teach=` ids (`crate`, `hidden`, `pair`) now do nothing, and `FEATURES` still counts down
+to **LINKED TRAYS** on the results card — that is a "something new is coming" teaser, not an
+explanation, and it is kept on purpose for the one piece of the three that changes how much of the
+rail a single tap eats.
 
 - ⚠ **Driven by what is on the board, not by level number.** A table of "level 8 → hatch" is a
   second copy of the ladder, and the ladder moves — levels 15-115 have already been reordered

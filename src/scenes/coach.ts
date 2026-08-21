@@ -86,26 +86,17 @@ function hatchTarget(b: Game): number {
  * ⚠ Order is the order they are *offered*, not the order they appear on the ladder. Cheapest to
  * read first, so that if a board ever carries two new pieces the simple one is explained and the
  * rich one waits for a board where it is the only new thing.
+ *
+ * ⚠ **Crates, `?` trays and linked pairs deliberately have none.** They were here and were taken
+ * out: each of the three says what it is on its own face — a crate never looks tappable, a `?`
+ * turns over the moment it can move, and a pair is drawn with a clip across two trays that empty
+ * together on the first tap of it. A card costs a card's worth of attention whatever it explains,
+ * and spending it on those three means the pieces that genuinely cannot be guessed — a hatch's
+ * number, an arrow pointing at a *different* tray, a chocolate box counting **trays poured** rather
+ * than boxes filled — arrive to a player who has already learned to dismiss the plate they appear
+ * on. Adding one back is a decision about attention, not about coverage.
  */
 const MARKS: Mark[] = [
-  {
-    id: "crate",
-    present: (b) => b.blocked.some(Boolean),
-    steps: [
-      { text: "Crates never move and never clear", find: (b) => b.blocked.findIndex(Boolean) },
-      // ⚠ The half that is not obvious. A crate looks like an obstacle to route around; what it
-      // actually does is take away an open side, and a tray needs one to slide into. A tray boxed
-      // in by crates is locked however much space is elsewhere on the board.
-      { text: "A tray needs an open side — a crate is not one", find: (b) => b.blocked.findIndex(Boolean) },
-    ],
-  },
-  {
-    id: "hidden",
-    present: (b) => b.tiles.some((t) => !!t && t.hidden),
-    steps: [
-      { text: "A ? tray shows its colour once it has a way out", find: (b) => firstTile(b, (t) => !!t.hidden) },
-    ],
-  },
   {
     id: "hatch",
     present: (b) => b.disp.some(Boolean),
@@ -124,14 +115,6 @@ const MARKS: Mark[] = [
       // instruction about a *different* tray. Read as decoration on this one it says nothing.
       { text: "Pour the tray it points at first", find: arrowTarget },
       { text: "Then this one opens up", find: firstArrow },
-    ],
-  },
-  {
-    id: "pair",
-    present: (b) => b.tiles.some((t) => !!t && t.wide),
-    steps: [
-      { text: "These two trays are clipped together", find: (b) => firstTile(b, (t) => !!t.wide), off: { x: 0.5, y: 0 }, grow: 1.4 },
-      { text: "One tap pours both — two colours at once", find: (b) => firstTile(b, (t) => !!t.wide), off: { x: 0.5, y: 0 }, grow: 1.4 },
     ],
   },
   {

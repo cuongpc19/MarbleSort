@@ -40,9 +40,15 @@ export function isHandmade(level: number): boolean {
 /**
  * The pieces the results card counts down to. Ordered as the player meets them.
  *
- * ⚠ Only the ones that change what the player *does*. A `?` tray and a crate are met early and
- * explained by a coach card on the spot; these arrive far enough apart that "something new is
- * coming" is worth saying out loud between them.
+ * ⚠ Only the ones that change what the player *does*. A `?` tray and a crate are met early and read
+ * off their own faces — neither has a coach card any more, and neither needs a countdown either;
+ * these arrive far enough apart that "something new is coming" is worth saying out loud between
+ * them.
+ *
+ * ⚠ `pair` is still here **with no coach card behind it**, and that is not an oversight: this table
+ * is a countdown on the results card, not an explanation. It says a new piece is coming, which is
+ * worth saying about a piece that changes how much of the rail one tap eats; what the piece *is* is
+ * answered by the clip drawn across its two trays the moment it arrives.
  *
  * ⚠ **The magnet is not a piece, and it is the reason this table is no longer purely derived.** The
  * other three are found by scanning the drawings, because a board either has a hatch on it or does
