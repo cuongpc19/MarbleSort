@@ -192,8 +192,23 @@ export const TAG_LOOK: Record<LevelTag, TagLook> = {
  * player is still learning the machine, and calling the third board they ever reach "hard" spends
  * the word before it means anything.
  */
+/**
+ * The last level the **number rule** may hand a badge to.
+ *
+ * ⚠ Temporary, and set deliberately: past 20 the labels are being placed **by hand** instead. The
+ * rule is a promise about the slot, and the boards above 20 have just been rebuilt — silhouettes,
+ * pieces and box order all moved — so a promise made from the level number alone is a promise
+ * nothing has checked. Better no badge than one the board may not keep.
+ *
+ * ⚠ It does not silence a drawing that asks for a badge itself: `Blueprint.tag` still wins, which
+ * is exactly how a level gets labelled from here on. Raise this back to `Infinity` to restore the
+ * every-5th / every-15th rule.
+ */
+export const TAG_BY_NUMBER_UNTIL = 20;
+
 export function levelTag(level: number): LevelTag | null {
   if (!Number.isFinite(level) || level < 1) return null;
+  if (level > TAG_BY_NUMBER_UNTIL) return null;
   if (level % 15 === 0) return "superhard";
   if (level > 10 && level % 5 === 0) return "hard";
   return null;
