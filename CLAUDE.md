@@ -332,8 +332,23 @@ Board modifiers, all from the reference material:
 - **`?` boxes** — a box below the top of its column with its colour hidden until it rises.
   ⚠ **The bot-based tuner is blind to this**: bots read `boxes` directly, so hiding a colour
   changes nothing they can measure. It makes the game harder for a person and *not at all* for
-  the tuner, so it can never be traded off against the other levers on the same scale. Treat
-  it as flavour whose real cost only a play log can show.
+  the tuner, so it can never be traded off against the other levers on the same scale, and it must
+  never be tuned by bot — its real cost only a play log can show.
+  ⚠ **From `BOX_HIDDEN_FROM` = 21 the stacks are mostly `?`**, 70% on an easy slot rising to 90%
+  on a hard one, straight off `targetWin`. `boxHiddenFrom` in `config.ts` is the one rule, called
+  by `toLevelDef` and by `makeLevel` so a hand-built and a generated board at the same level number
+  hide the same share.
+  ⚠ **The rule beats the drawing above that level**, deliberately: 185 shipped blueprints carry an
+  explicit `boxHiddenFrac: 0` that a `??` fallback would never get past, and the density is a
+  property of the *slot* rather than of the board. Below 21 the drawing still owns it. It is a
+  **floor** — a drawing asking for more keeps it — the same convention as the sheet.
+  ⚠ **The open box is never hidden.** `Game.isBoxHidden` is `idx > 0 && …`, so the player can always
+  see what the board is asking for right now; what goes away is planning two rows ahead.
+  ⚠ **Chosen because the tuner's blindness is the point.** Over 12 hours of real play people cleared
+  level 20 at 91% and level 25 at 86% against bot scores of 18% and 1% — those boards are hard for
+  something that pours flat out and easy for someone who can read the stack. Every bot number is
+  unchanged by this, and that is the intended shape: the lever is aimed at the gap itself.
+  ⚠ **Every fingerprint from 21 up changes**, so telemetry for those levels restarts from here.
 
 Difficulty levers, in the order they should be reached for: **colour count**, **tray count**,
 **`sloppy`** (how careless the generator lets its own reference solve be, which is what

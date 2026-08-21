@@ -984,11 +984,15 @@ export class GameScene extends Phaser.Scene {
     // in the other, and only one of them gets fixed the next time.
     const col = WIDE_HUD;
     const hc = L.hudCol;
+    // ⚠ **The row reads left to right: gear, level, booster, coin.** The pill used to sit at `CX`
+    // with the coin at `CX + 160`, which left the middle of the line empty and the booster stranded
+    // on a row of its own below. Pulling the pill left against the gear and the coin right against
+    // the cabinet wall opens a 188px gap in the middle, and that gap is what the booster's row cost.
     const gearX = col ? hc.x : CX - 210;
     const gearY = col ? hc.gearY : L.hudY;
-    const pillX = col ? hc.x : CX;
+    const pillX = col ? hc.x : CX - 118;
     const pillY = col ? hc.levelY : L.hudY;
-    const coinX = col ? hc.x : CX + 160;
+    const coinX = col ? hc.x : CX + 190;
     const coinY = col ? hc.coinY : L.hudY;
 
     const gear = img(this, K.btn("gold"), gearX, gearY);

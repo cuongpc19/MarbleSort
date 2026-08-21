@@ -131,9 +131,12 @@ export const MAGNET_TUTOR_LEVEL = 6;
 // ⚠ Always lifted now: the booster sits **in the HUD**, beside the level pill, so the row it used
 // to have is gone whether boosters are on or off. That row was 90px of empty column, and on a
 // landscape frame every pixel of column height is paid for in width — see the note on TRIM_TOP.
-// ⚠ 40, not 84: the booster has a row again — under the level pill, with a frame drawn round it —
-// but it is a short one. The original 84px row held three 76px buttons; this holds one 56px button.
-const BOOST_LIFT = 40;
+// ⚠ **84 again: the booster is back on the HUD line and has no row of its own.** It sat under the
+// level pill for a while, which cost 40px of column — and on this layout a pixel of column is paid
+// for in width on every desktop frame. The row is gone because the line had space once the pill
+// moved left against the gear and the coin moved right against the wall; the booster took the gap
+// in the middle that opened up between them.
+const BOOST_LIFT = 84;
 
 /**
  * Is the frame landscape enough to put the HUD in a column beside the machine?
@@ -174,13 +177,12 @@ export const STAGE_PAD = WIDE_HUD ? 156 : 0;
  * height it paid for in width. Measured on a 1898x982 frame: `H_MIN` 970 -> 856, and the machine
  * goes from 547px wide to 620px. **13% bigger, for free.**
  *
- * 114 leaves the cabinet's top edge at y 20 — a margin, not a gap.
- *
  * ⚠ Subtracted from `FUNNEL_SHOULDER`, `GRID_TOP` **and** `MACHINE_Y` together, so `MACHINE_H` is
  * unchanged and the whole block moves as one. Take it off one of the three and the chute's 33°
  * becomes something shallower, which is the angle at which the marbles stop sliding.
+ *
+ * Defined below, once the trims it is measured against exist.
  */
-const HUD_LIFT = WIDE_HUD ? 114 : 0;
 
 /** Margin above the HUD: 24 was a comfortable gap on a phone and is pure cost on a desktop frame. */
 const TRIM_TOP = 16;
@@ -192,6 +194,19 @@ const TRIM_PANEL = 34;
 const TRIM_SKIRT = 8;
 /** The two gaps around the booster row, 14 and 8, taken to 8 and 6. */
 const TRIM_GAPS = 8;
+
+/** Where the cabinet's top edge sits on a wide frame: a margin, not a gap. */
+const WIDE_MACHINE_TOP = 20;
+/**
+ * ⚠ **Derived from `BOOST_LIFT`, never typed in.** This was a hardcoded 114, chosen because it
+ * put the cabinet's top edge at y 20. `MACHINE_TOP` is `198 - TRIM_TOP - TRIM_GAPS - HUD_LIFT`
+ * minus `BOOST_LIFT`, so the moment the booster left its row and `BOOST_LIFT` went 40 -> 84 the
+ * same 114 put that edge at **-24** and the top row of every board was clipped off the top of the
+ * canvas — on desktop only, where `WIDE_HUD` is the layout, and therefore on none of the phone
+ * screenshots. Pinning the edge instead of the lift means the next change to the booster cannot
+ * do it again.
+ */
+const HUD_LIFT = WIDE_HUD ? 198 - TRIM_TOP - TRIM_GAPS - BOOST_LIFT - WIDE_MACHINE_TOP : 0;
 
 
 /**
@@ -254,54 +269,113 @@ const TIGHTEN = TRIM_RIM + TRIM_PANEL;
 // number, because the angle and the run are what fix it.
 /** Slope of the chute walls, from horizontal. Below ~30° the marbles stop sliding. */
 const FUNNEL_ANGLE = 33;
-/** Where the taper begins: the cavity walls themselves. */
-const FUNNEL_WALL_L = 48;
-const FUNNEL_WALL_R = 492;
+/**
+ * Where the taper begins: the cavity walls themselves, 48/492 -> 34/506.
+ *
+ * ⚠ **The cavity is the board's width, so widening it is the only way a board gets wider.** It
+ * sat 34px inside each cabinet wall, which on a phone is 34px of white either side of every
+ * board. 20px is as close as it can come: the belt housing reaches 32..508 and the cavity must
+ * not read as wider than the rail it pours onto.
+ *
+ * ⚠ **It costs height, so the desktop does not get it.** `FUNNEL_DROP` is the run from wall to
+ * neck at 33°, and 14px more run either side is ~9px more chute. The angle cannot absorb it —
+ * below about 30° the marbles stop sliding — so the machine simply gets taller, and on a wide
+ * frame `GAME_H` is clamped to the machine, so 9px of height is ~1% off how big the game draws.
+ * A phone has height to spare and no width to spare; a landscape frame is the exact opposite.
+ *
+ * ⚠ **Same test as `HUD_LIFT`, deliberately.** `WIDE_HUD` is decided from the frame alone, before
+ * anything about the machine exists, which is what makes it usable here — the honest condition is
+ * "does this frame have height going spare", and that is `GRID_GROW`, which cannot be asked
+ * because it is derived from the chute this very constant defines.
+ */
+const FUNNEL_WALL_L = WIDE_HUD ? 48 : 34;
+const FUNNEL_WALL_R = GAME_W - FUNNEL_WALL_L;
 const FUNNEL_NECK_L = 248;
 const FUNNEL_NECK_R = 292;
-const FUNNEL_SHOULDER = 622 - BOOST_LIFT - TRIM_TOP - TRIM_GAPS - TIGHTEN - 40 - HUD_LIFT;
+const FUNNEL_SHOULDER_BASE = 622 - BOOST_LIFT - TRIM_TOP - TRIM_GAPS - TIGHTEN - 40 - HUD_LIFT;
 /** Top of the cavity. The grid lives between this and `FUNNEL_SHOULDER`, and nowhere else. */
 const GRID_TOP = 240 - BOOST_LIFT - TRIM_TOP - TRIM_GAPS - TRIM_RIM - HUD_LIFT;
-/** A lip, so the wall does not spring straight out of the cavity's rounded corner. */
-const FUNNEL_TOP = FUNNEL_SHOULDER + 6;
 const FUNNEL_DROP = Math.round(
   (FUNNEL_NECK_L - FUNNEL_WALL_L) * Math.tan((FUNNEL_ANGLE * Math.PI) / 180),
 );
 
-/** Belt centreline: just under the chute's neck, plus its own housing. */
-const BELT_CY = FUNNEL_TOP + FUNNEL_DROP + 4 + BELT_SHELL;
-/**
- * How far the balls reach below the belt centreline — `r + marbleR`, **not** `shell`.
- *
- * ⚠ The balls hang past the chrome: 32 + 15 = 47 against a 40px shell. Deriving the box lids from
- * the shell put them five pixels under the balls, which reads as the rail grinding on the lids.
- */
-const BELT_REACH = BELT_R + MARBLE_R;
-
-const MACHINE_Y = 198 - TRIM_TOP - TRIM_GAPS - HUD_LIFT;
-/**
- * The cabinet's actual top edge — `MACHINE_Y` is the number before the booster row lifts it.
- *
- * ⚠ **Everything that turns a design-space y into a height must subtract this, never `MACHINE_Y`.**
- * They differ by `BOOST_LIFT`, and getting it wrong makes the cabinet report itself 40px shorter
- * than it is. `H_MIN` is derived from that report, so the game then declares it can live in a box
- * whose bottom 40px are the box well — and on a desktop frame, where `H_MIN` is what the aspect
- * clamps to, the last row of boxes is simply cut off by the edge of the canvas. Shipped that way
- * and reported from the live CrazyGames frame, together with a PLAY button that had gone off the
- * bottom of the home screen for the same reason.
- */
-const MACHINE_TOP = MACHINE_Y - BOOST_LIFT;
 /** Height of the visible stack of boxes in one column. */
 const BOX_VISIBLE_H = 5 * (42 + 3);
 /**
  * Floor showing under the deepest box.
  *
- * ⚠ **The well has to read as a recess the boxes sit *in*.** Sized to the stack exactly, the last
- * row lands flush on the rim and the two rounded edges — box and well — sit a pixel apart, which
- * reads as the bottom row being cut off rather than as a floor. Twelve pixels is about a third of a
- * box and it is the whole difference between "there is more below" and "this is the bottom".
+ * ⚠ **The well has to read as a recess the boxes sit *in*.** Sized to the stack exactly, the
+ * last row lands flush on the rim and the two rounded edges sit a pixel apart, which reads as the
+ * bottom row being cut off rather than as a floor.
  */
 const WELL_FLOOR = 12;
+/**
+ * How far the balls reach below the belt centreline, r + marbleR, **not** shell.
+ *
+ * ⚠ The balls hang past the chrome: 32 + 15 = 47 against a 40px shell. Deriving the box lids
+ * from the shell put them five pixels under the balls, which reads as the rail grinding on them.
+ */
+const BELT_REACH = BELT_R + MARBLE_R;
+
+const MACHINE_Y = 198 - TRIM_TOP - TRIM_GAPS - HUD_LIFT;
+/**
+ * The cabinet's actual top edge. `MACHINE_Y` is the number before the booster row lifts it.
+ *
+ * ⚠ **Everything that turns a design-space y into a height must subtract this, never
+ * `MACHINE_Y`.** They differ by `BOOST_LIFT`, and getting it wrong makes the cabinet report itself
+ * 40px shorter than it is. `H_MIN` is derived from that report, so the game then declares it can
+ * live in a box whose bottom 40px are the box well, and on a desktop frame the last row of boxes
+ * is cut off by the edge of the canvas. Shipped that way and reported from the live frame.
+ */
+const MACHINE_TOP = MACHINE_Y - BOOST_LIFT;
+
+// ── How much taller the grid may be on this frame ────────────────────────────
+//
+// ⚠ **The board grows into height the frame is not using, and only into that.** The machine has
+// a fixed height of its own; a portrait phone at 2.16:1 leaves ~240px of background below it,
+// while a 16:9 desktop frame leaves none at all — `GAME_H` is clamped to the machine there, which
+// is why every pixel of column on this layout has been fought over. So the growth is measured
+// rather than chosen: whatever the frame has spare, less a skirt, capped.
+//
+// ⚠ **It is a two-pass derivation and it has to be.** `GRID_GROW` needs `GAME_H`, which needs
+// `H_MIN`, which needs the machine's height, which needs `GRID_GROW`. The cycle breaks by deriving
+// the machine **once without any growth** — `H_MIN_BASE` — clamping the frame against that, and
+// only then spending what is left. Because the growth slides the chute, the belt and the well down
+// as one block, the grown `H_MIN` is exactly `H_MIN_BASE + GRID_GROW`, which by construction still
+// fits inside `GAME_H`.
+//
+// ⚠ **Everything below the grid moves; nothing stretches.** The cone keeps its 33° because both
+// ends slide together. Moving one end alone is the 22.5° at which marbles stop sliding altógether,
+// which the note on `funnel` describes.
+const _BELT_CY_BASE = FUNNEL_SHOULDER_BASE + 6 + FUNNEL_DROP + 4 + BELT_SHELL;
+const _WELL_BOTTOM_BASE = _BELT_CY_BASE + BELT_REACH + BALL_CLEAR + BOX_VISIBLE_H + WELL_FLOOR;
+const H_MIN_BASE = _WELL_BOTTOM_BASE + 6 + 14 - TRIM_SKIRT;
+const H_MAX = Math.max(1160, H_MIN_BASE);
+const _aspect =
+  typeof window !== "undefined" && window.innerWidth > 0
+    ? window.innerHeight / window.innerWidth
+    : H_MAX / GAME_W;
+export const GAME_H = Math.round(
+  GAME_W * Math.min(Math.max(_aspect, H_MIN_BASE / GAME_W), H_MAX / GAME_W),
+);
+/** Background left under the cabinet even on the tallest frame, so it stands on a floor. */
+const GROW_KEEP = 44;
+/**
+ * ⚠ **The ceiling is what the grid can use, not what the frame can spare.** Past the point where
+ * every board reaches `L.cell`, more height only pushes the machine down the screen: the cells stop
+ * growing because `gridMetrics` caps them, and the rest becomes a taller empty cavity. Seven rows
+ * at the full cell need 434px against a base of 308, so 130 is the last pixel that buys anything.
+ */
+const GROW_CAP = 130;
+const GRID_GROW = Math.max(0, Math.min(GAME_H - H_MIN_BASE - GROW_KEEP, GROW_CAP));
+
+/** The chute's shoulder, after the grid has taken whatever height this frame had spare. */
+const FUNNEL_SHOULDER = FUNNEL_SHOULDER_BASE + GRID_GROW;
+/** A lip, so the wall does not spring straight out of the cavity's rounded corner. */
+const FUNNEL_TOP = FUNNEL_SHOULDER + 6;
+
+/** Belt centreline: just under the chute's neck, plus its own housing. */
+const BELT_CY = FUNNEL_TOP + FUNNEL_DROP + 4 + BELT_SHELL;
 /** Foot of the box well, in design space: the lowest thing the cabinet has to contain. */
 const WELL_BOTTOM = BELT_CY + BELT_REACH + BALL_CLEAR + BOX_VISIBLE_H + WELL_FLOOR;
 // The cabinet ends just under the well, whose foot is derived from the chute above it.
@@ -309,25 +383,22 @@ const MACHINE_H = WELL_BOTTOM + 6 - MACHINE_TOP;
 
 
 /**
- * ⚠ Both ends are **derived from where the machine actually ends**, not typed in. The bottom of the
- * cabinet is the last thing that must stay on screen — everything below it is background — so the
- * shortest legal box is that edge plus a small skirt. Hardcoding it decouples the number from the
- * layout, and the layout moves: the booster row alone shifts the cabinet 84px.
+ * Where the cabinet actually ends, and the one check the two-pass derivation owes.
  *
- * ⚠ `H_MAX` is the shape every art decision was made against (1160), except that it can never be
- * *below* `H_MIN` — with boosters on the machine needs 1164, and a max under the min would clamp
- * the game into a box smaller than itself.
+ * ⚠ `GAME_H` was clamped against `H_MIN_BASE`, the machine **before** the grid grew. The growth
+ * then pushes the cabinet's foot down by exactly `GRID_GROW`, so the arithmetic that keeps it on
+ * screen is `GRID_GROW <= GAME_H - H_MIN_BASE - GROW_KEEP` — which is how `GRID_GROW` is defined,
+ * and therefore true by construction. It is asserted anyway: the last two times the bottom of this
+ * machine went off the bottom of the canvas, it was a height derived from the wrong end, it was
+ * invisible on every desktop here, and it was reported from a live phone as a game that could not
+ * be started.
  */
 const MACHINE_BOTTOM = MACHINE_TOP + MACHINE_H;
-const H_MIN = MACHINE_BOTTOM + 14 - TRIM_SKIRT;
-const H_MAX = Math.max(1160, H_MIN);
-const _aspect =
-  typeof window !== "undefined" && window.innerWidth > 0
-    ? window.innerHeight / window.innerWidth
-    : H_MAX / GAME_W;
-export const GAME_H = Math.round(
-  GAME_W * Math.min(Math.max(_aspect, H_MIN / GAME_W), H_MAX / GAME_W),
-);
+if (MACHINE_BOTTOM + 14 - TRIM_SKIRT > GAME_H) {
+  console.warn(
+    `[layout] day may (${MACHINE_BOTTOM}) vuot qua khung ${GAME_H} — GRID_GROW ${GRID_GROW} qua lon`,
+  );
+}
 
 // ── Core rules ───────────────────────────────────────────────────────────────
 /**
@@ -341,6 +412,39 @@ export const GAME_H = Math.round(
  * leaves total marbles per level almost unchanged (11 x 9 = 99 against 16 x 6 = 96).
  */
 export const TRAY_N = 9;
+/**
+ * From this level up, the box stacks are mostly `?` — the colours below the open box are hidden.
+ *
+ * ⚠ **Nothing below the top of a column is ever hidden**; the open box always shows its colour.
+ * `Game.isBoxHidden` is `idx > 0 && …`, so the rule is about the second row down and everything
+ * under it, and a player can always see what the board is asking for *right now*.
+ */
+export const BOX_HIDDEN_FROM = 21;
+
+/**
+ * What share of the boxes below the top of each column have their colour hidden.
+ *
+ * ⚠ **This is the one difficulty lever the tuner cannot see.** Bots read `boxes` directly, so
+ * hiding a colour changes nothing any of them measure — `npm run sim`, `npm run tune` and the
+ * `(B+D)/2` targets will all read exactly the same before and after. It costs a *person* the
+ * ability to plan two rows ahead and costs a bot nothing at all, so it can never be traded off
+ * against tray count or colour count on the same scale, and it must never be tuned by bot.
+ *
+ * ⚠ That blindness is precisely why it is the right lever here. Measured over 12 hours of real
+ * play, people were clearing level 20 at 91% and level 25 at 86% against bot scores of 18% and 1%
+ * — the boards are hard for something that pours flat out and easy for someone who can read the
+ * stack. Taking the stack away is aimed at the gap itself.
+ *
+ * Easy slots get 70%, hard ones up to 90%, straight off the slot's own target winrate.
+ *
+ * ⚠ **A floor, never a cap** — same convention as the sheet. A drawing that asks for more keeps it.
+ */
+export function boxHiddenFrom(level: number, target: number, drawn = 0): number {
+  if (level < BOX_HIDDEN_FROM) return drawn;
+  const t = Math.max(0.05, Math.min(0.9, target));
+  return Math.max(drawn, 0.9 - 0.2 * ((t - 0.05) / 0.85));
+}
+
 /** Holes in one box. Fill them all and the box pops off, exposing the next one below. */
 export const BOX_SLOTS = 3;
 /** Box columns at the bottom of the machine. Also the number of simultaneously open colours. */
@@ -499,8 +603,14 @@ export const L = {
    * centred at CX-100 leaves 10px to the pill and 27px to the gear. Its badge hangs to the lower
    * right and reaches CX-64 — still clear. Move the pill or the gear and this has to move with them.
    */
-  boostX: 270,
-  boostY: 62 - TRIM_TOP + 54,
+  /**
+   * ⚠ **On the HUD line, in the gap between the level pill and the coin.** The pill ends at 212 and
+   * the coin starts at 400, so 306 is the middle of that 188px gap. The booster's pad reaches ±57 —
+   * far wider than its 46px frame — so it needs the whole gap, not just the button's worth of it.
+   * Move the pill or the coin and this has to move with them; there is no slack either side.
+   */
+  boostX: 306,
+  boostY: 62 - TRIM_TOP,
   /**
    * The green frame behind the magnet. **Half the icon**, on purpose.
    *
@@ -528,21 +638,20 @@ export const L = {
   // what grew is the shoulder either side of it, which is where the rail now ends.
   machine: { x: 14, y: MACHINE_TOP, w: 512, h: MACHINE_H },
 
-  gridPanel: { x: 48, y: GRID_TOP, w: 444, h: FUNNEL_SHOULDER - GRID_TOP },
+  gridPanel: { x: FUNNEL_WALL_L, y: GRID_TOP, w: FUNNEL_WALL_R - FUNNEL_WALL_L, h: FUNNEL_SHOULDER - GRID_TOP },
   /**
-   * Tray size, 64 -> 56.
+   * Tray size — the **cap**, and the size the sprites are baked at. 56 -> 64, back where it began.
    *
-   * ⚠ **This breaks the rule that a five-row board is pixel-identical.** That rule existed because
-   * every art decision and the whole feel of the drop was settled against cell 64 / pitch 71, and it
-   * held through every layout change until now. It is being broken deliberately, to buy back the
-   * height the booster's row costs.
+   * ⚠ This is a ceiling, not the size a board draws at: `gridMetrics` takes the smaller of what
+   * the width allows, what the height allows, and this. It went down to 56 to buy column height
+   * for the booster's own row; that row is gone, the grid has taken the height back, and leaving
+   * the cap at 56 would mean the extra room bought nothing at all.
    *
-   * ⚠ **Smaller cells do not make the board bigger on screen.** Phaser scales everything by one
-   * ratio, so a grid drawn 12% smaller in design units and then scaled 12% larger comes out the same
-   * size — the gain is purely the vertical space it frees for everything else. What actually grows
-   * is the rail and the box well, which now take a larger share of a shorter column.
+   * ⚠ **A cap below what the panel can fit is invisible.** Every board measured 56 exactly while
+   * the panel could fit 82 — the numbers looked like a width limit and were the cap, which is the
+   * kind of thing that gets diagnosed twice.
    */
-  cell: 56,
+  cell: 64,
   gap: 7,
 
   // The chute proper starts well below the grid — above `top` the walls run straight down,
@@ -632,7 +741,7 @@ export function boxColX(j: number): number {
 export const GRID_GAP = 7;
 /** The most room the grid may take. Width is the cabinet minus its shoulders; height stops at the
  *  mouth of the cone — a tray drawn any lower would sit inside the chute. */
-const GRID_MAX_W = 441;
+const GRID_MAX_W = FUNNEL_WALL_R - FUNNEL_WALL_L - 3;
 /**
  * The grid stops **at the shoulder of the chute**, and this is that number rather than one typed
  * next to it.

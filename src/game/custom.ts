@@ -5,7 +5,8 @@
 // cells and this file turns that into a `LevelDef`, so a hand-built level is the same object a
 // generated one is and every rule, every bot and the fingerprint all apply to it unchanged.
 
-import { BOX_COLS, BOX_SLOTS, GRID_ROWS, TRAY_N, type Color } from "./config";
+import {
+  boxHiddenFrom, BOX_COLS, BOX_SLOTS, GRID_ROWS, TRAY_N, type Color } from "./config";
 import { Game, dispTarget, stepTarget, type ArrowDir, type Dir, type LevelDef } from "./logic";
 
 export type CellKind = "floor" | "wall" | "tile" | "hatch" | "crate" | "choc";
@@ -817,7 +818,10 @@ export function toLevelDef(bp: Blueprint, level = 0, target = 1): LevelDef {
   def.columns = cols.map((c) => [...c]);
   // Deterministic per drawing, like everything else here: the level the editor measured has to be
   // the level the player gets.
-  const frac = bp.boxHiddenFrac ?? 0;
+  // ⚠ From `BOX_HIDDEN_FROM` up the rule wins over the drawing, because it is a property of the
+  // *slot* rather than of the board — and because 185 shipped blueprints carry an explicit 0 that a
+  // `??` fallback would never get past. Below that level the drawing still owns it.
+  const frac = boxHiddenFrom(level, target, bp.boxHiddenFrac ?? 0);
   const rand = seededRand(bp, 7777);
   def.boxHidden = def.columns.map((c) => c.map((_, k) => k > 0 && rand() < frac));
   // The winning line the box search walked. A generated board carries the equivalent, and the

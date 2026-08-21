@@ -6,7 +6,8 @@
 // from the first move is unrecoverable and the player cannot tell it apart from their own
 // mistake, so nothing unproven ships.
 
-import { BELT_SLOTS, BOX_COLS, BOX_SLOTS, GRID_COLS, GRID_ROWS, TRAY_N, type Color } from "./config";
+import {
+  boxHiddenFrom, BELT_SLOTS, BOX_COLS, BOX_SLOTS, GRID_COLS, GRID_ROWS, TRAY_N, type Color } from "./config";
 import {
   Game,
   dispTarget,
@@ -1362,8 +1363,12 @@ function assemble(
 
   // Hide a share of each column below its top box. Index 0 is never hidden: the player must
   // always be able to see what is currently being filled.
+  // ⚠ Through `boxHiddenFrom` as well, so a generated board and a hand-built one at the same level
+  // number hide the same share. Two rules would mean the piece meant something different depending
+  // on which half of the ladder you were standing on.
+  const bhFrac = boxHiddenFrom(level, targetWin(level), p.boxHiddenFrac);
   const boxHidden = q.columns.map((stack) =>
-    stack.map((_, k) => k > 0 && rng() < p.boxHiddenFrac),
+    stack.map((_, k) => k > 0 && rng() < bhFrac),
   );
 
   // Lift the lid's four trays off the grid and park them behind the counter.
