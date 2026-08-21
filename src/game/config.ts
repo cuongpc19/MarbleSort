@@ -559,6 +559,24 @@ export const PALETTE: Swatch[] = [
   { name: "teal", base: 0x109c8d, light: 0x4fd8c6, dark: 0x0a6459 },
   { name: "lime", base: 0x9ad514, light: 0xc6f25c, dark: 0x638c00 },
   { name: "magenta", base: 0xd81b9c, light: 0xff62c8, dark: 0x8f0a66 },
+  /**
+   * ⚠ **Brown and grey each collide with a piece that is not a tray, and both were added anyway.**
+   * Requested twice; the risk is written down here rather than argued about.
+   *
+   *   brown vs the **crate**  — the crate face is a #b98a52 -> #8d6236 tan with planks and a brace
+   *     drawn on it. This brown is deliberately much darker so the two do not sit in the same band
+   *     of lightness, and the crate keeps its woodgrain, which is the other half of telling them
+   *     apart. A crate is the one thing on the board the player can do nothing about, so reading a
+   *     tray as a crate costs them the move rather than just the sort.
+   *
+   *   grey vs the **face-down "?" tile** — that tile is #8d9bb4 -> #75839c, a *blue* slate. This
+   *     grey is neutral, no blue cast, and darker. The "?" glyph is the real separator; the danger
+   *     is the 15px marble on the rail, where there is no glyph and no tile, only the colour.
+   *
+   * Watch both on a phone before shipping a board that uses them next to a crate or a "?".
+   */
+  { name: "brown", base: 0x7a4b22, light: 0xb07a4a, dark: 0x4a2a10 },
+  { name: "grey", base: 0x7e8388, light: 0xb4babf, dark: 0x4d5257 },
 ];
 
 // ── Chrome ───────────────────────────────────────────────────────────────────
