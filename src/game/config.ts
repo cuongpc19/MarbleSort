@@ -545,6 +545,20 @@ export const PALETTE: Swatch[] = [
   { name: "purple", base: 0xa341f0, light: 0xc989ff, dark: 0x6d1cab },
   { name: "pink", base: 0xff86c4, light: 0xffbadd, dark: 0xc94a8d },
   { name: "red", base: 0xec3d3d, light: 0xff8080, dark: 0xa71c1c },
+  // ⚠ **Three added after the first eight, and the choice is constrained by what is already here.**
+  // A marble is 15px and a tray face is a flat square of one colour, so two swatches that read as
+  // the same colour at that size are not two pieces — they are one piece the player will mis-sort.
+  // Teal sits between green and cyan and survives only because cyan is a pale wash and this is
+  // saturated; lime is pushed yellow-ward hard enough to clear green; magenta is the deep end of
+  // pink. Brown was rejected — it is the crate colour — and grey with it, because a face-down tray
+  // is grey and the whole point of that tile is that it reads as "colour unknown".
+  //
+  // ⚠ **Adding entries does not change a single generated level.** `paramsFromD` caps colours at a
+  // literal 8, not at `PALETTE.length`, and every level in `SHEET` names its own count. Only a
+  // hand-built board can reach these, which is the intent: they are for the editor.
+  { name: "teal", base: 0x109c8d, light: 0x4fd8c6, dark: 0x0a6459 },
+  { name: "lime", base: 0x9ad514, light: 0xc6f25c, dark: 0x638c00 },
+  { name: "magenta", base: 0xd81b9c, light: 0xff62c8, dark: 0x8f0a66 },
 ];
 
 // ── Chrome ───────────────────────────────────────────────────────────────────

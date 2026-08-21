@@ -867,6 +867,10 @@ const SHUFFLES: { id: string; label: string; from: number; to: number; hint: str
   { id: "sh16", label: "Trộn 16 hộp đầu", from: 1, to: 16, hint: "Xáo ngẫu nhiên 16 hộp đầu tiên tính từ trên xuống (4 hàng đầu)" },
   { id: "shTail", label: "Trộn 30 hộp cuối", from: -30, to: Infinity, hint: "Xáo ngẫu nhiên 30 hộp cuối cùng của giếng" },
   { id: "sh1230", label: "Trộn hộp 12–30", from: 12, to: 30, hint: "Xáo ngẫu nhiên các hộp ở vị trí 12 đến 30" },
+  // The two bands the shipped run of levels 14-205 was shuffled on that had no button here. Both
+  // are ranges like the others, so they cost a row of this table and nothing else.
+  { id: "sh2436", label: "Trộn hộp 24–36", from: 24, to: 36, hint: "Xáo ngẫu nhiên các hộp ở vị trí 24 đến 36 (hàng 6 đến 9)" },
+  { id: "shTail15", label: "Trộn 15 hộp cuối", from: -15, to: Infinity, hint: "Xáo ngẫu nhiên 15 hộp cuối cùng của giếng" },
 ];
 
 wellAutoEl.onclick = () => {
