@@ -6,7 +6,17 @@
 // preview is an approximation of the machine rather than the machine — good enough to design
 // against, and "Chơi thử" opens the real thing one click away.
 
-import { BOX_COLS, BOX_SLOTS, BOX_VISIBLE, GRID_ROWS, PALETTE, TRAY_N, type Color } from "../game/config";
+import {
+  BELT_SLOTS,
+  BOX_COLS,
+  BOX_SLOTS,
+  BOX_VISIBLE,
+  GRID_ROWS,
+  PALETTE,
+  TICK_MS,
+  TRAY_N,
+  type Color,
+} from "../game/config";
 import {
   blankBlueprint,
   checkBlueprint,
@@ -83,6 +93,12 @@ const boardEl = $("board");
 const wellEl = $("well");
 const wellAutoEl = $("wellAuto") as HTMLButtonElement;
 const wellStateEl = $("wellState");
+const beltEl = $("belt");
+const playRunEl = $("playRun") as HTMLButtonElement;
+const playAgainEl = $("playAgain") as HTMLButtonElement;
+const playSpeedEl = $("playSpeed") as HTMLSelectElement;
+const playSpeedWrap = $("playSpeedWrap");
+const playNoteEl = $("playNote");
 const toolsEl = $("tools");
 const swatchesEl = $("swatches");
 const hatchBox = $("hatchBox");
@@ -343,7 +359,11 @@ function render() {
     face.className = "face";
     const pt = preview?.tiles[i] ?? null;
 
-    if (c.kind === "tile" && c.color !== undefined) {
+    // ⚠ During a run the *drawing* still says "tile" for a tray that has already been poured, and
+    // the settled-tile fallback below would then paint it back onto the board. Emptied is emptied:
+    // the model is the truth while it is running.
+    const poured = !!play && c.kind === "tile" && !pt && !preview?.tiles[i - 1]?.wide;
+    if (c.kind === "tile" && c.color !== undefined && !poured) {
       // Face-down only if it is *still* face-down once the board has settled.
       const stillHidden = pt ? pt.hidden : !!c.hidden;
       if (stillHidden) {
@@ -443,6 +463,7 @@ function render() {
   }
 
   renderWell();
+  if (play) renderPlay();
 }
 
 /**
@@ -498,9 +519,13 @@ function renderWell() {
       b.dataset.idx = String(k);
       // Only the open box shows its holes, exactly as on the machine: the ones behind it are shut.
       if (k === 0) {
+        // Holes already filled are shown filled — during a run that is the level's progress, and
+        // it is the thing you watch to see a colour arriving that nothing can accept.
+        const filled = g!.boxes[j].filled;
         for (let h = 0; h < BOX_SLOTS; h++) {
           const hole = document.createElement("span");
-          hole.className = "whole";
+          hole.className = `whole${h < filled ? " on" : ""}`;
+          if (h < filled) hole.style.backgroundColor = hex(color);
           b.appendChild(hole);
         }
       }
@@ -515,6 +540,122 @@ function renderWell() {
     wellEl.appendChild(col);
   }
 }
+
+// ── Playing it here ──────────────────────────────────────────────────────────
+
+/**
+ * The drawing, played in the editor.
+ *
+ * ⚠ **The model, not the machine.** `Game` owns every rule — taps, escapes, the belt, the boxes —
+ * and none of them need Phaser or Matter, so the editor can run the real engine and draw the result
+ * into the DOM it already has. What it cannot reproduce is the *physics*: marbles here reach the
+ * rail through `arriveAll()`, the headless convention, so the chute never backs up and the hopper
+ * pressure a real player feels is missing. That makes this the wrong tool for judging pacing and
+ * the right one for judging **box order**, which is what it exists for — and it is the same loop
+ * the bot check and the box search measure, so its verdict and theirs cannot disagree.
+ *
+ * ⚠ It does not replace `Chơi thử`. That opens the real machine one click away, and anything about
+ * feel has to be answered there.
+ */
+let play: Game | null = null;
+let playTimer: number | null = null;
+/**
+ * Every tap of this run, with the tick it happened on.
+ *
+ * ⚠ The tick matters as much as the cell. Rearranging the well restarts the run, and replaying the
+ * taps back to back would be a different game that happens to start the same way — the belt state
+ * a tray lands in is decided by *when* it was poured. The engine is deterministic once the taps and
+ * their ticks are fixed, so this replays exactly.
+ */
+let playTaps: { at: number; idx: number }[] = [];
+
+function stopPlay() {
+  if (playTimer !== null) clearInterval(playTimer);
+  playTimer = null;
+  play = null;
+  beltEl.hidden = true;
+  playNoteEl.hidden = true;
+  playAgainEl.hidden = true;
+  playSpeedWrap.hidden = true;
+  playRunEl.textContent = "▶ Chơi thử tại đây";
+  document.body.classList.remove("playing");
+}
+
+/** One step of the headless loop, exactly as `playOnce` runs it: everything lands, then a tick. */
+function playStep() {
+  if (!play) return;
+  play.arriveAll();
+  play.tick();
+  if (play.status !== "play" && playTimer !== null) {
+    clearInterval(playTimer);
+    playTimer = null;
+  }
+  render();
+}
+
+function startPlay(replay: { at: number; idx: number }[] = []) {
+  if (!previewDef) return;
+  stopPlay();
+  play = new Game(previewDef);
+  playTaps = [];
+  // ⚠ `preview` is what every renderer here already draws from, and a running game *is* a settled
+  // `Game`. Pointing it at the live one makes the board, the eggs and the well follow the play for
+  // free — a second rendering path for "the same board, but moving" is how the two drift.
+  preview = play;
+  for (const t of replay) {
+    while (play.ticks < t.at && play.status === "play") {
+      play.arriveAll();
+      play.tick();
+    }
+    if (play.status !== "play") break;
+    if (play.canTap(t.idx)) {
+      play.tap(t.idx);
+      playTaps.push({ at: play.ticks, idx: t.idx });
+    }
+  }
+  beltEl.hidden = false;
+  playNoteEl.hidden = false;
+  playAgainEl.hidden = false;
+  playSpeedWrap.hidden = false;
+  playRunEl.textContent = "■ Dừng, quay lại vẽ";
+  document.body.classList.add("playing");
+  playTimer = setInterval(playStep, TICK_MS / Number(playSpeedEl.value)) as unknown as number;
+  render();
+}
+
+/** The rail and the run's own numbers, under the board. */
+function renderPlay() {
+  const g = play;
+  if (!g) return;
+  beltEl.replaceChildren();
+  for (let k = 0; k < BELT_SLOTS; k++) {
+    const c = g.belt[k];
+    const d = document.createElement("div");
+    d.className = `bslot${c === null ? " empty" : ""}${k === 0 ? " entry" : ""}`;
+    if (c !== null) d.style.backgroundColor = hex(c);
+    d.title = k === 0 ? "Chỗ bi mới vào rail" : `Ô rail ${k + 1}`;
+    beltEl.appendChild(d);
+  }
+  const used = g.belt.filter((c) => c !== null).length;
+  const waiting = g.pending.length + g.inFlight.length;
+  playNoteEl.className = `hint playnote${g.status === "won" ? " won" : g.status === "lost" ? " lost" : ""}`;
+  playNoteEl.textContent =
+    g.status === "won"
+      ? `Thắng sau ${g.taps} lần đổ. Rail cao nhất ${g.maxBelt}/${BELT_SLOTS}.`
+      : g.status === "lost"
+        ? `Kẹt sau ${g.taps} lần đổ — rail ${used}/${BELT_SLOTS}, không màu nào trên rail vào được hộp đang mở. ` +
+          `Đây là lúc kéo lại thứ tự hộp.`
+        : `Đang chơi · rail ${used}/${BELT_SLOTS}${waiting ? ` (+${waiting} đang rơi)` : ""} · ` +
+          `đã đổ ${g.taps} khay · còn ${g.remaining()} bi. Bấm khay để đổ.`;
+}
+
+playRunEl.onclick = () => (play ? (stopPlay(), rebuildPreview(), render()) : startPlay());
+playAgainEl.onclick = () => startPlay();
+playSpeedEl.onchange = () => {
+  if (!play || playTimer === null) return;
+  clearInterval(playTimer);
+  playTimer = setInterval(playStep, TICK_MS / Number(playSpeedEl.value)) as unknown as number;
+};
 
 /**
  * Arranging the well by hand.
@@ -597,9 +738,12 @@ function applyMove(from: { col: number; idx: number }, to: { col: number; idx: n
   // column is one place too far. Off by one here silently swaps two boxes instead of moving one.
   const at = from.col === to.col && to.idx > from.idx ? to.idx - 1 : to.idx;
   cols[to.col].splice(Math.min(at, cols[to.col].length), 0, moved);
+  const wasPlaying = !!play;
+  const sofar = [...playTaps];
   bp.columns = cols;
   bp.refTaps = lineFor(bp, cols);
   commit();
+  if (wasPlaying) startPlay(sofar);
 }
 
 wellEl.addEventListener("pointerdown", (e) => {
@@ -1468,8 +1612,16 @@ const traySig = (b: Blueprint) => JSON.stringify([b.cols, b.rows, b.cells]);
  */
 let pinSig: string | null = null;
 
-/** Redraw everything from the drawing and save it. */
+/**
+ * Redraw everything from the drawing and save it.
+ *
+ * ⚠ **Ends any run in progress.** Every edit here rebuilds the def the run is playing, and a game
+ * carrying on against a board that no longer exists is the worst of both. The one edit that should
+ * *not* end it — rearranging the well — restarts it and replays the taps, which is the whole loop
+ * this pairs with: play until it jams, drag a box, watch the same game again.
+ */
 function commit() {
+  if (play) stopPlay();
   // ⚠ Editing the trays invalidates any frozen box stacks. `Blueprint.columns` pins the boxes so a
   // level can be moved between slots without being rebuilt; the moment the drawing changes, those
   // stacks describe a board that no longer exists — wrong colours, wrong count — and the level is
@@ -1506,9 +1658,21 @@ function commit() {
 boardEl.addEventListener("pointerdown", (e) => {
   const t = (e.target as HTMLElement).closest(".cell") as HTMLElement | null;
   if (!t) return;
+  const i = Number(t.dataset.i);
+  // ⚠ While a run is on the board is being **played**, not drawn on. Painting through would edit
+  // the drawing under a game already running on the old one — and `render()` draws them both from
+  // the same elements, so the damage would not even be visible until the run ended.
+  if (play) {
+    if (play.status === "play" && play.canTap(i)) {
+      play.tap(i);
+      playTaps.push({ at: play.ticks, idx: i });
+      render();
+    }
+    return;
+  }
   painting = true;
   boardEl.setPointerCapture(e.pointerId);
-  apply(Number(t.dataset.i));
+  apply(i);
 });
 boardEl.addEventListener("pointermove", (e) => {
   if (!painting) return;

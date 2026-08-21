@@ -1299,6 +1299,28 @@ the same three steps in the same order, or it is showing a board nothing plays.
   `BOX_HIDDEN_FROM`). The editor was showing a different well from the one the player gets, in both
   its order and its `?`s. Checked by dumping `__ms.state().boxes` from the real game at level 30 and
   the editor's well side by side: all four columns identical, 31/31/31/30 boxes.
+- **The drawing can be played in the editor** — `▶ Chơi thử tại đây` runs the real `Game` against
+  the DOM board: tap a tray and it pours, the rail fills slot by slot under the board, boxes fill
+  and pop in the well. It exists to close the loop with the well: play until it jams, drag a box,
+  watch the same game again.
+  ⚠ **The model, not the machine.** Marbles reach the rail through `arriveAll()`, the headless
+  convention, so the chute never backs up and the hopper pressure a real player feels is missing.
+  That makes it the wrong tool for pacing and the right one for **box order** — and it is the same
+  loop `playOnce` runs, so its verdict and the bot check's cannot disagree. `Chơi thử` still opens
+  the real machine, and anything about feel has to be answered there.
+  ⚠ **Rearranging mid-run replays the run**, it does not discard it. `playTaps` records the tick of
+  every tap as well as the cell: the engine is deterministic once taps and ticks are fixed, so the
+  same game replays exactly against the new stacks — which is the only way to see whether the move
+  helped. Replaying taps back to back instead would be a different game that happens to start the
+  same way, because the belt state a tray lands in is decided by *when* it was poured.
+  ⚠ **`commit()` ends a run**, because every edit rebuilds the def the run is playing on. The well
+  drag is the one exception and restarts it.
+  ⚠ **A poured tray has to be drawn from the model, not the drawing.** `bp.cells[i]` still says
+  "tile" for a tray the run has emptied, and the settled-tile fallback in `render` would paint it
+  back onto the board mid-game.
+  ⚠ **Board taps play instead of paint while a run is on.** Painting through would edit the drawing
+  under a game already running on the old one, and both are drawn from the same elements — the
+  damage would not be visible until the run ended.
 - **The well can be arranged by hand** — drag a box to another place in any column. The derivation
   is the right default and it is not a design tool: it builds ~10 candidate layouts, scores each
   with bot games and keeps whichever lands nearest the slot's target, and a designer who wants this

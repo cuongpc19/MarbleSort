@@ -253,6 +253,9 @@
         background: rgba(0, 0, 0, 0.3);
         box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.35);
       }
+      /* A hole with a marble in it: raised, not recessed, so filled and empty differ in shape and
+         not only in shade — the box under them is already every colour in the palette. */
+      .whole.on { box-shadow: 0 1px 1px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.5); }
       /* ⚠ Colour **and** the mark, never one instead of the other. The player sees a grey box; the
          designer has to see which colour is hiding under it, or the queue cannot be read at all —
          the same bargain the `?` trays already make on the board above. */
@@ -294,6 +297,38 @@
         margin: -4px 0;
       }
       .wrow { justify-content: center; gap: 10px; margin-top: 2px; }
+      .playbar { margin-top: 6px; }
+
+      /* The rail, as the model has it: one chip per belt slot, in order, wrapping. ⚠ Not a loop
+         drawn to scale — the question this answers is "what is riding round and is there room",
+         and a faithful stadium shape makes 30 slots unreadable in a 380px column. */
+      .belt {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 3px;
+        padding: 8px 10px;
+        background: var(--body);
+        border-radius: 12px;
+        margin-top: 6px;
+      }
+      .belt[hidden] { display: none; }
+      .bslot {
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        background: #cfd7e6;
+        box-shadow: inset 0 -1px 1px rgba(0, 0, 0, 0.18);
+      }
+      .bslot.empty { background: #dde3ee; box-shadow: none; }
+      /* The entry slot, so a chute backing up has somewhere visible to back up *from*. */
+      .bslot.entry { outline: 2px solid var(--accent); outline-offset: 1px; }
+      .playnote { text-align: center; margin-top: 6px; }
+      .playnote.won { color: #157a3a; font-weight: 600; }
+      .playnote.lost { color: #a71c1c; font-weight: 600; }
+      /* While the level is being played the board is not being drawn on, and the cursor has to say
+         so — every cell is a tap, and a tool click would otherwise look like it should paint. */
+      .playing #board .cell { cursor: pointer; }
       .wstate { font-size: 12.5px; color: var(--ink-soft); }
       .wstate.on { color: var(--accent); font-weight: 600; }
 
@@ -837,6 +872,24 @@
             <span id="wellState" class="wstate"></span>
             <button id="wellAuto" class="ghost" hidden>Sắp lại tự động</button>
           </div>
+
+          <!-- Playing the drawing in place. The point is not to replace "Chơi thử" — that opens the
+               real machine — but to close the loop between arranging the well and finding out where
+               the order goes wrong, without leaving the page you would fix it on. -->
+          <div class="row wrow playbar">
+            <button id="playRun" class="primary">▶ Chơi thử tại đây</button>
+            <button id="playAgain" class="ghost" hidden>Chơi lại</button>
+            <label class="inline" id="playSpeedWrap" hidden>
+              Tốc độ
+              <select id="playSpeed">
+                <option value="1">×1</option>
+                <option value="3" selected>×3</option>
+                <option value="8">×8</option>
+              </select>
+            </label>
+          </div>
+          <div class="belt" id="belt" hidden></div>
+          <p class="hint playnote" id="playNote" hidden></p>
           <div class="well" id="well"></div>
           <p class="hint">
             Bấm để đặt, giữ và kéo để vẽ liên tục. Phím <b>0</b>–<b>9</b> đổi công cụ nhanh — <b>0</b> là chọn, không vẽ đè.
