@@ -62,3 +62,6 @@ playlog.jsonl
 # src/game/handmade.ts, these are the working notes that produced it.
 scripts/.*.txt
 scripts/.*.json
+
+# Scratch output from scripts/remap-run.mjs — the block files are pasted, never committed
+scripts/.tmp/
