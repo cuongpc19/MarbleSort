@@ -1025,6 +1025,26 @@ back: summary cards, a by-day table and a by-level table. Behind a Google sign-i
 from every build**, so it can never ride into an upload; anything else dropped in `public/` for a
 dev purpose needs the same treatment or it ships.
 
+- The window is either a **preset** ("last N hours/days", always ending at now) or a **custom
+  range** with two fixed edges — the shape that answers "what happened during that patch" rather
+  than "what happened recently". Grain switch: **theo giờ** / **theo ngày**.
+  ⚠ **The pickers are read as VN (+7), not as the browser's zone**, because `day()` buckets every
+  row in VN and the by-day table is labelled that way. Read as local time on a machine set to
+  anything else, 20/8 00:00 → 21/8 00:00 would straddle two of the rows it is meant to select — and
+  since every machine this is used from is already in VN, the failure would only ever appear on
+  someone else's screen.
+  ⚠ **"đến" is exclusive by the hour and inclusive by the day.** 08:00 → 14:00 means six hours;
+  20/8 → 20/8 means the whole of the 20th, not nothing. So the day grain adds 24h and the hour grain
+  does not.
+  ⚠ **`endAt` needs `orderBy` as much as `startAt` does.** Built from `since` alone, a query with
+  only an end edge sends no `orderBy` and silently pulls the entire log.
+  ⚠ **`const VN` had to move above the picker code.** `const` is not hoisted like `var`, and the
+  range helpers read the offset while the module is still evaluating — a declaration further down is
+  a ReferenceError that takes the whole page with it, i.e. a blank dashboard rather than a wrong
+  number. `node --check` cannot see this; only loading the page can.
+  ⚠ The range label prints **both** the window asked for and the span the rows cover, and rewrites
+  itself on the empty path too — left alone it kept the previous window on screen, so a custom range
+  that matched nothing looked exactly like a range that had loaded something.
 - **Winrate** appears three ways and they are not interchangeable. Per game, per player (did this
   person ever clear it), and **clean winrate** — games with no booster and no revive. Clean is the
   one to compare against a bot, for the same reason `PURE=1` exists: a level bought with coins is
@@ -1064,6 +1084,15 @@ dev purpose needs the same treatment or it ships.
 - **Median *and* mean** time per player. Measured on Pixel Flow's real log the two came out 2:54
   against 13:20 — a handful of players who sit down for an hour drag the mean up, and the mean
   alone says the game is four times stickier than it is.
+- **Time per attempt is the median too**, in both tables (`Time` by level, `Time/game` by day), with
+  the mean and the sample size in the cell's hover. Same tail as above on a single board: an attempt
+  is timed until the player finishes it, so a tab left open on the level writes a half-hour game.
+  ⚠ **A row with no `ms` is dropped from the series, not pushed in as 0.** A mean absorbs a zero —
+  the sum does not grow — but a median is a *position* in the sorted series, so every missing row
+  shoves the middle one step down and a level reads faster the more of its data is absent. No rows
+  with a length at all is `—`.
+  ⚠ It counts **attempts, not players**, and losses as well as wins; abandoned attempts report no
+  length and are in neither figure.
 - ⚠ The **fingerprint column** in the by-level table is why winrate is not read out of Google
   Analytics: two fingerprints under one level number means two different boards averaged into one
   convincing-looking figure.

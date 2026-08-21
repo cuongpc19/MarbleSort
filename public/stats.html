@@ -16,8 +16,14 @@
   h1 { font-size:1.4rem; margin:0 0 2px; }
   .sub { color:var(--soft); margin:0 0 18px; }
   .bar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:16px; }
-  select, button { font:inherit; padding:6px 10px; border-radius:8px; border:1px solid var(--line);
+  select, button, input[type="date"], input[type="datetime-local"] {
+                   font:inherit; padding:6px 10px; border-radius:8px; border:1px solid var(--line);
                    background:var(--panel); color:var(--ink); }
+  /* The custom-range controls sit as one group, so they read as one control rather than three
+     that happen to be adjacent — and the group hides whole when a preset is chosen. */
+  .pick { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  .pick[hidden] { display:none; }
+  .pick .sep { color:var(--soft); }
   button { cursor:pointer; }
   label { display:flex; align-items:center; gap:6px; color:var(--soft); }
   .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin-bottom:20px; }
@@ -106,7 +112,18 @@
         <option value="7" selected>last 7 days</option>
         <option value="30">last 30 days</option>
         <option value="9999">everything</option>
+        <option value="custom">khoảng tự chọn…</option>
       </select>
+      <span class="pick" id="pick" hidden>
+        <select id="grain" title="Mức chọn: theo giờ hay theo ngày">
+          <option value="hour">theo giờ</option>
+          <option value="day">theo ngày</option>
+        </select>
+        <input type="datetime-local" id="from" step="3600" title="Mốc bắt đầu, giờ VN (+7)" />
+        <span class="sep">→</span>
+        <input type="datetime-local" id="to" step="3600" title="Mốc kết thúc, giờ VN (+7)" />
+        <button id="applyRange">áp dụng</button>
+      </span>
       <select id="build"><option value="">all builds</option></select>
       <label><input type="checkbox" id="excl" checked /> hide test games</label>
       <button id="reload">reload</button>
@@ -152,19 +169,24 @@
       absent from every winrate here (they still count in Games, Completed and Starts (user)).
       Dividing raw wins by raw starts instead would put level 1 at <b>169%</b>.
       <b>Starts (event)</b> = how many times this board was <em>entered</em>; a player who retried
-      it five times is five. <b>Starts (user)</b> = how many distinct <em>people</em> those were,
-      counted once each. Both include people who arrived and walked away without finishing — that
-      is what makes them the pair to read Quit against.
-      ⚠ Starts (event) shows <b>—</b>, not 0, for levels whose only rows come from builds too old to
-      send a start row; Starts (user) still counts those people, because finishing an attempt here
-      proves they started one.
-      ⚠ <b>So the two are not on the same footing while old rows are in the window</b>, and event
-      can come out <em>lower</em> than user — level 1 currently reads 318 events against 561 people,
-      because a few hundred of them played on a build that sent no start row. Dividing one by the
-      other is only meaningful once the whole window is start-logging builds; until then a ratio
-      under 1 is a gap in the data, not players who somehow started less than once.
+      it five times is five. <b>Starts (user)</b> = how many distinct <em>people</em> pressed start
+      on it. Both count the same rows — one per attempt, one per device — so <b>event ÷ user is
+      retries per player</b>, and event can never come out below user. Both include people who
+      arrived and walked away without finishing, which is what makes them the pair to read Quit
+      against.
+      ⚠ <b>Both show —, never 0, before start logging existed</b> (first start row: 19/08). Those
+      players did press start; the build simply never said so, and printing 0 beside a hundred
+      finished games would be a claim rather than a gap. Their games still count in Games,
+      Completed and Winrate/player, which are built from end rows.
+      ⚠ Starts (user) used to be the union of everyone <em>seen</em> at the level, inferring a start
+      from any finished attempt so that old builds were not lost. That number disagreed with the
+      column&rsquo;s own name and with Starts (event) beside it — level 1 read 318 events against 561
+      people — and there was no way to tell arrivals that were counted from arrivals that were
+      inferred. <b>Won &amp; left</b> still uses the seen-anywhere test, deliberately: an old-build
+      player who <em>finished</em> the next level plainly went there.
       <b>% of L1</b> = this row's <b>Starts (user)</b> divided by level 1's — the funnel, in the
-      two numbers you can check by hand on the row itself. ⚠ It is a ratio of two headcounts, not a
+      two numbers you can check by hand on the row itself, and blank for windows with no start rows
+      in them. ⚠ It is a ratio of two headcounts, not a
       cohort: someone on level 30 today mostly started level 1 weeks ago, so a short window counts
       them here and not at level 1, and the column <b>can go over 100%</b> — highlighted when it
       does, because that is the shape of the window rather than a board more popular than the first.
@@ -186,6 +208,15 @@
       level to be absent from, and someone who cleared a board minutes ago has not had time to
       start the one after it — both push this number up on their own.
       <b>Drop-off</b> = players who started this level and never started the next one.
+      <b>Time</b> is the <b>median</b> finished attempt on this board — half the attempts were
+      quicker, half slower — not the average. ⚠ The mean is the wrong middle here: an attempt is
+      timed until the player finishes it, so somebody who leaves the tab sitting on the board writes
+      a half-hour game, and a handful of those move a level's average and not its median. The mean
+      is still in the cell's <b>hover</b>, with how many attempts went into the figure; the two far
+      apart is itself the finding. ⚠ It counts <em>every</em> finished attempt, won or lost, and
+      counts <em>attempts</em> rather than players — someone who took four goes is in it four times.
+      Attempts nobody came back from (the Quit column) report no length at all, so they are in
+      neither number.
       <b>Peak belt</b> is how full the conveyor ever got, averaged — the thing stars are scored on,
       so a level near 100% is one nobody has slack on.
     </p>
@@ -243,12 +274,83 @@ onAuthStateChanged(auth, (u) => {
 let rows = [];      // finished attempts
 let starts = [];    // attempts that reached the board, finished or not
 let claims = [];    // daily-login rewards taken
+/**
+ * ⚠ Declared **here**, above the range picker rather than down with the by-day maths where it used
+ * to live. `const` is not hoisted like `var`: the picker reads the offset while the module is still
+ * evaluating, and a declaration further down the file is a ReferenceError that takes the whole page
+ * with it — a blank dashboard, not a wrong number.
+ */
+const VN = 7 * 3600e3;                        // timestamps are epoch; bucket them in VN local time
+
+/**
+ * The window to load, as `{ since, until }` in epoch ms — `until` null meaning "up to now".
+ *
+ * The presets are all "the last N days" and end at now. The custom range is the other shape: two
+ * fixed edges, which is what makes it answer "what happened during that patch" rather than "what
+ * happened recently".
+ *
+ * ⚠ **The pickers are read as VN time (+7), not as the browser's zone**, because `day()` buckets
+ * every row in VN and the by-day table is labelled that way. Read as local time on a machine set to
+ * anything else, picking 2026-08-20 00:00 → 2026-08-21 00:00 would load a window straddling two of
+ * the rows it is meant to select, and the table and the filter would disagree about what a day is.
+ * On a machine already in VN — which is every machine this has been used from — the two readings
+ * are identical, so the failure would only ever show up on someone else's screen.
+ *
+ * ⚠ **"đến" is exclusive by the hour and inclusive by the day**, and the asymmetry is deliberate:
+ * 08:00 → 14:00 plainly means six hours, while 20/8 → 20/8 just as plainly means the whole of the
+ * 20th rather than nothing at all. So the day grain adds its 24 hours and the hour grain does not.
+ */
+const stampVN = (v) => {
+  // "YYYY-MM-DD" or "YYYY-MM-DDTHH:mm", read as a wall clock in VN.
+  const m = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}))?$/.exec(v || "");
+  if (!m) return null;
+  const [, y, mo, d, h, mi] = m;
+  return Date.UTC(+y, +mo - 1, +d, +(h ?? 0), +(mi ?? 0)) - VN;
+};
+function windowWanted() {
+  const v = $("days").value;
+  if (v !== "custom") {
+    const days = Number(v);
+    return { since: days >= 9999 ? 0 : Date.now() - days * 864e5, until: null };
+  }
+  const byDay = $("grain").value === "day";
+  const from = stampVN($("from").value);
+  const to = stampVN($("to").value);
+  return {
+    since: from ?? 0,
+    until: to == null ? null : byDay ? to + 864e5 : to,
+  };
+}
+
+/** The chosen window, printed the way the by-day table labels its rows. */
+const stampLabel = (ms) => new Date(ms + VN).toISOString().slice(0, 16).replace("T", " ");
+/** "cửa sổ X → Y · " while a custom range is set, and nothing at all on a preset. */
+const askedLabel = () => {
+  if ($("days").value !== "custom") return "";
+  const w = windowWanted();
+  return `cửa sổ ${w.since ? stampLabel(w.since) : "…"} → ${
+    w.until != null ? stampLabel(w.until) : "bây giờ"
+  } (giờ VN) · `;
+};
+
 async function load() {
   if (!user) return;
-  const days = Number($("days").value);
-  const since = days >= 9999 ? 0 : Date.now() - days * 864e5;
+  const { since, until } = windowWanted();
+  // ⚠ Empty is not an error and must not be one: a range whose ends are the wrong way round is a
+  // half-typed range, and reloading the whole log because someone is still typing is the one
+  // outcome worth avoiding.
+  if (until != null && since && until <= since) {
+    $("status").textContent = "khoảng không hợp lệ — mốc kết thúc phải sau mốc bắt đầu";
+    return;
+  }
   $("status").textContent = "loading…";
-  const q = since ? `&orderBy="at"&startAt=${since}` : "";
+  // ⚠ `endAt` needs `orderBy` as much as `startAt` does, so the query is built from whichever ends
+  // exist rather than from `since` alone — with `since` 0 and an `until` set, the old shape sent no
+  // `orderBy` at all and quietly loaded the entire log.
+  const q =
+    since || until != null
+      ? `&orderBy="at"${since ? `&startAt=${since}` : ""}${until != null ? `&endAt=${until}` : ""}`
+      : "";
   const get = async (force) => {
     const t = await user.getIdToken(force);
     return fetch(`${DB}/runs.json?auth=${encodeURIComponent(t)}${q}`);
@@ -282,12 +384,54 @@ async function load() {
   render();
 }
 $("reload").onclick = load;
-$("days").onchange = load;
+
+// ---- the custom range ----------------------------------------------------------------------
+// ⚠ Switching grain **converts** what is already typed rather than clearing it. Flipping to days
+// and back is how you check a day's shape and then zoom into an hour of it, and a picker that
+// empties itself on the way makes that two pieces of retyping.
+const pad = (n) => String(n).padStart(2, "0");
+/** `Date` → the value a picker of this grain expects, in VN wall-clock. */
+const pickValue = (ms, byDay) => {
+  const d = new Date(ms + VN);
+  const day = `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+  return byDay ? day : `${day}T${pad(d.getUTCHours())}:00`;
+};
+function applyGrain() {
+  const byDay = $("grain").value === "day";
+  for (const id of ["from", "to"]) {
+    const el = $(id), v = el.value;
+    el.type = byDay ? "date" : "datetime-local";
+    el.step = byDay ? "" : "3600";
+    // "2026-08-20T14:00" ⇄ "2026-08-20". Going to hours keeps the day and starts it at midnight,
+    // which is the same instant the day grain already meant.
+    if (v) el.value = byDay ? v.slice(0, 10) : v.length === 10 ? `${v}T00:00` : v;
+  }
+}
+$("grain").onchange = () => { applyGrain(); load(); };
+$("applyRange").onclick = load;
+// Enter inside a picker is the same gesture as pressing áp dụng, and hunting for the button after
+// typing a date is the sort of friction that gets a filter left on a preset.
+for (const id of ["from", "to"]) {
+  $(id).addEventListener("keydown", (e) => { if (e.key === "Enter") load(); });
+}
+$("days").onchange = () => {
+  const custom = $("days").value === "custom";
+  $("pick").hidden = !custom;
+  if (custom) {
+    // Prefill with today so far, in the current grain — an empty pair of pickers loads the whole
+    // log the moment anything triggers a reload, which is the one window nobody asked for.
+    applyGrain();
+    const byDay = $("grain").value === "day";
+    const now = Date.now();
+    if (!$("from").value) $("from").value = pickValue(now - (byDay ? 6 * 864e5 : 6 * 36e5), byDay);
+    if (!$("to").value) $("to").value = pickValue(now, byDay);
+  }
+  load();
+};
 $("excl").onchange = render;
 $("build").onchange = render;
 
 // ---- maths --------------------------------------------------------------------------------
-const VN = 7 * 3600e3;                        // timestamps are epoch; bucket them in local time
 const day = (ms) => new Date(ms + VN).toISOString().slice(0, 10);
 const pct = (a, b) => (b ? Math.round((100 * a) / b) : 0);
 const cls = (v, lo, hi) => (v < lo ? "bad" : v < hi ? "warn" : "good");
@@ -321,12 +465,17 @@ const band = (v, n) => {
   return "wr5";
 };
 /**
- * Median as well as the mean, for time per player.
+ * The middle of a series. Used for **time per player** (the by-day pair) and for **time per
+ * attempt** (the Time columns in both tables).
  *
- * ⚠ The two say different things and the mean alone flatters the game. Measured on the sibling
- * project's real log they came out 2:54 against 13:20 — a factor of four, because a handful of
- * players who sit down for an hour drag the mean up. A median needs the whole series kept, which
- * is why `perDev` exists at all.
+ * ⚠ The mean and the median say different things and the mean alone flatters the game. Measured on
+ * the sibling project's real log, time per player came out 2:54 against 13:20 — a factor of four,
+ * because a handful of people who sit down for an hour drag the mean up. The same tail is on a
+ * single level: one player who leaves the board open while they answer the door writes an attempt
+ * of half an hour, and thirty of those are enough to double a level's mean.
+ *
+ * ⚠ A median needs the **whole series kept** — a running total only ever yields a mean. That is
+ * what `perDev` and the two `msList` arrays are for, and it is the reason those exist at all.
  */
 const median = (a) => {
   if (!a.length) return 0;
@@ -370,11 +519,18 @@ function render() {
   if (!g.length) {
     $("cards").innerHTML = "<div class='card'><div class='n'>0</div><div class='k'>no data</div></div>";
     $("tDay").innerHTML = $("tLv").innerHTML = $("foot").innerHTML = "";
+    // ⚠ The range label has to be rewritten here too. Left alone it still reads the *previous*
+    // window, so a custom range that matched nothing looks like a range that loaded something —
+    // and an empty window is exactly what a picker set an hour too early produces.
+    $("range").textContent = askedLabel() + "không có dòng nào";
     return;
   }
 
   const at = g.map((r) => r.at);
-  $("range").textContent = `${day(Math.min(...at))} → ${day(Math.max(...at))}`;
+  // ⚠ Two different facts, and the gap between them is information: the window that was **asked
+  // for** and the span the rows actually **cover**. A custom range with nothing in it looks
+  // identical to a broken query unless the requested window is on screen next to the answer.
+  $("range").textContent = `${askedLabel()}dữ liệu ${day(Math.min(...at))} → ${day(Math.max(...at))}`;
 
   // ---- by day. Always by day.
   //
@@ -390,9 +546,14 @@ function render() {
   const byDay = new Map();
   for (const r of g) {
     const d = bucket(r.at);
-    if (!byDay.has(d)) byDay.set(d, { devs: new Set(), n: 0, w: 0, wt: 0, starts: 0, ms: 0, perDev: new Map() });
+    if (!byDay.has(d)) byDay.set(d, { devs: new Set(), n: 0, w: 0, wt: 0, starts: 0, ms: 0, msList: [], perDev: new Map() });
     const o = byDay.get(d);
     o.devs.add(r.dev); o.n++; if (r.result === "win") { o.w++; if (tracked(r)) o.wt++; } o.ms += r.ms || 0;
+    // ⚠ **A row with no `ms` is left out, not pushed in as 0.** The mean beside it can absorb a
+    // zero — the sum simply does not grow — but a median is a *position* in the sorted series, so
+    // every missing row shoves the middle one step toward the bottom and a level reads faster the
+    // more of its data is absent. Absent is "—", never "quick".
+    if (Number.isFinite(r.ms)) o.msList.push(r.ms);
     // Per device, because a median needs the whole series — a running total only yields a mean.
     o.perDev.set(r.dev, (o.perDev.get(r.dev) || 0) + (r.ms || 0));
   }
@@ -401,7 +562,7 @@ function render() {
   // worth seeing from a table whose winrate is now measured against starts.
   for (const r of sg) {
     const d = bucket(r.at);
-    if (!byDay.has(d)) byDay.set(d, { devs: new Set(), n: 0, w: 0, wt: 0, starts: 0, ms: 0, perDev: new Map() });
+    if (!byDay.has(d)) byDay.set(d, { devs: new Set(), n: 0, w: 0, wt: 0, starts: 0, ms: 0, msList: [], perDev: new Map() });
     const o = byDay.get(d);
     o.starts++;
     // ⚠ **Deliberately does not touch `o.devs`.** Adding the device here crashed the page: `devs`
@@ -459,12 +620,12 @@ function render() {
       <td title="${r1 ? `${r1.back} of the ${r1.n} players who arrived on ${d} came back on ${nextDay(d)}` : "the next day is not in the window yet"}">${r1 ? `${r1.back}/${r1.n}` : "—"}</td>
       <td class="${r1 ? cls(r1.p, 3, 8) : ""}">${r1 ? r1.p2 + "%" : "—"}</td>
       <td>${o.n}</td><td>${o.devs.size ? (o.n / o.devs.size).toFixed(1) : "—"}</td>
-      <td class="${band(pct(o.wt, o.starts), o.starts)}">${o.starts ? pct(o.wt, o.starts) + "%" : "—"}</td><td>${o.n ? Math.round(o.ms / o.n / 1000) + "s" : "—"}</td>
+      <td class="${band(pct(o.wt, o.starts), o.starts)}">${o.starts ? pct(o.wt, o.starts) + "%" : "—"}</td><td title="${o.msList.length ? `median of ${o.msList.length} finished attempts; mean ${Math.round(o.ms / o.n / 1000)}s` : "no attempt this day reported its length"}">${o.msList.length ? Math.round(median(o.msList) / 1000) + "s" : "—"}</td>
       <td>${mmss(median([...o.perDev.values()]))}</td><td>${o.devs.size ? mmss(o.ms / o.devs.size) : "—"}</td>
       <td style="text-align:left"><span class="spark" style="width:${w(nw)}px"></span><span class="spark n2" style="width:${w(o.devs.size - nw)}px"></span></td></tr>`;
   }).reverse().join("");
   $("tDay").innerHTML = `<thead><tr><th>Day</th><th>Players</th><th>New</th><th>Returning</th>
-    <th>%<br>returning</th><th>Back<br>D1</th><th>D1</th><th>Games</th><th>Games<br>/player</th><th>Winrate</th><th>Time<br>/game</th>
+    <th>%<br>returning</th><th>Back<br>D1</th><th>D1</th><th>Games</th><th>Games<br>/player</th><th>Winrate</th><th>Time/game<br>(median)</th>
     <th>Median<br>/player</th><th>Mean<br>/player</th>
     <th style="text-align:left">new ▏returning</th></tr></thead><tbody>${dayRows}</tbody>`;
   // ⚠ "New" only means new *within the loaded window*: someone who played before it still counts
@@ -533,9 +694,10 @@ function render() {
   // ---- by level
   const lv = new Map();
   for (const r of g) {
-    if (!lv.has(r.lvl)) lv.set(r.lvl, { devs:new Set(), pass:new Set(), passT:new Set(), wtByDev:new Map(), n:0, w:0, wt:0, ms:0, taps:0, peak:0, belt:0, used:{}, sigs:new Set() });
+    if (!lv.has(r.lvl)) lv.set(r.lvl, { devs:new Set(), pass:new Set(), passT:new Set(), wtByDev:new Map(), n:0, w:0, wt:0, ms:0, msList:[], taps:0, peak:0, belt:0, used:{}, sigs:new Set() });
     const o = lv.get(r.lvl);
     o.devs.add(r.dev); o.n++; o.ms += r.ms || 0; o.taps += r.taps || 0;
+    if (Number.isFinite(r.ms)) o.msList.push(r.ms);   // see the note by the by-day copy
     o.peak += r.peak || 0; o.belt += r.belt || 0;
     if (r.sig) o.sigs.add(r.sig);
     if (r.result === "win") {
@@ -570,6 +732,11 @@ function render() {
 
   // Every device seen at a level at all — a start counts, so a player who reached the next board
   // and quit inside it is not mistaken for one who never went.
+  //
+  // ⚠ This is **not** what `Starts (user)` counts, and the two must not be merged back together.
+  // This one answers "did this player ever appear at level N", which is the right test for
+  // Won & left: an old-build player who *finished* level N+1 plainly went there, and counting them
+  // as absent would inflate the churn column with people who did not churn.
   const seen = new Map();
   const mark = (l, d) => {
     if (!seen.has(l)) seen.set(l, new Set());
@@ -577,6 +744,22 @@ function render() {
   };
   for (const r of g) mark(r.lvl, r.dev);
   for (const r of st) mark(r.lvl, r.dev);
+
+  // Devices that actually sent a start row for the level — **the people who pressed start**, which
+  // is what `Starts (user)` says on the tin and now what it counts.
+  //
+  // ⚠ It used to be the `seen` union above, so that players on builds too old to send a start row
+  // were not lost from the table. That is a defensible number and it is the wrong one: it made the
+  // column disagree with its own name and with `Starts (event)` beside it, and there was no way to
+  // tell a level where 40 people arrived from one where 26 did and 14 more were inferred.
+  // ⚠ The price, paid knowingly: **every level reads "—" for windows before 19/08**, when start
+  // logging began. A blank is the honest answer there — those players did press start, the game
+  // simply never said so — and it is the same convention `Starts (event)` already uses.
+  const startedBy = new Map();
+  for (const r of st) {
+    if (!startedBy.has(r.lvl)) startedBy.set(r.lvl, new Set());
+    startedBy.get(r.lvl).add(r.dev);
+  }
 
   // The funnel's base: everyone seen at level 1 inside this window, from starts *and* from
   // finished attempts — the same union `Starts (user)` is counted from, so the two columns divide
@@ -593,11 +776,11 @@ function render() {
   // level 1 a fortnight ago and is on level 40 today is in neither set, so a 24-hour window shows
   // almost nobody past the first few boards. Read it on a window long enough to contain the
   // playthrough it is measuring, the same caution D1 retention carries.
-  const funnelBase = seen.get(1);
+  const funnelBase = startedBy.get(1);
 
   const nums = [...new Set([...lv.keys(), ...reach.keys()])].sort((a, b) => a - b);
   const lvRows = nums.map((n) => {
-    const o = lv.get(n) ?? { devs:new Set(), pass:new Set(), passT:new Set(), wtByDev:new Map(), n:0, w:0, wt:0, ms:0, taps:0, peak:0, belt:0, used:{}, sigs:new Set() };
+    const o = lv.get(n) ?? { devs:new Set(), pass:new Set(), passT:new Set(), wtByDev:new Map(), n:0, w:0, wt:0, ms:0, msList:[], taps:0, peak:0, belt:0, used:{}, sigs:new Set() };
     const rc = reach.get(n);
     const nx = lv.get(n + 1);
     const drop = nx ? 100 - pct(nx.devs.size, o.devs.size) : null;
@@ -623,12 +806,15 @@ function render() {
     // together — and it is **"—" where there is no `rc`**, never 0: builds before start-logging sent
     // no start row, and printing 0 beside a hundred finished games is a claim, not a gap.
     //
-    // ⚠ **Starts (user)** is the union of everyone seen at the level at all, from starts *and* from
-    // finished attempts, counted once each. Reading it off `rc` alone counted only players on a
-    // build new enough to send a start row — a level with 97 completions showed "Started 2", which
-    // is not a small error but an impossible table. Everyone who finished an attempt here plainly
-    // started it, whatever their build could report.
-    const started = (seen.get(n) ?? o.devs).size;
+    // ⚠ **Starts (user)** is how many distinct people sent one of those start rows — the same
+    // events as the column beside it, counted per device instead of per attempt. So the two are
+    // now numerator and denominator of the same thing, and `event / user` is retries per player.
+    //
+    // ⚠ It is **"—" wherever `rc` is missing**, exactly like Starts (event), and for the same
+    // reason: `reach` and `startedBy` are built from the same rows, so a level with no start rows
+    // has neither. Printing 0 there would claim nobody arrived on a board with a hundred finished
+    // games behind it.
+    const started = startedBy.get(n)?.size ?? 0;
     // ⚠ **It divides the two numbers on the row**: `Starts (user)` here over `Starts (user)` at
     // level 1. That is what the column was asked for and it is the only reading that survives
     // being checked by hand — a column showing 15 beside 131 and printing anything other than 11%
@@ -640,13 +826,13 @@ function render() {
     // does, because that is the shape of the data rather than a level more popular than the first.
     // The cohort figure — of the people who started level 1 *inside* this window, how many got
     // here — is the intersection, and it rides along in the hover instead of replacing this.
-    const fHits = funnelBase ? [...(seen.get(n) ?? [])].filter((d) => funnelBase.has(d)).length : 0;
+    const fHits = funnelBase ? [...(startedBy.get(n) ?? [])].filter((d) => funnelBase.has(d)).length : 0;
     const fBase = funnelBase ? funnelBase.size : 0;
     const fRate = fBase >= MIN_N ? pct(started, fBase) : null;
     // Deep in the ladder the base is hundreds against a handful, so whole percent rounds a level
     // somebody did reach to "0%". Nobody at all is "0%"; one in three hundred is "<1%".
     const funnel =
-      fRate == null ? "—"
+      !rc || fRate == null ? "—"
       : started === 0 ? "0%"
       : 100 * started < fBase ? "&lt;1%"
       : fRate + "%";
@@ -675,7 +861,7 @@ function render() {
     const cStarts = rc ? [...o.passT].reduce((a, d) => a + (rc.byDev.get(d) || 0), 0) : 0;
     return `<tr><td>L${n}</td>
       <td class="${band(pct(o.wt, rc ? rc.n : 0), rc ? rc.n : 0)}">${rc ? pct(o.wt, rc.n) + "%" : "—"}</td>
-      <td>${rc ? rc.n : "—"}</td><td>${started}</td>
+      <td>${rc ? rc.n : "—"}</td><td>${rc ? started : "—"}</td>
       <td class="${fRate != null && fRate > 100 ? "warn" : ""}" title="${fTitle}">${funnel}</td>
       <td>${o.pass.size}</td>
       <td class="${quit == null ? "" : quit > 40 ? "bad" : quit > 20 ? "warn" : ""}">${quit == null ? "—" : quit + "%"}</td>
@@ -686,13 +872,13 @@ function render() {
       <td class="${band(pct(cWins, cStarts), cStarts)}">${cStarts ? pct(cWins, cStarts) + "%" : "—"}</td>
       <td>${(o.n / o.devs.size).toFixed(1)}</td>
       <td class="${drop == null ? "" : drop > 40 ? "bad" : drop > 20 ? "warn" : ""}">${drop == null ? "—" : drop + "%"}</td>
-      <td>${Math.round(o.ms / o.n / 1000)}s</td><td>${(o.taps / o.n).toFixed(1)}</td>
+      <td title="${o.msList.length ? `median of ${o.msList.length} finished attempts; mean ${Math.round(o.ms / o.n / 1000)}s` : "no attempt here reported its length"}">${o.msList.length ? Math.round(median(o.msList) / 1000) + "s" : "—"}</td><td>${(o.taps / o.n).toFixed(1)}</td>
       <td class="${belt > 90 ? "warn" : ""}">${belt}%</td>
       <td style="text-align:left">${bs}</td>
       <td class="${o.sigs.size > 1 ? "warn" : ""}" style="text-align:left">${[...o.sigs].join(" ")}</td></tr>`;
   }).join("");
   $("tLv").innerHTML = `<thead><tr><th>Level</th><th>Winrate<br>/game</th><th>Starts<br>(event)</th><th>Starts<br>(user)</th><th>% of<br>L1</th><th>Completed</th><th>Quit</th><th>Won &amp;<br>left</th><th>%</th><th>Games</th>
-    <th>Winrate<br>/player</th><th>Winrate<br>_c</th><th>Games<br>/player</th><th>Drop-<br>off</th><th>Time</th><th>Taps</th><th>Peak<br>belt</th>
+    <th>Winrate<br>/player</th><th>Winrate<br>_c</th><th>Games<br>/player</th><th>Drop-<br>off</th><th>Time<br>(median)</th><th>Taps</th><th>Peak<br>belt</th>
     <th style="text-align:left">Boosters</th><th style="text-align:left">Fingerprint</th></tr></thead><tbody>${lvRows}</tbody>`;
 
   // ⚠ The fingerprint column is the whole reason not to read winrate out of Google Analytics.
