@@ -199,13 +199,21 @@
       them away, which is not the same as <b>0%</b>. Blank until level 1 has at least 8 players in
       the window.
       <b>Completed</b> = how many of those players ever cleared it.
-      <b>Lost (user)</b> = how many distinct players lost here <em>at least once</em>, and
-      <b>% lost</b> is that over <b>Starts (user)</b>. ⚠ <b>It is not the opposite of Completed</b>
+      <b>Lost or retried</b> = distinct players the board gave trouble to — they <em>lost at least
+      once</em>, <em>or</em> re-entered it, <em>or</em> started it more than twice — counted once
+      however many of the three they hit; <b>% of starts</b> is that over <b>Starts (user)</b>.
+      ⚠ <b>The log has no retry event</b>, so a retry is inferred from a second start row on the
+      same board. That makes "re-entered" and "more than twice" the same signal at two strengths,
+      and the hover splits all three so you can see which is carrying the number. ⚠ The price of
+      inferring it: a <b>page reload re-enters the board</b>, and so does coming back from an ad —
+      neither is a retry the player would recognise, and both land here. ⚠ <b>It is not the opposite
+      of Completed</b>
       and the two overlap deliberately: somebody who failed twice and then cleared the board is in
       both. That is what makes the pair worth reading together — a board where nearly everyone loses
       once and nearly everyone finishes is a board that teaches, while the same Lost beside half the
-      Completed is a wall. Hover the cell for the other reading: how many never cleared it, and how
-      many lost and went on to win. ⚠ Uncoloured on purpose — the ladder deliberately aims some
+      Completed is a wall. Hover the cell for the split and for how many never cleared it.
+      ⚠ Counted over the start-logged players only — the same population the denominator counts, or
+      the percentage could print over 100. ⚠ Uncoloured on purpose — the ladder deliberately aims some
       levels as low as 25%, so players losing is the design working, not a fault. ⚠ <b>—</b> where
       there are no start rows to divide by, the same convention as the columns beside it.
       <b>Quit</b> = <em>attempts</em> that reached the board and never came back with a result —
@@ -829,31 +837,51 @@ function render() {
     // games behind it.
     const started = startedBy.get(n)?.size ?? 0;
     /**
-     * People who lost here at least once, over the people who pressed start.
+     * Players the board gave trouble to: **lost at least once, or retried, or started more than
+     * twice** — the union, one player counted once however many of the three they hit.
      *
-     * ⚠ **Not the complement of Completed**, and the two overlap on purpose: someone who failed
-     * twice and then cleared it is in both columns. That is the reason to count it separately — a
-     * board where nearly everyone loses once and nearly everyone finishes is a board that teaches,
-     * and one with the same Lost and half of Completed is a wall. The hover carries the other
-     * reading, the people who never cleared it, so neither has to be worked out by hand.
+     * ⚠ **Retries are inferred from start rows, because the log has no retry event.** `tries` is
+     * counted on the device (`save.noteTry`) and never sent, so a second start row on the same
+     * board *is* the retry. That makes the second and third clauses the same signal at two
+     * strengths — anything over two starts is already over one — and they are still both listed
+     * because the hover splits them, which is the only way to see whether a level's number is
+     * people failing or people re-entering.
+     * ⚠ The cost of inferring it: a **reload re-enters the board**, and so does coming back after
+     * an ad. Neither is a retry in any sense the player would recognise, and both land in this
+     * column. Read a level with a large gap between "lost" and "retried" in the hover with that in
+     * mind before concluding the board is hard.
      *
-     * ⚠ **Divided by `Starts (user)`, so it is "—" wherever that is** — before start logging began
-     * there is no denominator, and dividing by the people who merely *finished* an attempt would
-     * quietly count a different population upstairs and downstairs.
+     * ⚠ **Not the complement of Completed**, and the overlap is the point: someone who failed twice
+     * and then cleared it is in both columns. A board where nearly everyone struggles once and
+     * nearly everyone finishes is a board that teaches; the same number beside half the Completed
+     * is a wall.
+     *
+     * ⚠ **Counted over the start-logged population only**, the same people `Starts (user)` counts.
+     * A player who lost on a build too old to send a start row belongs in no ratio whose
+     * denominator excludes them — counting them upstairs and not downstairs is what makes a
+     * percentage print over 100 and stop meaning anything.
      *
      * ⚠ **Uncoloured**, like `% of L1` and for the same reason: the ladder deliberately asks for
      * winrates as low as 25%, so a board people lose on is a board doing its job. Banding it would
      * paint the intended shape of the game as a fault.
      */
-    const lostPct = started ? pct(o.lost.size, started) : null;
+    const startSet = startedBy.get(n) ?? new Set();
+    const startsOf = (d) => rc?.byDev.get(d) ?? 0;
+    const hardFor = [...startSet].filter((d) => o.lost.has(d) || startsOf(d) >= 2);
+    const lostPct = started ? pct(hardFor.length, started) : null;
+    // The three signals, split, so the number can be read rather than trusted.
+    const bLost = hardFor.filter((d) => o.lost.has(d)).length;
+    const bRetry = hardFor.filter((d) => !o.lost.has(d) && startsOf(d) >= 2).length;
+    const bMany = hardFor.filter((d) => startsOf(d) > 2).length;
     // ⚠ Counted by intersecting the two sets, not by subtracting two totals. `Completed` counts
     // anyone who ever won here, including people on builds too old to send a start row — subtract
     // that from a start count they are not in and the answer can come out negative.
-    const neverWon = [...(startedBy.get(n) ?? [])].filter((d) => !o.pass.has(d)).length;
+    const neverWon = [...startSet].filter((d) => !o.pass.has(d)).length;
     const lostTitle = started
-      ? `${o.lost.size} of the ${started} who started L${n} lost at least once` +
-        `; ${neverWon} never cleared it` +
-        (o.lost.size > neverWon ? ` — so ${o.lost.size - neverWon} lost and went on to win` : "")
+      ? `${hardFor.length} of the ${started} who started L${n}: ${bLost} lost at least once` +
+        (bRetry ? `, ${bRetry} more only re-entered the board` : "") +
+        (bMany ? ` · ${bMany} started it more than twice` : "") +
+        `; ${neverWon} never cleared it`
       : "no start rows for this level in this window";
     // ⚠ **It divides the two numbers on the row**: `Starts (user)` here over `Starts (user)` at
     // level 1. That is what the column was asked for and it is the only reading that survives
@@ -904,7 +932,7 @@ function render() {
       <td>${rc ? rc.n : "—"}</td><td>${rc ? started : "—"}</td>
       <td class="${fRate != null && fRate > 100 ? "warn" : ""}" title="${fTitle}">${funnel}</td>
       <td>${o.pass.size}</td>
-      <td title="${lostTitle}">${o.lost.size || ""}</td>
+      <td title="${lostTitle}">${hardFor.length || ""}</td>
       <td title="${lostTitle}">${lostPct == null ? "—" : lostPct + "%"}</td>
       <td class="${quit == null ? "" : quit > 40 ? "bad" : quit > 20 ? "warn" : ""}">${quit == null ? "—" : quit + "%"}</td>
       <td>${wonLeft || ""}</td>
@@ -919,7 +947,7 @@ function render() {
       <td style="text-align:left">${bs}</td>
       <td class="${o.sigs.size > 1 ? "warn" : ""}" style="text-align:left">${[...o.sigs].join(" ")}</td></tr>`;
   }).join("");
-  $("tLv").innerHTML = `<thead><tr><th>Level</th><th>Winrate<br>/game</th><th>Starts<br>(event)</th><th>Starts<br>(user)</th><th>% of<br>L1</th><th>Completed</th><th>Lost<br>(user)</th><th>%<br>lost</th><th>Quit</th><th>Won &amp;<br>left</th><th>%</th><th>Games</th>
+  $("tLv").innerHTML = `<thead><tr><th>Level</th><th>Winrate<br>/game</th><th>Starts<br>(event)</th><th>Starts<br>(user)</th><th>% of<br>L1</th><th>Completed</th><th>Lost or<br>retried</th><th>%<br>of starts</th><th>Quit</th><th>Won &amp;<br>left</th><th>%</th><th>Games</th>
     <th>Winrate<br>/player</th><th>Winrate<br>_c</th><th>Games<br>/player</th><th>Drop-<br>off</th><th>Time<br>(median)</th><th>Taps</th><th>Peak<br>belt</th>
     <th style="text-align:left">Boosters</th><th style="text-align:left">Fingerprint</th></tr></thead><tbody>${lvRows}</tbody>`;
 

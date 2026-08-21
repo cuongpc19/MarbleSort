@@ -1095,14 +1095,24 @@ dev purpose needs the same treatment or it ships.
   on the absolute value paints the whole bottom of the ladder red for behaving like a ladder; the
   step is what matters and Drop-off beside it already flags that. And deep down the base is hundreds
   against a handful, so whole percent rounds a level somebody did reach to "0%".
-- **Lost (user)** and **% lost** — distinct players who lost at least once, over `Starts (user)`.
-  ⚠ **Not the complement of Completed**, and they overlap on purpose: someone who failed twice and
-  then cleared it is in both. Read together they separate a board that teaches (nearly everyone
-  loses once, nearly everyone finishes) from a wall (same Lost, half the Completed). The hover
-  carries the complement — how many never cleared it, and how many lost and went on to win.
-  ⚠ Counted by **intersecting** the start set with the winners, never by subtracting two totals:
-  `Completed` includes people on builds too old to send a start row, so `started − completed` can
-  come out negative.
+- **Lost or retried** and **% of starts** — players the board gave trouble to: **lost at least
+  once, or re-entered it, or started it more than twice**, the union, one player counted once
+  however many of the three they hit.
+  ⚠ **A retry is inferred from a second start row, because the log has no retry event.** `tries` is
+  counted on the device (`save.noteTry`) and never sent. So the second and third clauses are one
+  signal at two strengths, and the hover splits all three — which is the only way to see whether a
+  level's number is people failing or people re-entering.
+  ⚠ **A reload re-enters the board**, and so does returning from an ad. Neither is a retry the
+  player would recognise and both land in this column, so a large gap between "lost" and
+  "re-entered" in the hover is a reason to check before calling the board hard.
+  ⚠ **Not the complement of Completed**, and they overlap on purpose. Read together they separate a
+  board that teaches (nearly everyone struggles once, nearly everyone finishes) from a wall (same
+  number, half the Completed).
+  ⚠ **Counted over the start-logged population only** — the same people the denominator counts. A
+  player who lost on a build too old to send a start row belongs in no ratio that excludes them
+  downstairs; counting them upstairs only is what makes a percentage print over 100.
+  ⚠ The complement is **intersected**, never subtracted: `Completed` includes those old-build
+  players, so `started − completed` can come out negative.
   ⚠ **Uncoloured**, like `% of L1`: the ladder aims some levels at 25%, so players losing there is
   the design working. Banding it would paint the intended shape of the game as a fault.
 - **D1 retention** is a **cohort**: of the players whose *first* game was that day, the share who
