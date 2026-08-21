@@ -1280,6 +1280,51 @@ the shipped copy until you press Lưu) **nor** "máy sinh" (it is hand-built and
 entirely) — it says `bản ship`. Anything else that turns a level number into a board has to walk
 the same three steps in the same order, or it is showing a board nothing plays.
 
+- **The well is drawn under the board**, in the machine's own order: the open box on top of each
+  column, its queue descending behind it, holes only on the open one. The editor draws trays and
+  nothing else, so until this existed the half of the level that decides whether it can be won was
+  invisible here — you drew, saved, and found out in play.
+  ⚠ **Read off the settled `Game`** (`boxes[j].stack`, `boxIsHidden`), never re-derived. A second
+  copy of the hidden-box rule in the editor would drift from `logic.ts` like every other duplicated
+  rule in this file.
+  ⚠ **A `?` box shows its colour *and* the mark.** The player sees a grey box; the designer has to
+  see what is hiding under it or the queue cannot be read — the same bargain the `?` trays on the
+  board already make with their corner dot.
+  ⚠ **It scrolls itself.** A stack is `trays × TRAY_N / BOX_SLOTS / BOX_COLS` deep — level 30 is 31
+  boxes a column, ~700px — so an uncapped well pushes the legend and, on a short window, the board
+  off the page. Boxes past `BOX_VISIBLE` are dimmed: still real, just not on the player's screen.
+  ⚠ **This forced `rebuildPreview` to build the def the way `board.ts` does** —
+  `toLevelDef(bp, lastLevel, targetWin(lastLevel))`. It was `toLevelDef(bp)`: level 0, target 1, so
+  the stacks were derived against the *easiest* order and nothing was ever hidden (0 is below
+  `BOX_HIDDEN_FROM`). The editor was showing a different well from the one the player gets, in both
+  its order and its `?`s. Checked by dumping `__ms.state().boxes` from the real game at level 30 and
+  the editor's well side by side: all four columns identical, 31/31/31/30 boxes.
+- **The well can be arranged by hand** — drag a box to another place in any column. The derivation
+  is the right default and it is not a design tool: it builds ~10 candidate layouts, scores each
+  with bot games and keeps whichever lands nearest the slot's target, and a designer who wants this
+  colour third and that one last has no way to say so. Dragging says it.
+  ⚠ **A hand-arranged order is a pinned order** (`Blueprint.columns`), so from then on the board
+  stops rebuilding itself against the slot it sits in. The label above the well says which state it
+  is in — derived or pinned — and `Sắp lại tự động` is the way back.
+  ⚠ **The line is re-found on every drop** (`lineFor`, exported from `custom.ts` so there is one
+  definition rather than a copy in the editor). A pinned board skips `derive`, so nothing else
+  produces a `refTaps` for it, and `Blueprint.refTaps` already says what a level with no line costs:
+  every tool reports it unsolvable and `hint()` degrades to the first tappable cell. If the search
+  comes back empty the arrangement is kept — the designer is mid-thought — and the panel raises it
+  as **fatal**. ~200ms a drop.
+  ⚠ Moves only ever **reorder**: spliced out, spliced back in. Adding or dropping a box breaks the
+  arithmetic every board depends on. And taking the box out shifts everything after it, so an
+  insertion point below it in the same column is one place too far — off by one there swaps two
+  boxes instead of moving one.
+- ⚠ **`commit()` drops the pinned stacks only when the *trays* changed**, compared against a
+  signature of `[cols, rows, cells]` taken when the pin was adopted. It used to delete `columns` on
+  **every** commit, and everything goes through commit — opening a level, picking a cell, editing a
+  hatch queue. Two things fell out of that, and the first had been shipping for a while: a board
+  with pinned stacks was un-pinned the instant it was opened here, so the editor drew a re-derived
+  well rather than the one that ships (they happened to agree while the derivation was unchanged,
+  which is exactly why nothing caught it). The second is that a hand-arranged well survived until
+  the next click. Every site that replaces `bp` sets the signature back to null, which means "just
+  loaded, adopt whatever pin came with it".
 - Boxes are **derived**, not drawn — the editor only draws the tray grid. Each tray needs
   `TRAY_N / BOX_SLOTS` boxes of its colour, so the multiset is fixed; the **order** is not, and
   the order is what decides whether the level can be won.

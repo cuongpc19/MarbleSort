@@ -617,6 +617,32 @@ const CONFIRM = 12;
 /** Close enough to the aim to stop looking. */
 const AIM_TOL = 0.08;
 
+/**
+ * A tap order that clears this drawing with **these** box stacks, found by playing until something
+ * wins. Empty if `LINE_TRIES` attempts all lost.
+ *
+ * ⚠ A generated level carries one in `refTaps` — the line its own construction recorded — and
+ * several tools replay it as the proof that the board is solvable. A hand-built board had none, so
+ * every one of them reported its reference line as *lost*: an empty list replayed, nothing tapped,
+ * no win. The line was never missing from the level, only from the drawing's def.
+ *
+ * ⚠ Exported because **the editor can now arrange the stacks by hand**, and a hand-arranged order
+ * is a pinned order: `toLevelDef` skips `derive` when `columns` is set, so the line that would have
+ * come with a derivation never happens. One definition rather than a second copy in the editor —
+ * this file's own note on the escape test says what a second copy costs.
+ *
+ * ⚠ The line belongs to the stacks it was found for. Move one box and it is stale, which is why
+ * `toLevelDef` replays a stored line and drops it if it no longer wins.
+ */
+export function lineFor(bp: Blueprint, cols: Color[][], salt = 3000): number[] {
+  const def = { ...gridDef(bp), columns: cols, boxHidden: cols.map((c) => c.map(() => false)) };
+  for (let attempt = 0; attempt < LINE_TRIES; attempt++) {
+    const line: number[] = [];
+    if (playOnce(def, seededRand(bp, salt + attempt), attempt % 2 === 1, 0, line)) return line;
+  }
+  return [];
+}
+
 function search(bp: Blueprint, target: number): { cols: Color[][]; line: number[] } {
   const grid = gridDef(bp);
   const withBoxes = (cols: Color[][]) => ({
@@ -627,22 +653,7 @@ function search(bp: Blueprint, target: number): { cols: Color[][]; line: number[
   const score = (cols: Color[][], runs: number, salt: number) =>
     winRate(withBoxes(cols), runs, seededRand(bp, salt));
 
-  /**
-   * A tap order that clears this board, found by playing until something wins.
-   *
-   * ⚠ A generated level carries one in `refTaps` — the line its own construction recorded — and
-   * several tools replay it as the proof that the board is solvable. A hand-built board had none,
-   * so every one of them reported its reference line as *lost*: an empty list replayed, nothing
-   * tapped, no win. The line was never missing from the level, only from the drawing's def.
-   */
-  const findLine = (cols: Color[][], salt: number): number[] => {
-    const def = withBoxes(cols);
-    for (let attempt = 0; attempt < LINE_TRIES; attempt++) {
-      const line: number[] = [];
-      if (playOnce(def, seededRand(bp, salt + attempt), attempt % 2 === 1, 0, line)) return line;
-    }
-    return [];
-  };
+  const findLine = (cols: Color[][], salt: number): number[] => lineFor(bp, cols, salt);
 
   // Stage 1 — screen every candidate cheaply.
   const screened: { cols: Color[][]; rate: number }[] = [];

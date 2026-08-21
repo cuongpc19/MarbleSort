@@ -6,7 +6,7 @@
 // preview is an approximation of the machine rather than the machine — good enough to design
 // against, and "Chơi thử" opens the real thing one click away.
 
-import { BOX_SLOTS, GRID_ROWS, PALETTE, TRAY_N, type Color } from "../game/config";
+import { BOX_COLS, BOX_SLOTS, BOX_VISIBLE, GRID_ROWS, PALETTE, TRAY_N, type Color } from "../game/config";
 import {
   blankBlueprint,
   checkBlueprint,
@@ -18,15 +18,16 @@ import {
   putLevel,
   saveCustom,
   chocCells,
+  lineFor,
   toLevelDef,
   trayCounts,
   type Blueprint,
   type Cell,
   type CellKind,
 } from "../game/custom";
-import { Game, stepTarget, type ArrowDir, type Dir } from "../game/logic";
+import { Game, stepTarget, type ArrowDir, type Dir, type LevelDef } from "../game/logic";
 import { HANDMADE } from "../game/handmade";
-import { makeLevel } from "../game/level";
+import { makeLevel, targetWin } from "../game/level";
 
 type Tool = "pick" | "wall" | "floor" | "tile" | "hiddenTile" | "hatch" | "crate" | "pair" | "choc" | "arrow";
 
@@ -79,6 +80,9 @@ const HATCH_DEFAULT = 2;
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const boardEl = $("board");
+const wellEl = $("well");
+const wellAutoEl = $("wellAuto") as HTMLButtonElement;
+const wellStateEl = $("wellState");
 const toolsEl = $("tools");
 const swatchesEl = $("swatches");
 const hatchBox = $("hatchBox");
@@ -220,14 +224,30 @@ function apply(i: number) {
  * editor would drift the same way, and the whole point of a design view is that it agrees.
  */
 let preview: Game | null = null;
+/**
+ * The def `preview` was built from, kept because the panel has to read `refTaps` off it.
+ *
+ * ⚠ Not rebuilt separately for that question. `toLevelDef` runs the box search and replays any
+ * stored line; asking it twice is both the expensive thing on this page and a chance for the two
+ * answers to differ.
+ */
+let previewDef: LevelDef | null = null;
 
 function rebuildPreview() {
   try {
-    preview = new Game(toLevelDef(bp));
+    // ⚠ **Built the way `board.ts` builds it — level number and the slot's target included.** With
+    // neither, `toLevelDef` derives the box stacks against target 1, i.e. the easiest order it can
+    // find, and hides nothing: level is 0, which is below `BOX_HIDDEN_FROM`. So the well the editor
+    // drew was a different well from the one the player gets, in both its order and its `?`s — on
+    // the one board where the two most obviously have to agree. Same three-step resolution the rest
+    // of the editor uses; `lastLevel` is the level the badge is talking about.
+    previewDef = toLevelDef(bp, lastLevel, targetWin(lastLevel));
+    preview = new Game(previewDef);
   } catch {
     // A drawing mid-edit can be nonsense (no colours yet, so no boxes). Fall back to drawing
     // the blueprint as-is rather than blanking the board while the designer is working.
     preview = null;
+    previewDef = null;
   }
 }
 
@@ -421,7 +441,206 @@ function render() {
     el.appendChild(face);
     boardEl.appendChild(el);
   }
+
+  renderWell();
 }
+
+/**
+ * The box well, under the board, in the order the machine stacks it.
+ *
+ * The editor draws trays and nothing else — the boxes are *derived* from them, and their order is
+ * the single biggest lever a drawing has over whether the level can be won at all (six random
+ * drawings off one layout scored 100, 100, 23, 0, 100, 100). Until now that half of the level was
+ * invisible here: you drew the trays, pressed save, and found out in play.
+ *
+ * ⚠ Read off the settled `Game`, never re-derived. `preview` is already the real thing — asking it
+ * for `boxes[j].stack` and `boxIsHidden` is one source of truth for what the player will see, and
+ * a second copy of the hidden-box rule here would drift from `logic.ts` the way every other
+ * duplicated rule in this project has.
+ */
+function renderWell() {
+  wellEl.replaceChildren();
+  // ⚠ Pinned or derived is not a detail the designer can be left to infer: pinned means the board
+  // stops rebuilding itself against the slot it sits in, which is the difference between moving a
+  // level and rewriting it. Say which, and always offer the way back.
+  const pinned = !!bp.columns?.length;
+  wellStateEl.textContent = pinned
+    ? "Thứ tự đang ghim vào bản vẽ (kéo hộp để sắp lại)"
+    : "Thứ tự do máy suy ra — kéo một hộp là ghim lại theo ý bạn";
+  wellStateEl.classList.toggle("on", pinned);
+  wellAutoEl.hidden = !pinned;
+  const g = preview;
+  const stacks = g ? g.boxes.map((b) => b.stack) : [];
+  if (!stacks.some((st) => st.length)) {
+    const p = document.createElement("span");
+    p.className = "none";
+    // Not an error state: a drawing with no trays yet has no boxes to derive, and saying so beats
+    // an empty strip that looks like a well that failed to draw.
+    p.textContent = g ? "Chưa có khay nào, nên chưa sinh ra hộp" : "Bản vẽ chưa dựng được (thiếu màu?)";
+    wellEl.appendChild(p);
+    return;
+  }
+
+  for (let j = 0; j < BOX_COLS; j++) {
+    const col = document.createElement("div");
+    col.className = "wcol";
+    const cap = document.createElement("span");
+    cap.className = "wcap";
+    cap.textContent = `CỘT ${j + 1}`;
+    col.appendChild(cap);
+
+    stacks[j].forEach((color, k) => {
+      const hidden = g!.boxIsHidden(j, k);
+      const b = document.createElement("div");
+      b.className = `wbox${k === 0 ? " open" : ""}${hidden ? " hid" : ""}${k >= BOX_VISIBLE ? " deep" : ""}`;
+      b.style.backgroundColor = hex(color);
+      b.dataset.col = String(j);
+      b.dataset.idx = String(k);
+      // Only the open box shows its holes, exactly as on the machine: the ones behind it are shut.
+      if (k === 0) {
+        for (let h = 0; h < BOX_SLOTS; h++) {
+          const hole = document.createElement("span");
+          hole.className = "whole";
+          b.appendChild(hole);
+        }
+      }
+      b.title =
+        `Hộp ${k + 1} của cột ${j + 1}` +
+        (k === 0 ? " — đang mở" : "") +
+        (hidden ? " — người chơi chưa thấy màu (?)" : "") +
+        (k >= BOX_VISIBLE ? ` — sâu hơn ${BOX_VISIBLE} hộp, chưa hiện trên máy` : "");
+      col.appendChild(b);
+    });
+
+    wellEl.appendChild(col);
+  }
+}
+
+/**
+ * Arranging the well by hand.
+ *
+ * The stacks are normally *derived* — `search` builds ~10 candidate layouts, scores each with bot
+ * games and keeps whichever lands nearest the slot's target. That is the right default and it is
+ * not a design tool: a designer who wants this colour third and that one last has no way to say so.
+ * Dragging a box says it.
+ *
+ * ⚠ **A hand-arranged order is a pinned order.** `Blueprint.columns` is what carries it, and from
+ * then on `toLevelDef` skips the search entirely — the board no longer rebuilds itself against the
+ * slot it sits in, which is exactly what pinning is for and exactly what makes it a commitment. The
+ * label above the well says which state it is in and offers the way back.
+ *
+ * ⚠ **The line has to be re-found on every move.** A pinned board skips `derive`, so nothing
+ * produces a `refTaps` for it — and `Blueprint.refTaps`' own note says a level with no line is one
+ * every tool reports as unsolvable, with `hint()` degraded to the first tappable cell it can see.
+ * So each drop calls `lineFor` for the new stacks. If that comes back empty the arrangement is kept
+ * (the designer is mid-thought) and the panel says so as a **fatal** issue rather than the editor
+ * silently pinning a board nothing can win.
+ *
+ * ⚠ Moves only ever *reorder*: a box is spliced out and spliced back in. Adding or dropping one
+ * would break the arithmetic every board depends on — each colour needs exactly `TRAY_N /
+ * BOX_SLOTS` boxes per tray, and one box too few is a level that cannot be finished by anyone.
+ */
+let dragBox: { col: number; idx: number } | null = null;
+let dropAt: { col: number; idx: number } | null = null;
+
+/** The stacks as they stand, from the settled preview — the same thing the well draws. */
+function wellStacks(): Color[][] {
+  return preview ? preview.boxes.map((b) => [...b.stack]) : [];
+}
+
+/** Where in the well is this point: which column, and which gap between boxes. */
+function dropPoint(x: number, y: number): { col: number; idx: number } | null {
+  const cols = [...wellEl.querySelectorAll<HTMLElement>(".wcol")];
+  if (!cols.length) return null;
+  // Nearest column by horizontal distance, so a drop just past the last column still lands rather
+  // than being refused — the well is narrow and the pointer leaves it easily.
+  let col = 0;
+  let bestDx = Infinity;
+  cols.forEach((c, j) => {
+    const r = c.getBoundingClientRect();
+    const dx = x < r.left ? r.left - x : x > r.right ? x - r.right : 0;
+    if (dx < bestDx) {
+      bestDx = dx;
+      col = j;
+    }
+  });
+  const boxes = [...cols[col].querySelectorAll<HTMLElement>(".wbox")];
+  let idx = boxes.length;
+  for (let k = 0; k < boxes.length; k++) {
+    const r = boxes[k].getBoundingClientRect();
+    if (y < r.top + r.height / 2) {
+      idx = k;
+      break;
+    }
+  }
+  return { col, idx };
+}
+
+function paintDropMark() {
+  wellEl.querySelectorAll(".wmark").forEach((m) => m.remove());
+  if (!dropAt) return;
+  const col = wellEl.querySelectorAll<HTMLElement>(".wcol")[dropAt.col];
+  if (!col) return;
+  const mark = document.createElement("div");
+  mark.className = "wmark";
+  const boxes = col.querySelectorAll<HTMLElement>(".wbox");
+  col.insertBefore(mark, boxes[dropAt.idx] ?? null);
+}
+
+/** Splice the dragged box into its new place, pin the result, and go looking for a line. */
+function applyMove(from: { col: number; idx: number }, to: { col: number; idx: number }) {
+  const cols = wellStacks();
+  if (!cols.length) return;
+  const [moved] = cols[from.col].splice(from.idx, 1);
+  if (moved === undefined) return;
+  // ⚠ Taking the box out shifts everything after it, so an insertion point *below* it in the same
+  // column is one place too far. Off by one here silently swaps two boxes instead of moving one.
+  const at = from.col === to.col && to.idx > from.idx ? to.idx - 1 : to.idx;
+  cols[to.col].splice(Math.min(at, cols[to.col].length), 0, moved);
+  bp.columns = cols;
+  bp.refTaps = lineFor(bp, cols);
+  commit();
+}
+
+wellEl.addEventListener("pointerdown", (e) => {
+  const el = (e.target as HTMLElement).closest<HTMLElement>(".wbox");
+  if (!el || !preview) return;
+  dragBox = { col: Number(el.dataset.col), idx: Number(el.dataset.idx) };
+  el.classList.add("dragging");
+  wellEl.setPointerCapture(e.pointerId);
+  // Or the browser starts a text selection over the well and the drag reads as a smudge.
+  e.preventDefault();
+});
+
+wellEl.addEventListener("pointermove", (e) => {
+  if (!dragBox) return;
+  dropAt = dropPoint(e.clientX, e.clientY);
+  paintDropMark();
+});
+
+function endDrag() {
+  const from = dragBox;
+  const to = dropAt;
+  dragBox = null;
+  dropAt = null;
+  wellEl.querySelectorAll(".wmark").forEach((m) => m.remove());
+  wellEl.querySelectorAll(".dragging").forEach((b) => b.classList.remove("dragging"));
+  if (!from || !to) return;
+  // A drop back where it started is not a move, and pinning on it would turn every stray click
+  // into a commitment the designer never made.
+  if (from.col === to.col && (to.idx === from.idx || to.idx === from.idx + 1)) return;
+  applyMove(from, to);
+}
+
+wellEl.addEventListener("pointerup", endDrag);
+wellEl.addEventListener("pointercancel", endDrag);
+
+wellAutoEl.onclick = () => {
+  // Back under the normal derivation: the search rebuilds the stacks against this slot's target.
+  delete bp.columns;
+  delete bp.refTaps;
+  commit();
+};
 
 aDir.addEventListener("change", () => {
   arrowDir = aDir.value as ArrowDir;
@@ -873,6 +1092,19 @@ function renderStatus() {
     );
   }
 
+  // ⚠ A pinned order with no line is the one failure this feature can create, so it is checked
+  // here rather than left to the bot rate below — the bots can win a board whose *reference* line
+  // is missing, and it is the reference line that `hint()` and every offline tool replay as the
+  // proof it is winnable. `toLevelDef` has already replayed whatever is stored and dropped it if it
+  // no longer wins, so an empty `refTaps` on a pinned drawing means exactly what it says.
+  if (bp.columns?.length && !previewDef?.refTaps.length) {
+    addIssue(
+      "fatal",
+      "Thứ tự hộp đang ghim nhưng chưa tìm được lời giải nào — level này có thể không thắng được. " +
+        "Kéo lại vài hộp, hoặc bấm Sắp lại tự động.",
+    );
+  }
+
   if (lastRate) {
     const { wins, runs } = lastRate;
     const pct = Math.round((wins / runs) * 100);
@@ -1027,6 +1259,9 @@ let droppedOnOpen: string[] = [];
  * confirm left, nothing at all would stand between a keystroke and the loss.
  */
 function openLevel(n: number) {
+  // A different board arrives: whatever pin it carries is its own, and must not be judged against
+  // the drawing that was on screen a moment ago.
+  pinSig = null;
   const saved = loadBook()[n];
   const ship = HANDMADE[n];
   origin = "saved";
@@ -1219,16 +1454,39 @@ $("exportAll").onclick = () => {
 
 // ── Wiring ───────────────────────────────────────────────────────────────────
 
+/**
+ * The tray drawing, as a string. Everything the box stacks are derived *from*, and nothing else —
+ * a selection, a level number or a hand-arranged well must not read as a changed board.
+ */
+const traySig = (b: Blueprint) => JSON.stringify([b.cols, b.rows, b.cells]);
+/**
+ * The drawing the pinned stacks belong to, or null while nothing is pinned.
+ *
+ * ⚠ Null also means "just loaded, do not judge yet" — the first commit after a blueprint arrives
+ * adopts whatever pin came with it instead of dropping it. Every place that replaces `bp` sets this
+ * back to null for exactly that reason.
+ */
+let pinSig: string | null = null;
+
+/** Redraw everything from the drawing and save it. */
 function commit() {
   // ⚠ Editing the trays invalidates any frozen box stacks. `Blueprint.columns` pins the boxes so a
   // level can be moved between slots without being rebuilt; the moment the drawing changes, those
   // stacks describe a board that no longer exists — wrong colours, wrong count — and the level is
   // unwinnable in a way nothing on screen would explain. Dropping them here puts the board back
   // under the normal derivation, which is what an edited drawing should be under.
-  if (bp.columns) {
+  // ⚠ **Only when the trays actually changed**, which is what that paragraph means and is not what
+  // it used to do: the delete ran on *every* commit, and everything goes through commit — opening a
+  // level, picking a cell, editing a hatch queue. Two things fell out of that. A shipped board with
+  // pinned stacks (levels 15-115 all have them) was un-pinned the instant it was opened here, so
+  // the editor showed a re-derived well rather than the one that ships. And a well arranged by hand
+  // survived exactly until the next click, which makes the tool look broken rather than strict.
+  const sig = traySig(bp);
+  if (bp.columns?.length && pinSig !== null && pinSig !== sig) {
     delete bp.columns;
     delete bp.refTaps;
   }
+  pinSig = bp.columns?.length ? sig : null;
   saveCustom(bp);
   rebuildPreview();
   render();
@@ -1328,6 +1586,7 @@ const resize = () => {
     }
   }
   bp = next;
+  pinSig = null;                       // a new drawing: whatever pin it carries is its own
   selected = -1;
   commit();
 };
@@ -1389,6 +1648,7 @@ $("pairDrop").onclick = () => {
 
 $("clear").onclick = () => {
   bp = blankBlueprint(bp.cols, bp.rows);
+  pinSig = null;
   selected = -1;
   commit();
 };
@@ -1442,6 +1702,7 @@ $("import").onclick = () => {
       return c && ok.includes(c.kind) ? c : { kind: "floor" };
     });
     bp = next;
+    pinSig = null;                     // a pasted drawing may bring its own pinned stacks
     selected = -1;
     colsEl.value = String(bp.cols);
   rowsEl.value = String(bp.rows ?? GRID_ROWS);
