@@ -12,6 +12,7 @@
 // the generator — the editor imports it and must not pull the difficulty ladder in with it.
 
 import { MAGNET_TUTOR_LEVEL } from "./config";
+import { abBook } from "./ab";
 import { blueprintFor, toLevelDef } from "./custom";
 import { HANDMADE } from "./handmade";
 import { makeLevel, targetWin } from "./level";
@@ -25,7 +26,10 @@ import type { LevelDef } from "./logic";
  * a script sees the shipped table and the generator, which is what a fresh install sees too.
  */
 export function levelDefFor(level: number): LevelDef {
-  const bp = blueprintFor(level, HANDMADE);
+  // ⚠ `abBook`, not `HANDMADE`. Two levels of the ladder are running an A/B test and the arm is a
+  // property of the device — see `ab.ts`. Every other level resolves identically for both arms,
+  // and device saves still win over both, which is what keeps the editor loop working.
+  const bp = blueprintFor(level, abBook(HANDMADE));
   // ⚠ The sheet's target goes in with it. A hand-built board ignores LADDER and VARIANTS, so the
   // *order of its boxes* is the only lever left that can move its difficulty — and it only moves
   // it if something tells it where to aim.
@@ -34,7 +38,7 @@ export function levelDefFor(level: number): LevelDef {
 
 /** Is this level hand-built rather than generated? Nothing about it is on the tuned curve. */
 export function isHandmade(level: number): boolean {
-  return blueprintFor(level, HANDMADE) != null;
+  return blueprintFor(level, abBook(HANDMADE)) != null;
 }
 
 /**
