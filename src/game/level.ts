@@ -316,13 +316,15 @@ export const SHEET: Spec[] = [
   // and 25: one row at a time, never as a sweep. 13 had drifted furthest — the row said 0.80 and
   // the board measured 95%.
   { trays: 14, colors: 6, hidden: 0, hatches: 0, crates: 0, win: 0.85 }, // 13
-  { trays: 14, colors: 6, hidden: 0, hatches: 1, crates: 1, win: 0.80 }, // 14
+  { trays:  8, colors: 4, hidden: 0, hatches: 0, crates: 0, win: 1.00 }, // 14
   { trays: 14, colors: 6, hidden: 4, hatches: 1, crates: 1, win: 0.30 }, // 15
   { trays: 14, colors: 6, hidden: 5, hatches: 2, crates: 2, win: 0.80 }, // 16
   { trays: 14, colors: 6, hidden: 0, hatches: 0, crates: 0, win: 0.80 }, // 17
   { trays: 14, colors: 6, hidden: 0, hatches: 0, crates: 0, win: 0.80 }, // 18
   { trays: 14, colors: 6, hidden: 4, hatches: 1, crates: 2, win: 0.33 }, // 19
-  { trays: 14, colors: 7, hidden: 5, hatches: 2, crates: 0, win: 0.40 }, // 20
+  // 20 asks for 1.00 and the board carries tag "none": the slot no longer promises a HARD
+  // badge, so the dip the curve used to dig here would be a dip nothing reads.
+  { trays:  9, colors: 4, hidden: 0, hatches: 0, crates: 0, win: 1.00 }, // 20
   { trays: 14, colors: 6, hidden: 0, hatches: 0, crates: 0, win: 0.80 }, // 21
   { trays: 14, colors: 6, hidden: 0, hatches: 0, crates: 0, win: 0.71 }, // 22
   { trays: 14, colors: 6, hidden: 0, hatches: 0, crates: 0, win: 0.80 }, // 23
