@@ -207,6 +207,12 @@
       them away, which is not the same as <b>0%</b>. Blank until level 1 has at least 8 players in
       the window.
       <b>Completed</b> = how many of those players ever cleared it.
+      <b>Gave up</b> = players who started the level, never won it, and never opened the next one
+      within <b>ten minutes</b> of that start — the ones who stopped playing here rather than moved
+      on. Not the same as <b>Quit</b> (one abandoned attempt) or <b>Won &amp; left</b> (they beat it
+      and never came back). Starts inside the last ten minutes of the window are excluded rather
+      than counted, since they have not had their ten minutes yet; the hover says how many. Both
+      timestamps come from the same device, so a wrong device clock cancels out here.<br><br>
       <b>Lost or retried</b> = distinct players the board gave trouble to — they <em>lost at least
       once</em>, <em>or</em> re-entered it, <em>or</em> started it more than twice — counted once
       however many of the three they hit; <b>% of starts</b> is that over <b>Starts (user)</b>.
@@ -895,6 +901,58 @@ function render() {
   // playthrough it is measuring, the same caution D1 retention carries.
   const funnelBase = startedBy.get(1);
 
+  /**
+   * **Gave up** — players who started a level, never won it, and never opened the next one within
+   * ten minutes of that start. The people who stopped playing *here*, as opposed to moved on.
+   *
+   * ⚠ **Not the complement of Won & left, and not a second Quit.** Won & left is people who beat
+   * the board and never came back; Quit is an attempt with a start row and no end row, which is one
+   * abandoned *game*. This one is the player: no win on this level at all, and nothing after it.
+   *
+   * ⚠ **Ten minutes measured from that player's own two rows, so a wrong clock cancels.** `at` is
+   * `Date.now()` on the device and real rows have arrived half a day out — but both ends of this
+   * comparison come from the same device, so the skew subtracts away. It is the one column here
+   * that is immune to it.
+   *
+   * ⚠ **Starts inside the last ten minutes of the data are excluded, not counted as give-ups.**
+   * Somebody who opened level 7 four minutes before the window ends has not had their ten minutes
+   * yet; counting them would make the newest rows of every window look like a wall. The edge is the
+   * newest row loaded rather than `Date.now()`, because a window with an end date set has to be
+   * judged against the data it actually contains.
+   *
+   * ⚠ Its base is `Starts (user)`, so it reads "—" for windows before 19/08 like every other
+   * column that needs a start row.
+   */
+  const GIVEUP_MS = 10 * 60e3;
+  const lastStart = new Map();
+  for (const r of st) {
+    const k = r.dev + "|" + r.lvl;
+    const t = lastStart.get(k);
+    if (t === undefined || r.at > t) lastStart.set(k, r.at);
+  }
+  const everWon = new Set();
+  for (const r of g) if (r.result === "win") everWon.add(r.dev + "|" + r.lvl);
+  let newest = 0;
+  for (const r of st) if (r.at > newest) newest = r.at;
+  for (const r of g) if (r.at > newest) newest = r.at;
+  const guEdge = Math.min(Date.now(), newest) - GIVEUP_MS;
+  const gaveUp = new Map();
+  const guWaiting = new Map();
+  for (const [k, t] of lastStart) {
+    const cut = k.lastIndexOf("|");
+    const dev = k.slice(0, cut);
+    const n = Number(k.slice(cut + 1));
+    if (everWon.has(k)) continue;
+    if (t > guEdge) {
+      guWaiting.set(n, (guWaiting.get(n) || 0) + 1);
+      continue;
+    }
+    const nxt = lastStart.get(dev + "|" + (n + 1));
+    if (nxt !== undefined && nxt >= t && nxt <= t + GIVEUP_MS) continue;
+    if (!gaveUp.has(n)) gaveUp.set(n, new Set());
+    gaveUp.get(n).add(dev);
+  }
+
   const nums = [...new Set([...lv.keys(), ...reach.keys()])].sort((a, b) => a - b);
   const lvRows = nums.map((n) => {
     const o = lv.get(n) ?? { devs:new Set(), pass:new Set(), passT:new Set(), lost:new Set(), wtByDev:new Map(), n:0, w:0, wt:0, ms:0, msList:[], taps:0, peak:0, belt:0, used:{}, sigs:new Set() };
@@ -940,6 +998,14 @@ function render() {
         : `${goneLost} of the ${gone.length} who left after L${n} had just lost; ` +
           `${gone.length - goneLost} had just won it` +
           (dbl == null ? ` — too few to read as a percentage, so the count is shown instead` : "");
+    const gu = gaveUp.get(n)?.size ?? 0;
+    const guBase = startedBy.get(n)?.size ?? 0;
+    const guPct = guBase >= MIN_N ? pct(gu, guBase) : null;
+    const guTitle = !guBase
+      ? "no start rows for this level in this window"
+      : `${gu} of the ${guBase} who started L${n} never won it and never opened L${n + 1} within ten minutes` +
+        (guWaiting.get(n) ? ` — ${guWaiting.get(n)} more started too recently to judge and are excluded` : "") +
+        (guPct == null ? ` — under ${MIN_N} starters, so no percentage` : "");
     const bs = Object.entries(o.used).map(([k, v]) => `${k}×${v}`).join(" ");
     const belt = o.belt ? pct(o.peak, o.belt) : 0;
     // ⚠ Only judged once there are enough starts. With one or two, "100%" is one person closing a
@@ -1072,6 +1138,8 @@ function render() {
       <td class="${quit == null ? "" : quit > 40 ? "bad" : quit > 20 ? "warn" : ""}">${quit == null ? "—" : quit + "%"}</td>
       <td>${wonLeft || ""}</td>
       <td class="${wl == null ? "" : wl > 50 ? "bad" : wl > 25 ? "warn" : ""}">${wl == null ? "—" : wl + "%"}</td>
+      <td title="${guTitle}">${gu || ""}</td>
+      <td class="${guPct == null ? "" : guPct > 40 ? "bad" : guPct > 20 ? "warn" : ""}" title="${guTitle}">${guPct == null ? "—" : guPct + "%"}</td>
       <td>${o.n}</td>
       <td class="${band(pct(o.passT.size, rc ? rc.devs.size : 0), rc ? rc.devs.size : 0)}">${rc ? pct(o.passT.size, rc.devs.size) + "%" : "—"}</td>
       <td class="${band(pct(cWins, cStarts), cStarts)}">${cStarts ? pct(cWins, cStarts) + "%" : "—"}</td>
@@ -1083,7 +1151,7 @@ function render() {
       <td style="text-align:left">${bs}</td>
       <td class="${o.sigs.size > 1 ? "warn" : ""}" style="text-align:left">${[...o.sigs].join(" ")}</td></tr>`;
   }).join("");
-  $("tLv").innerHTML = `<thead><tr><th>Level</th><th>Winrate<br>/game</th><th>Starts<br>(event)</th><th>Starts<br>(user)</th><th>% of<br>L1</th><th>Completed</th><th>Lost or<br>retried</th><th>%<br>of starts</th><th>Quit</th><th>Won &amp;<br>left</th><th>%</th><th>Games</th>
+  $("tLv").innerHTML = `<thead><tr><th>Level</th><th>Winrate<br>/game</th><th>Starts<br>(event)</th><th>Starts<br>(user)</th><th>% of<br>L1</th><th>Completed</th><th>Lost or<br>retried</th><th>%<br>of starts</th><th>Quit</th><th>Won &amp;<br>left</th><th>%</th><th>Gave<br>up</th><th>%</th><th>Games</th>
     <th>Winrate<br>/player</th><th>Winrate<br>_c</th><th>Games<br>/player</th><th>Drop-<br>off</th><th>% drop<br>by lose</th><th>Time<br>(median)</th><th>Taps</th><th>Peak<br>belt</th>
     <th style="text-align:left">Boosters</th><th style="text-align:left">Fingerprint</th></tr></thead><tbody>${lvRows}</tbody>`;
 
