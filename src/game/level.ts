@@ -311,11 +311,11 @@ export const SHEET: Spec[] = [
   { trays:  7, colors: 4, hidden: 2, hatches: 2, crates: 0, win: 0.90 }, //  9
   { trays:  8, colors: 4, hidden: 0, hatches: 1, crates: 0, win: 1.00 }, // 10
   { trays: 13, colors: 6, hidden: 2, hatches: 0, crates: 0, win: 0.80 }, // 11
-  { trays:  8, colors: 4, hidden: 0, hatches: 0, crates: 0, win: 1.00 }, // 12
+  { trays: 14, colors: 6, hidden: 0, hatches: 0, crates: 0, win: 0.85 }, // 12
   // ⚠ 13, 19 and 22 re-aimed on 2026-08-19 as their boards were rebuilt, same rule as 8, 10
   // and 25: one row at a time, never as a sweep. 13 had drifted furthest — the row said 0.80 and
   // the board measured 95%.
-  { trays: 14, colors: 6, hidden: 0, hatches: 0, crates: 0, win: 0.85 }, // 13
+  { trays:  8, colors: 4, hidden: 0, hatches: 0, crates: 0, win: 1.00 }, // 13
   { trays:  8, colors: 4, hidden: 0, hatches: 0, crates: 0, win: 1.00 }, // 14
   { trays: 17, colors: 3, hidden: 0, hatches: 1, crates: 0, win: 0.80 }, // 15
   { trays: 20, colors: 8, hidden: 6, hatches: 2, crates: 2, win: 0.30 }, // 16
