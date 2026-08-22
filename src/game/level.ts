@@ -310,7 +310,7 @@ export const SHEET: Spec[] = [
   { trays:  9, colors: 5, hidden: 0, hatches: 0, crates: 0, win: 1.00 }, //  8
   { trays:  7, colors: 4, hidden: 2, hatches: 2, crates: 0, win: 0.90 }, //  9
   { trays: 14, colors: 6, hidden: 0, hatches: 1, crates: 0, win: 0.12 }, // 10
-  { trays: 14, colors: 6, hidden: 0, hatches: 1, crates: 0, win: 1.00 }, // 11
+  { trays:  8, colors: 4, hidden: 0, hatches: 0, crates: 0, win: 1.00 }, // 11
   { trays: 14, colors: 6, hidden: 2, hatches: 0, crates: 1, win: 0.80 }, // 12
   // ⚠ 13, 19 and 22 re-aimed on 2026-08-19 as their boards were rebuilt, same rule as 8, 10
   // and 25: one row at a time, never as a sweep. 13 had drifted furthest — the row said 0.80 and
