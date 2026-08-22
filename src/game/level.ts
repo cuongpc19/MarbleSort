@@ -278,7 +278,15 @@ export interface Spec {
 
 // prettier-ignore
 export const SHEET: Spec[] = [
-  { trays:  8, colors: 4, hidden: 0, hatches: 0, crates: 0, win: 1.00 }, //  1
+  // ⚠ **Rows 1-9 re-specified on 2026-08-22, as their boards were rebuilt** — the only way this
+  // column may be touched, one row at a time and never as a sweep. The nine were an introduction
+  // that opened on 8 trays and reached 16 by level 7; they now open on 2 and reach 10. Leaving the
+  // old rows would not be harmless history: the next `npm run tune` reads them as the design, and
+  // it would rebuild all nine back to fourteen trays and quietly undo the whole thing.
+  //
+  // ⚠ The `win` column went to 1.00 on 1-8 because that is what they **measure**, not to make them
+  // easy. Every one reads B 100% / D 100% over 20 games.
+  { trays:  2, colors: 2, hidden: 0, hatches: 0, crates: 0, win: 1.00 }, //  1
   // ⚠ **Do not edit a `win` here to re-aim a level that already ships.** This column is not just
   // the tuner's goal — `board.ts` feeds `targetWin(level)` into `toLevelDef`, so for every
   // hand-built board it is also what the box-order search aims at, and the stacks are a pure
@@ -287,20 +295,20 @@ export const SHEET: Spec[] = [
   // 15% -> 60%, L29 7% -> 43%, L31 0% -> 45%, L34 2% -> 48%, and L7 fell 100% -> 63%. All nine
   // were levels that were not being worked on. Re-aim a level **when its board is rebuilt**, one
   // row at a time, not as a sweep.
-  { trays: 10, colors: 4, hidden: 0, hatches: 0, crates: 0, win: 1.00 }, //  2
-  { trays: 10, colors: 4, hidden: 0, hatches: 0, crates: 0, win: 1.00 }, //  3
-  { trays: 12, colors: 4, hidden: 0, hatches: 0, crates: 0, win: 1.00 }, //  4
-  { trays: 14, colors: 5, hidden: 0, hatches: 0, crates: 0, win: 0.90 }, //  5
-  { trays: 14, colors: 5, hidden: 0, hatches: 0, crates: 0, win: 0.90 }, //  6
-  { trays: 14, colors: 5, hidden: 0, hatches: 0, crates: 0, win: 0.90 }, //  7
+  { trays:  4, colors: 3, hidden: 0, hatches: 0, crates: 0, win: 1.00 }, //  2
+  { trays:  4, colors: 3, hidden: 2, hatches: 0, crates: 0, win: 1.00 }, //  3
+  { trays:  5, colors: 3, hidden: 2, hatches: 0, crates: 1, win: 1.00 }, //  4
+  { trays:  6, colors: 3, hidden: 0, hatches: 0, crates: 0, win: 1.00 }, //  5
+  { trays:  6, colors: 3, hidden: 0, hatches: 0, crates: 0, win: 1.00 }, //  6
+  { trays:  8, colors: 4, hidden: 0, hatches: 0, crates: 0, win: 1.00 }, //  7
   // ⚠ 8 and 10 were re-aimed on 2026-08-19, **as their boards were rebuilt** and one row at a
   // time, which is the only way this column may be touched (see the warning above). Both rows
   // still said 1.00 while the boards they describe measured 84% and 32% on (B+D)/2 — the ruler
   // `scripts/sheet.mjs` judges them with — so the number was not a goal any more, it was a stale
   // claim. Worse for 8: its blueprint pins no `columns`, so `targetWin(8)` is what the box-order
   // search aims at, and a 1.00 there hands a level meant to be harder its *easiest* stack order.
-  { trays: 14, colors: 6, hidden: 0, hatches: 0, crates: 0, win: 0.75 }, //  8
-  { trays: 14, colors: 6, hidden: 0, hatches: 1, crates: 0, win: 0.90 }, //  9
+  { trays:  9, colors: 5, hidden: 0, hatches: 0, crates: 0, win: 1.00 }, //  8
+  { trays:  7, colors: 4, hidden: 2, hatches: 2, crates: 0, win: 0.90 }, //  9
   { trays: 14, colors: 6, hidden: 0, hatches: 1, crates: 0, win: 0.12 }, // 10
   { trays: 14, colors: 6, hidden: 0, hatches: 1, crates: 0, win: 1.00 }, // 11
   { trays: 14, colors: 6, hidden: 2, hatches: 0, crates: 1, win: 0.80 }, // 12
