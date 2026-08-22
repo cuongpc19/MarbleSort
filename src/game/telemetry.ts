@@ -20,7 +20,6 @@
 //
 // Reading the data back: `node scripts/pull-runs.mjs` (see that file).
 
-import { abArm } from "./ab";
 import { deviceId } from "./playlog";
 import { platform } from "../platform";
 import { gaLoaded } from "./analytics";
@@ -128,11 +127,6 @@ function send(row: Record<string, unknown>) {
       host: platform.name, // web | crazy | android
       from: whereFrom(), // hostname: localhost vs crazygames.com — see whereFrom()
       build: __APP_BUILD__, // which build produced this row
-      // ⚠ **Which A/B arm this device is in.** Without it the test is two weeks of mixed rows:
-      // the two arms differ on two boards, ship in one bundle, and are indistinguishable from
-      // `build` alone. Extra fields pass the database rules untouched — only a new `ev` value
-      // needs `database.rules.json` redeployed, and this is not one.
-      ab: abArm(),
       // ⚠ Whether gtag.js actually loaded. One bit, and it is the only way to tell "Analytics is
       // empty because it is blocked" from "Analytics is empty because the code is wrong" — GA
       // itself cannot distinguish those, it is silent in both cases.
