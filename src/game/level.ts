@@ -296,8 +296,8 @@ export const SHEET: Spec[] = [
   // were levels that were not being worked on. Re-aim a level **when its board is rebuilt**, one
   // row at a time, not as a sweep.
   { trays:  4, colors: 3, hidden: 0, hatches: 0, crates: 0, win: 1.00 }, //  2
-  { trays:  4, colors: 3, hidden: 2, hatches: 0, crates: 0, win: 1.00 }, //  3
-  { trays:  5, colors: 3, hidden: 2, hatches: 0, crates: 1, win: 1.00 }, //  4
+  { trays:  4, colors: 4, hidden: 0, hatches: 0, crates: 0, win: 1.00 }, //  3
+  { trays:  5, colors: 4, hidden: 2, hatches: 0, crates: 1, win: 1.00 }, //  4
   { trays:  6, colors: 3, hidden: 0, hatches: 0, crates: 0, win: 1.00 }, //  5
   { trays:  6, colors: 3, hidden: 0, hatches: 0, crates: 0, win: 1.00 }, //  6
   { trays:  8, colors: 4, hidden: 0, hatches: 0, crates: 0, win: 1.00 }, //  7
