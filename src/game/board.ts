@@ -206,6 +206,21 @@ export const TAG_LOOK: Record<LevelTag, TagLook> = {
  */
 export const TAG_BY_NUMBER_UNTIL = 20;
 
+/**
+ * Draw the difficulty badge at all.
+ *
+ * ⚠ **Off, temporarily, and it silences every source — not just the number rule.** A badge can
+ * come from three places: the slot (`levelTag`), a drawing that asks for one (`Blueprint.tag`),
+ * and the old `hard` boolean. Turning off only the first leaves the second still labelling boards,
+ * which is the failure mode "we removed the badges" usually has.
+ *
+ * ⚠ It is a **promise about the board**, and the boards are being rebuilt right now — levels 1-20
+ * have all moved in the last day, several of them from walls to breathers. A promise nothing has
+ * re-checked is worse than no promise, and a HARD badge on a board that is now very easy is the
+ * ladder lying about itself. Set this back to `true` once the ladder settles.
+ */
+export const SHOW_LEVEL_TAGS = false;
+
 export function levelTag(level: number): LevelTag | null {
   if (!Number.isFinite(level) || level < 1) return null;
   if (level > TAG_BY_NUMBER_UNTIL) return null;

@@ -35,7 +35,14 @@ import {
 import { Game, boardBounds, hint, levelFingerprint, starsFor, type RevivePick, type TickEvents } from "../game/logic";
 import { Tutorial } from "./tutorial";
 import { Coach } from "./coach";
-import { TAG_LOOK, featureProgress, levelDefFor, levelTag, type FeatureProgress } from "../game/board";
+import {
+  SHOW_LEVEL_TAGS,
+  TAG_LOOK,
+  featureProgress,
+  levelDefFor,
+  levelTag,
+  type FeatureProgress,
+} from "../game/board";
 import { dailyOfferable, markDailyOffered } from "../game/daily";
 import { platform } from "../platform";
 import { loadCustom, toLevelDef } from "../game/custom";
@@ -396,8 +403,14 @@ export class GameScene extends Phaser.Scene {
     // that says `tag: "none"` is declining a badge its slot would otherwise hand it — which is the
     // only way to move a board out of a 15th slot without the SUPER HARD promise following it.
     const own = this.board.def.tag;
-    const tag =
-      own === "none" ? null : own ?? (this.board.def.hard ? "superhard" : this.custom ? null : levelTag(this.level));
+    // ⚠ The switch is read here, after the three sources are resolved rather than inside any one
+    // of them: a drawing carrying `tag: "hard"` would otherwise walk straight past a rule that
+    // only silenced the level number. See `SHOW_LEVEL_TAGS`.
+    const tag = !SHOW_LEVEL_TAGS
+      ? null
+      : own === "none"
+        ? null
+        : own ?? (this.board.def.hard ? "superhard" : this.custom ? null : levelTag(this.level));
     if (!tag) return;
     const look = TAG_LOOK[tag];
     // Below the board's own lowest row, in the throat of the chute.
