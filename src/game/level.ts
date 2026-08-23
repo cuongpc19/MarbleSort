@@ -299,7 +299,7 @@ export const SHEET: Spec[] = [
   { trays: 10, colors: 4, hidden: 0, hatches: 0, crates: 0, win: 1.00 }, //  3
   { trays: 12, colors: 4, hidden: 0, hatches: 0, crates: 0, win: 1.00 }, //  4
   { trays: 14, colors: 5, hidden: 0, hatches: 0, crates: 0, win: 0.90 }, //  5
-  { trays: 14, colors: 5, hidden: 0, hatches: 0, crates: 0, win: 0.90 }, //  6
+  { trays: 13, colors: 5, hidden: 0, hatches: 0, crates: 0, win: 0.90 }, //  6
   { trays: 14, colors: 5, hidden: 0, hatches: 0, crates: 0, win: 0.90 }, //  7
   // ⚠ 8 and 10 were re-aimed on 2026-08-19, **as their boards were rebuilt** and one row at a
   // time, which is the only way this column may be touched (see the warning above). Both rows
