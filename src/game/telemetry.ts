@@ -129,7 +129,7 @@ function send(row: Record<string, unknown>) {
       from: whereFrom(), // hostname: localhost vs crazygames.com — see whereFrom()
       build: __APP_BUILD__, // which build produced this row
       // ⚠ **Which A/B arm this device is in.** Without it the test is a fortnight of mixed rows:
-      // the two arms differ on twenty boards, ship in one bundle, and are indistinguishable from
+      // the two arms differ on ten boards, ship in one bundle, and are indistinguishable from
       // `build` alone. Extra fields pass the database rules untouched — only a new `ev` value
       // needs `database.rules.json` redeployed, and this is not one.
       ab: abArm(),

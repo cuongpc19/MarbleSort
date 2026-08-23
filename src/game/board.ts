@@ -26,8 +26,8 @@ import type { LevelDef } from "./logic";
  * a script sees the shipped table and the generator, which is what a fresh install sees too.
  */
 export function levelDefFor(level: number): LevelDef {
-  // ⚠ `abBook`, not `HANDMADE`. Levels 1-20 are running an A/B test and the arm is a property of
-  // the device — see `ab.ts`. Everything from 21 up resolves identically for both arms, and this
+  // ⚠ `abBook`, not `HANDMADE`. Levels 1-10 are running an A/B test and the arm is a property of
+  // the device — see `ab.ts`. Everything from 11 up resolves identically for both arms, and this
   // device's own saved drawings still win over both, which is what keeps the editor loop working.
   const bp = blueprintFor(level, abBook(HANDMADE));
   // ⚠ The sheet's target goes in with it. A hand-built board ignores LADDER and VARIANTS, so the
