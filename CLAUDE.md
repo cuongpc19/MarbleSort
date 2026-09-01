@@ -777,6 +777,129 @@ model (D) was itself "Monte-Carlo playAverage, **skill-slip**". But that is a be
 lost to a constant on its own — it only worked blended with B and calibrated. Expect the same
 here, and do not write the bet down as a finding.
 
+### The answer, 2026-08-25: the calibration is real, the model choice is not
+
+Ranked on **1995 clean games over 91 levels** — the first sample with a real gradient in it (84%
+at levels 1-20 falling to 42% at 101-120; the earlier 27-level sample was nearly flat, which is
+why its fitted slope collapsed to 0.46 and nothing separated).
+
+- ⚠ **Every one of the 33 candidates beats guessing a constant, by 2-4 SE — `random` included**
+  (+38.8 ±17.8). `random` is not a credible model of a player winning 81% of their games, so that
+  is the tell: what is being rewarded is the **calibration curve**, which all of them share,
+  capturing "later levels are harder". It is not any model's judgement.
+- ⚠ **And so nothing can be crowned.** `cx_s16` leads at every level cut-off tried (LOO -873.8),
+  but `bd` is 1.0-1.6 SE behind at all of them and the whole field from first to `greedy` spans
+  less than three SE. `OFFICIAL` is **`bd`**, broken on cost rather than merit: `TARGET`, `LADDER`,
+  `VARIANTS`, `npm run sheet` and the box-order search in `custom.ts` are already defined on
+  (B+D)/2, and switching rulers for a difference nothing can measure invalidates all of them.
+- **The calibration is the finding**, and it is what `A_CAL`/`B_CAL` now hold:
+  `sigmoid(1.8925 + 0.4769 · logit(bot))`. **A bot at 10% is a person at 70%; 50% is 87%; 90% is
+  95%.** The slope lands in 0.38-0.49 for every candidate that fits and holds as the cut-off moves,
+  so it is the robust half; the intercept is per-model bias and must be refitted if `OFFICIAL`
+  ever changes.
+- ⚠ **This is why the boards billed hard keep reading 80-90% in telemetry.** `targetWin(20)` asks
+  for 40% *in bot units*, which is **85%** for a person — and level 20 measures 83%. The ladder was
+  not wrong; the ruler was being read in the wrong unit.
+- ⚠ **`targetWin` is still in bot units and must stay there.** `npm run levels` prints both columns
+  now — `(B+D)/2` to compare against the target, `nguoi?` for the calibrated figure — because the
+  first version of this printed only the calibrated number under the `(B+D)/2` heading, which is
+  exactly the "check both sides are the same metric" trap this file warns about elsewhere.
+- The one signal worth re-checking: **inside** the Cuongxs1 family the members are correlated, so
+  the paired SE halves to ±9, and settle **16** beats the shipped 24 by 11.8-13.9 on all three
+  cut-offs. 1.4 SE — the same direction three times, not yet a result.
+
+⚠ **Two defects in the ranking machinery had to be fixed before any of this meant anything, and
+both were silent.** `fitCurve` was 120000 steps of fixed-rate gradient ascent — hours per sweep and
+no guarantee of convergence. Replacing it with Newton was worse before it was better: a raw Newton
+step **diverges** once the curve saturates, because the Hessian goes to zero and the step becomes
+gradient/0. It returns two finite numbers and says nothing. Four of seven candidates came back with
+coefficients around 1e8 and leave-one-out scores near -5000 against a constant's -1069, which reads
+as "these models are hopeless" when the truth is "the fit never converged" — and that wrong table
+was reported before it was caught. `fitCurve` now halves the step until the likelihood actually
+improves.
+
+⚠ **And a sweep cost three hours, which is the same as never running the robustness check** — which
+is the only thing that exposed the above. `winrate.mjs` now caches every bot score, keyed on the
+**board's fingerprint** and a hash of `bots.mjs` so it expires by itself when a level or a bot
+changes, and `ONLY=best,bd` narrows the field. Three hours to **13 seconds**.
+
+### Searching for a better model makes it worse, and that is now measured
+
+The obvious next move after fitting the calibration is to go looking for a better model. It was
+tried properly and the answer is **no**. Held-out score on the same 1995 games, splitting the 91
+levels in half 200 times — choose on one half, score on the other:
+
+| what you do | LL on the held-out half |
+|-------------|-------------------------|
+| nothing (guess a constant) | -507.7 |
+| fix one model up front | **-445 to -452** |
+| scan 33 single models, keep the best | -451.8 |
+| scan 1617 weighted pairwise blends, keep the best | **-453.0** |
+
+⚠ **Every extra candidate makes it worse.** The blend search wins on the data it was chosen from —
+its leader beat `bd` by +28.3 ±14.9 on the full-sample leave-one-out — and then loses on data it
+has not seen. This is the same winner's curse the tuner's two-stage selection exists for, arriving
+one level up: taking the best of many noisy measurements selects candidates whose *measured* score
+landed well, not candidates that are better.
+
+The tell was on the leaderboard the whole time: the top blend was `random*0.5 + cx_s34*0.5`, chosen
+in 46 of 200 splits, and `random` is not a model of anybody. **A nonsense component surviving into
+the winner means the search is fitting noise** — check for one before believing a scan.
+
+⚠ **It holds inside a family too, where the candidates are correlated and the paired SE halves.**
+Scanning 12 settle values of Cuongxs1 scores -450.5 held out; keeping the shipped 24 blind scores
+-451.7. **Choosing the parameter from the data buys 1.2 LL points over not choosing at all.** So
+`SETTLE` stays 24 — not because 24 is optimal, but because 14 through 34 is a plateau and nothing
+distinguishes them.
+
+⚠ And do not quote "fix `cx_s16`, -445.4" as the gain from switching. **16 was chosen by looking at
+all 91 levels**, so scoring it on halves of those same levels is not held out. The honest number for
+"pick the settle from the data" is the scan's -450.5.
+
+### What DID beat it: score the bot on how far it got, not on whether it won
+
+⚠ **The section above says searching makes it worse. That is true of searching *blends of the same
+quantity*, and it is not the whole story** — the 1617-blend sweep was 1617 rearrangements of one
+number, a bot's winrate. Give the fit a number the winrate cannot contain and the answer changes.
+
+`play()` in `bots.mjs` already returns `{win, peak, taps}` and only `win` was ever used. **`taps` —
+how many pours the bot completed before the game ended — carries information the winrate does not.**
+Its correlation with real player winrate is 0.483, and with `cx_s34`'s own score only **0.287**: a
+level where the bot dies after 5 of 30 taps and one where it dies after 28 are the same 0% to the
+ruler, and are not remotely the same level to a person.
+
+Leave-one-out over the same 91 levels, paired against `bd`:
+
+| model | LOO | vs `bd` |
+|-------|-----|---------|
+| `bd` alone (the shipped ruler) | -898.0 | — |
+| `cx_s34` alone | -877.5 | +20.4 ±17.0 — **1.2 SE, nothing** |
+| `cx_s34` + peak-belt features only | -886.0 | +12.0 ±17.8 — nothing |
+| **`bd` + mean taps** | **-868.1** | **+29.9 ±11.7 — 2.6 SE** |
+| **`cx_s34` + peak + mean taps** | **-849.8** | **+48.2 ±17.4 — 2.8 SE** |
+| mean taps alone, no bot | -947.8 | −49.8 — worse than nothing |
+
+⚠ **And the *procedure* was validated, not just the answer.** Selecting from a 36-model menu (12 bots
+× {plain, +congestion, +structure}) entirely inside a training half, then scoring on the held-out
+half, beats always-using-`bd` by **+8.8** — where the 1617-blend search *lost* 7.6 doing the same
+thing. The difference is the size and shape of the menu: 36 candidates that each mean something
+against 1617 arbitrary mixtures. 128 of 200 splits pick a `cx_s*` + congestion model.
+
+⚠ **The peak-belt features are not what carries it.** `meanPeak` / `pFull` / `p90` add +12.0 ±17.8 on
+their own — noise. Take mean taps out of the winning model and the gain drops from +48.2 to +12.0.
+And **taps as a fraction of the board's trays is worse than raw taps** (+18.0 against +40.3), which
+says part of what the raw number carries is board size, not just progress.
+
+⚠ **What it would take to ship.** `MODELS` maps a level to one scalar and `calibrate()` bends one
+scalar, so a two-feature model does not fit the current plumbing — it needs a coefficient vector and
+a design matrix, and `A_CAL`/`B_CAL` become a `W_CAL`. That is worth doing **after** the next batch
+of games re-confirms it: 2.6-2.8 SE on one sample is a result, not a settled fact, and this project
+has already had a ranking overturned once by a fit that looked fine.
+
+⚠ **84% of the play log is unusable** — 15525 of 18350 games sit on boards that have since been
+rebuilt, and the fingerprint drops them. That is the price of editing levels daily, and it means
+every retune throws away most of the calibration data it would need to check itself.
+
 ⚠ Run the ranking with `PURE=1`. The bots have no boosters and no undo, so a level bought with
 coins is not a game they could ever have played; counting it flatters whichever model happens
 to be optimistic. The play log records `used[]` for exactly this.
@@ -989,6 +1112,11 @@ still draining, give up once it has been flat for `SETTLE` ticks.
   real winrate is nearly flat across these levels, so little separates the candidates and the fitted
   slope collapses to 0.46. What is solid is the **within-family** comparison — same data, same
   candidates, one parameter moved.
+  ⚠ **Re-measured on 2026-08-25 against 1995 games over 91 levels, and the conclusion survived** —
+  see "The answer, 2026-08-25" above. The ordering above did not: that ranking was produced by a
+  `fitCurve` that could not be trusted to converge, so treat any specific placing from before that
+  date as unusable. The finding that held is the one stated here — nothing separates the families,
+  and only the within-family comparison carries signal.
 - ⚠ **It invalidates the ladder, and the ladder has not been retuned.** What the shipped levels now
   read, against what they were built to:
 
@@ -1071,8 +1199,8 @@ So: **never quote `npm run sim` numbers as winrates.** They compare configuratio
 what they are good for. For a number about players:
 
 - `npm run winrate 20-40` — blends the optimistic and pessimistic bots and bends the result
-  through the calibration. It prints a loud warning while the curve is still an identity,
-  which it is until real games exist.
+  through the calibration, fitted 2026-08-25 (`1.8925 / 0.4769`). It prints the warning only
+  while the curve is still an identity, which it no longer is.
 - Real games are collected by the game itself: every finished level is written to
   localStorage with a **content fingerprint**, and Settings → COPY N GAMES puts them on the
   clipboard as JSONL for `playlog.jsonl`.
@@ -1316,6 +1444,54 @@ lines a few pixels apart read as a mistake. ⚠ Lowest row *of the board*, not e
 lowest cell — per column, `diamond` pours white down its shoulders and comes out a rectangle
 again. ⚠ And the drop from mouth to funnel goes through **both** passes: painted in fill only
 (the obvious shortcut, since the point is to open the floor) it has no sides at all.
+
+## Trays and boxes have a body — measured off the reference, not invented
+
+Both pieces are a coloured **face** standing on a body wall, inside a crisp 1.3px outline. The
+numbers came out of `Manythings/IMG_6564.MP4` rather than out of taste, and the first attempt at
+this was rejected as *"hơi nặng nề"* — heavy. One pixel column down their yellow box, 32px tall:
+
+    1px dark outline · 1px light rim · 20px of dead-flat face · 7px ramp · 2px dark outline
+
+⚠ **The wall depth was never the problem.** 7/32 is 22%, and the heavy version was already at 27%.
+Every other decision in it was wrong:
+
+- ⚠ **The ramp changes hue; it does not darken.** Theirs runs (253,253,0) → (237,170,4): red is
+  untouched and only green falls — yellow rolling into amber, a lit surface turning away. The
+  heavy version ended at `shade(dark, -0.34)`, *below* the swatch's own dark, which is a shadow.
+  A shadow under each of forty pieces is exactly what "nặng nề" means. **Stop at `sw.dark`.**
+- ⚠ **The face is flat.** 20 of their 32 rows are the same three bytes. A gradient down the whole
+  face puts its darkest value directly above the wall, so face and wall read as one mass instead
+  of a face and an edge. Ours keeps a sheen over the top 45% and nothing below it.
+- ⚠ **The outline is what buys the slimness.** With a hard 1-2px edge the wall reads as an edge;
+  without one it reads as mass, and no amount of lightening the ramp fixes that. It is also why
+  the heavy version needed a side vignette and a dark seam line to look solid — both were ink
+  spent standing in for an outline, and both are gone.
+- ⚠ **The holes are a recess, not a punched hole.** Down their blue box a hole runs (0,96,194) to
+  (0,122,220) against a (23,177,255) face: **0.55x rising to 0.70x**, lighter at the *bottom*,
+  where light bounces out of it. `sw.dark` under 35% black is 0.40x flat all through, which reads
+  as a dot painted on. They are ovals too, about 1.7 wide to 1 tall.
+- ⚠ **Same recipe on both pieces, not just the same depth.** The note on the box's sheen records
+  that one swatch drawn identically reads *darker* on a box than on a tray, because the tray's
+  nine lit eggs raise its mean — orange measured #ff8e1a against #fc9d39 and was reported from
+  real play. Matching the mean means matching the recipe: same sheen fraction, same wall ramp,
+  same outline.
+
+Mechanics that go with it:
+
+- ⚠ **`L.box.h` is the slot, not the face**, and `h + vgap` must stay **45** — `BOX_VISIBLE_H` is
+  written as `5 * (42 + 3)`, `slideColumn` tweens by it and `WELL_BOTTOM` is derived from it, so
+  moving the pitch moves the machine's own height. The wall was paid for by taking `vgap` to 0,
+  which is also the right picture: a stack of boxes has no daylight between them, and the wall's
+  own band separates one face from the next.
+- ⚠ **The holes are no longer in the middle of the sprite.** `HOLE_CY` is exported for that
+  reason: `GameScene.holePos` used to carry its own copy of `h / 2 - 2`, right only while the face
+  filled the sprite. A marble landing on the wall instead of in a hole is the one thing a player
+  watching the belt notices immediately. The box-clear burst fires from `BOX_FACE_H / 2` too.
+- ⚠ The tray's egg grid is measured from `faceH`, not from the sprite. Off the sprite the bottom
+  row sits on the wall.
+- The `?` tray and `?` box carry the identical build in grey. A face-down piece sitting flat
+  beside pieces with visible thickness reads as a hole in the board rather than as a piece.
 
 ## Hand-built levels — `editor.html`
 
