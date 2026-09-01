@@ -3442,20 +3442,50 @@ export class GameScene extends Phaser.Scene {
     // The panel is sized from what is actually in it, so dropping two rows does not leave a
     // stretch of empty machine below the last button.
     const rows = 5 + (devTools ? (st!.runs > 0 ? 2 : 1) : 0);
-    const top = GAME_H / 2 - 210;
     const height = 140 + rows * 90 + (devTools ? 30 : 0);
+    /**
+     * ⚠ **Centred in the canvas and scaled to fit it — never hung at a fixed offset from the
+     * middle.** `GAME_H` is 1160 on a phone and **883 in a desktop frame**, where it is clamped to
+     * the cabinet's own height; the card meanwhile grows with what is in it, and the web build
+     * carries two rows the `crazy` build does not. `GAME_H / 2 - 210` fitted on a phone and ran
+     * off the bottom of a desktop canvas, so RESUME sat on the edge and CLEAR LOG below it was not
+     * on screen at all. Reported from a desktop.
+     *
+     * Same rule as the rest of the layout: nothing is positioned from the bottom with a number.
+     * ⚠ `top` is deliberately **not clamped**. Centring it on `GAME_H / 2` is what lets the scale
+     * below be taken about that same point and be guaranteed to fit — clamp it to a margin first
+     * and a card taller than the canvas is scaled about a centre it no longer has, which lands it
+     * over the bottom edge again by a few pixels.
+     */
+    const MARGIN = 16;
+    const top = (GAME_H - height) / 2;
 
     const c = this.add.container(0, 0);
     c.add(this.stageDim(0x101a33, 0.7));
+    // ⚠ The card goes in its own container so the fit below can scale it **without touching the
+    // dimmer**, which has to stay the full size of the canvas whatever happens to the card.
+    const p = this.add.container(0, 0);
+    c.add(p);
     const panel = this.add.graphics();
     panel.fillStyle(UI.machine, 1).fillRoundedRect(66, top, 408, height, 30);
-    c.add(panel);
-    c.add(
+    p.add(panel);
+    p.add(
       this.add
         .text(CX, top + 50, "PAUSED", { fontFamily: FONT, fontSize: "38px", color: "#ffffff" })
         .setOrigin(0.5)
         .setStroke(UI.ink, 8),
     );
+    /**
+     * Put the card on screen, shrunk about the canvas centre if it is taller than the canvas.
+     *
+     * ⚠ Called from **both** exits. The `crazy` build returns early with five rows, and a fit
+     * applied at only the far exit is a fit the shipping build never gets.
+     */
+    const show = () => {
+      const fit = Math.min(1, (GAME_H - 2 * MARGIN) / height);
+      if (fit < 1) p.setScale(fit).setPosition(CX * (1 - fit), (GAME_H / 2) * (1 - fit));
+      this.uiLayer.add(c);
+    };
     const close = () => {
       c.destroy();
       this.paused = false;
@@ -3468,25 +3498,25 @@ export class GameScene extends Phaser.Scene {
       y += 90;
       return at;
     };
-    c.add(
+    p.add(
       this.button(CX, row(), save.muted ? "SOUND ON" : "SOUND OFF", "wideBlue", () => {
         save.muted = !save.muted;
         close();
         this.openSettings();
       }),
     );
-    c.add(this.button(CX, row(), "RESTART LEVEL", "wide", () => this.scene.restart({ level: this.level })));
-    c.add(this.button(CX, row(), "HOME", "wideBlue", () => this.scene.start("Home")));
+    p.add(this.button(CX, row(), "RESTART LEVEL", "wide", () => this.scene.restart({ level: this.level })));
+    p.add(this.button(CX, row(), "HOME", "wideBlue", () => this.scene.start("Home")));
     // ⚠ Shipped in **every** build, unlike the play-log rows above it. The host requires a game
     // that collects anything beyond their SDK's own events to show the notice in-game rather than
     // only answer the form field, and a privacy page that exists but cannot be reached from the
     // game is the failure that rule is written against. Opens a sibling page in a new tab, so the
     // level being played is never navigated away from.
-    c.add(this.button(CX, row(), "PRIVACY", "wide", () => openPrivacyPolicy()));
-    c.add(this.button(CX, row(), "RESUME", "wideBlue", close));
+    p.add(this.button(CX, row(), "PRIVACY", "wide", () => openPrivacyPolicy()));
+    p.add(this.button(CX, row(), "RESUME", "wideBlue", close));
 
     if (!devTools) {
-      this.uiLayer.add(c);
+      show();
       return;
     }
 
@@ -3497,7 +3527,7 @@ export class GameScene extends Phaser.Scene {
     // where the playtesting actually happens: a phone on the LAN reaches the dev server over
     // plain http, which is not a secure context, so `navigator.clipboard` is missing and the
     // button could only ever report failure.
-    c.add(
+    p.add(
       this.button(CX, row(), `SEND ${st!.runs} GAMES`, "wideBlue", () => {
         void uploadRuns().then((up) => {
           if (up) {
@@ -3510,7 +3540,7 @@ export class GameScene extends Phaser.Scene {
         });
       }),
     );
-    c.add(
+    p.add(
       this.add
         .text(CX, y - 45, `${st!.levels} levels · ${st!.wins} won`, {
           fontFamily: FONT,
@@ -3536,9 +3566,9 @@ export class GameScene extends Phaser.Scene {
         label.setText("CLEARED");
         this.toast("Play log cleared");
       });
-      c.add(wipe);
+      p.add(wipe);
     }
-    this.uiLayer.add(c);
+    show();
   }
 
   // ── Small feedback ─────────────────────────────────────────────────────────
