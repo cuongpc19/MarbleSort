@@ -268,7 +268,19 @@ const MARBLE_R = 15;
  * layout had costs 12px of height, which is 1.5% of the desktop width the trims bought. Worth it:
  * a rail that looks like it is grinding on the lids is a machine that looks broken.
  */
-const BALL_CLEAR = 26;
+/**
+ * Gap between the marble hanging under the rail and the top of the open box.
+ *
+ * ⚠ **Cut from 26 to 8** so the boxes sit right under the rail: the two are now drawn as one block
+ * and 26px of white between them read as a gap inside it. What the number has to buy is that a
+ * marble riding the belt does not overlap the box it is about to fall into — `BELT_R + MARBLE_R`
+ * already covers the marble itself, so this is clearance on top of that, not the clearance.
+ *
+ * ⚠ It also shortens the cabinet: `WELL_BOTTOM` and `H_MIN` are derived from it, so every pixel
+ * taken off here is a pixel the game gains in size on a desktop frame, where `GAME_H` is clamped to
+ * the machine. Free height, not a cost.
+ */
+const BALL_CLEAR = 8;
 
 /** Everything below the grid rises by this much; the machine loses it from its height. */
 const TIGHTEN = TRIM_RIM + TRIM_PANEL;
@@ -282,8 +294,17 @@ const TIGHTEN = TRIM_RIM + TRIM_PANEL;
 // (breaks the pinned cell 64 / pitch 71) or a wider neck (breaks the single-file queue). Every
 // other rearrangement — one segment, two, a shoulder and a cone — comes out at exactly the same
 // number, because the angle and the run are what fix it.
-/** Slope of the chute walls, from horizontal. Below ~30° the marbles stop sliding. */
-const FUNNEL_ANGLE = 33;
+/**
+ * Slope of the chute walls, from horizontal. Below ~30° the marbles stop sliding.
+ *
+ * ⚠ **This is the price of the bowl, and it is the only thing that pays for it.** The wall is a
+ * curve between two fixed points, so it averages this angle — every degree of bulge in the middle is
+ * a degree taken off somewhere else, and the only source of spare degrees is starting steeper. 42°
+ * allowed 34px of bulge; 45° allows 42px. It costs 20px of machine height (`FUNNEL_CONE_DROP` is
+ * `tan` of this), which comes off how big the game draws on a desktop frame, where `GAME_H` is
+ * clamped to the cabinet. Paid for out of the row of boxes that was taken off the well.
+ */
+const FUNNEL_ANGLE = 45;
 /**
  * Where the taper begins: the cavity walls themselves, 48/492 -> 34/506.
  *
@@ -305,17 +326,71 @@ const FUNNEL_ANGLE = 33;
  */
 const FUNNEL_WALL_L = WIDE_HUD ? 48 : 34;
 const FUNNEL_WALL_R = GAME_W - FUNNEL_WALL_L;
-const FUNNEL_NECK_L = 248;
-const FUNNEL_NECK_R = 292;
+/**
+ * The neck, "barely wider than one marble" — which is what forces the queue single-file.
+ *
+ * ⚠ **68 — deliberately wide enough for two marbles abreast**, against a 30px ball. This reverses
+ * what the file said for months: the neck was "barely wider than one marble" and that width was
+ * called the mechanic. It is not. What meters the game is `Game.tick`, which lifts exactly one
+ * marble per tick and only when `entryFreeNextTick` says the rail below will be clear — model code
+ * that never looks at the chute. The neck width decides how the *queue looks* while it waits, and
+ * a single-file column was chosen for readability, not for rules. Widened on instruction.
+ *
+ * ⚠ What is genuinely lost: the backlog stops being a neat column and becomes a heap, and the
+ * heap is the warning the player is supposed to read when the belt is congested. Worth watching in
+ * play — it is a legibility change, not a balance one, and no bot can measure it.
+ *
+ * ⚠ A wider neck is a shorter cone: the slope has less horizontal to cross at the same 33°, so
+ * `FUNNEL_CONE_DROP` falls with it and the machine gets ~11px shorter. That is a free gain in how
+ * big the game draws on a desktop frame, not a cost.
+ */
+const FUNNEL_NECK_L = 236;
+const FUNNEL_NECK_R = 304;
 const FUNNEL_SHOULDER_BASE = 622 - BOOST_LIFT - TRIM_TOP - TRIM_GAPS - TIGHTEN - 40 - HUD_LIFT;
 /** Top of the cavity. The grid lives between this and `FUNNEL_SHOULDER`, and nowhere else. */
 const GRID_TOP = 240 - BOOST_LIFT - TRIM_TOP - TRIM_GAPS - TRIM_RIM - HUD_LIFT;
-const FUNNEL_DROP = Math.round(
+/** The sloped part: whatever `FUNNEL_ANGLE` needs to cross from the cavity wall to the neck. */
+const FUNNEL_CONE_DROP = Math.round(
   (FUNNEL_NECK_L - FUNNEL_WALL_L) * Math.tan((FUNNEL_ANGLE * Math.PI) / 180),
 );
+/**
+ * The straight vertical throat under the cone — the part that makes it read as a *neck* rather than
+ * as a V that stops.
+ *
+ * ⚠ **Short on purpose: just enough to see that there is a neck.** It was 43 — the whole box row
+ * freed by taking `BOX_VISIBLE` from 5 to 4 — and that read as a pipe rather than as a throat.
+ *
+ * ⚠ **New height, never carved out of the cone.** Taking it from the existing drop would leave the
+ * slope crossing the same horizontal run in less height, and below 33° marbles stop sliding and
+ * never reach the neck at all. Dropping the fifth row of boxes is what made the height available;
+ * only 16 of those 45px are spent here and the rest comes off the cabinet, so the machine ends
+ * ~29px higher than before and the game draws slightly bigger on a desktop frame.
+ *
+ * ⚠ **The cone keeps its 33° untouched.** Taking the throat out of the existing drop instead would
+ * leave the slope crossing the same horizontal run in less height — 32.7° at a 46px throat — and
+ * below 33° marbles stop sliding and never reach the neck at all. The throat has to be new height,
+ * which is the whole reason a row of boxes had to go first.
+ */
+const FUNNEL_NECK_LEN = 16;
+
+/**
+ * Clear air between the floor of the neck and the top of the belt housing.
+ *
+ * ⚠ **A marble waiting in the neck has to be fully visible sitting ABOVE the rail.** It was 4px,
+ * which is less than the block behind the belt reaches up (that block starts 8px over the housing
+ * so the rail and the box well read as one piece) — so the bottom of every queued marble was drawn
+ * behind it. Marbles backing up in the chute is the warning the player is meant to read when the
+ * belt is congested, and a marble half-swallowed by the machine reads as a glitch instead.
+ *
+ * ⚠ It has to clear the BLOCK, not the housing: 8px for the block plus 7 for its slate lip, so
+ * anything under 15 puts the marble back behind something. 20 leaves a visible sliver of daylight,
+ * which is what "resting just above the rail" actually looks like.
+ */
+const NECK_TO_BELT = 20;
+const FUNNEL_DROP = FUNNEL_CONE_DROP + FUNNEL_NECK_LEN;
 
 /** Height of the visible stack of boxes in one column. */
-const BOX_VISIBLE_H = 5 * (42 + 3);
+const BOX_VISIBLE_H = 4 * (42 + 3);
 /**
  * Floor showing under the deepest box.
  *
@@ -362,7 +437,7 @@ const MACHINE_TOP = MACHINE_Y - BOOST_LIFT;
 // ⚠ **Everything below the grid moves; nothing stretches.** The cone keeps its 33° because both
 // ends slide together. Moving one end alone is the 22.5° at which marbles stop sliding altógether,
 // which the note on `funnel` describes.
-const _BELT_CY_BASE = FUNNEL_SHOULDER_BASE + 6 + FUNNEL_DROP + 4 + BELT_SHELL;
+const _BELT_CY_BASE = FUNNEL_SHOULDER_BASE + 6 + FUNNEL_DROP + NECK_TO_BELT + BELT_SHELL;
 const _WELL_BOTTOM_BASE = _BELT_CY_BASE + BELT_REACH + BALL_CLEAR + BOX_VISIBLE_H + WELL_FLOOR;
 const H_MIN_BASE = _WELL_BOTTOM_BASE + 6 + 14 - TRIM_SKIRT;
 const H_MAX = Math.max(1160, H_MIN_BASE);
@@ -390,7 +465,7 @@ const FUNNEL_SHOULDER = FUNNEL_SHOULDER_BASE + GRID_GROW;
 const FUNNEL_TOP = FUNNEL_SHOULDER + 6;
 
 /** Belt centreline: just under the chute's neck, plus its own housing. */
-const BELT_CY = FUNNEL_TOP + FUNNEL_DROP + 4 + BELT_SHELL;
+const BELT_CY = FUNNEL_TOP + FUNNEL_DROP + NECK_TO_BELT + BELT_SHELL;
 /** Foot of the box well, in design space: the lowest thing the cabinet has to contain. */
 const WELL_BOTTOM = BELT_CY + BELT_REACH + BALL_CLEAR + BOX_VISIBLE_H + WELL_FLOOR;
 // The cabinet ends just under the well, whose foot is derived from the chute above it.
@@ -522,7 +597,13 @@ export const GRID_COLS = 6;
 /** Hard ceiling on a board in either direction. Past this the cells stop being tappable. */
 export const GRID_MAX = 7;
 /** How many boxes of a column are drawn before the stack runs off the bottom. */
-export const BOX_VISIBLE = 5;
+/**
+ * ⚠ **Four, down from five.** The fifth row was the price of the chute having a throat: dropping
+ * it frees a 45px box row, the belt and the well move down by it, and the cone keeps its 33°
+ * because the throat is built out of the new height rather than carved out of the slope.
+ * `BOX_VISIBLE_H` above must move with this or the cabinet stops matching what is drawn in it.
+ */
+export const BOX_VISIBLE = 4;
 
 /**
  * Conveyor advances one slot per tick, and it is also the cadence marbles feed onto the belt
@@ -732,7 +813,11 @@ export const L = {
   funnel: {
     shoulder: FUNNEL_SHOULDER,
     top: FUNNEL_TOP,
-    brake: FUNNEL_TOP + Math.round(FUNNEL_DROP * 0.43),
+    // ⚠ Measured on the CONE, not on the whole drop. The drop now carries a 43px vertical throat
+    // under the cone, and braking at 43% of the longer number would move the brake line down into
+    // the cone — marbles then hang about halfway and never reach the neck, which is the exact
+    // failure the note on this constant describes from the other direction.
+    brake: FUNNEL_TOP + Math.round(FUNNEL_CONE_DROP * 0.43),
     // ⚠ **The taper starts at the cavity wall, not inside it.** It used to begin at 54/486 — six
     // pixels in from the cabinet — which made the chute a wide wedge with a short vertical lip on
     // top. Starting it at the wall turns the whole thing into one continuous funnel, which is what
@@ -743,6 +828,15 @@ export const L = {
     // The neck runs all the way down to the belt housing. Ending it higher leaves marbles
     // popping onto the rail out of thin air, with a gap of empty machine in between.
     neckY: FUNNEL_TOP + FUNNEL_DROP,
+    /**
+     * Where the cone stops and the straight throat begins.
+     *
+     * ⚠ The chute used to be a V that simply ended — the walls met the neck width and the floor was
+     * right there. A neck is a *length*, and without one there is nowhere for the single-file queue
+     * to actually be single file: marbles arrived at the point of the V and sat in a heap. The 43px
+     * below this line are vertical on both sides.
+     */
+    coneY: FUNNEL_TOP + FUNNEL_CONE_DROP,
     // ⚠ Widened with the ball, by the same proportion. The neck is "barely wider than one marble"
     // and that is what forces the queue single-file: 28 in 40 becomes 30 in 44. Widen it further and
     // two balls sit abreast, which is the whole mechanic gone.
@@ -766,12 +860,19 @@ export const L = {
   // `cy ± (r + marbleR)` = 47 either side of the belt centre while the shell is only 40, so the balls
   // hang 7px below the chrome. Sizing this off the shell put them 3px from the box lids — visibly
   // resting on them.  is what they actually occupy.
+  // ⚠ `h` is the box's **slot**, not its face: `BOX_LIP` of it is the body wall the face
+  // stands on, which is what makes a box read as a solid thing rather than a coloured bar.
+  // `h + vgap` is the pitch and it must stay **45** — `BOX_VISIBLE_H` above is written as
+  // `5 * (42 + 3)`, `slideColumn` tweens by it, and `WELL_BOTTOM` is derived from it, so
+  // moving the pitch moves the machine's own height. Taking the wall out of `h` and dropping
+  // `vgap` to 0 is why the boxes now touch: a stack of boxes has no daylight between them, and
+  // the wall's dark band already separates one face from the next.
   box: {
     top: BELT_CY + BELT_R + MARBLE_R + BALL_CLEAR,
     w: 100,
     gap: 6,
-    h: 42,
-    vgap: 3,
+    h: 45,
+    vgap: 0,
   },
 };
 
@@ -954,6 +1055,82 @@ export const SLOT_COLUMN: number[] = (() => {
 export const FEED_FROM = { x: L.belt.cx, y: L.funnel.neckY - 14 };
 
 /** World position of belt slot `i`, interpolated `frac` of the way to the next slot. */
+/**
+ * One side of the chute as a polyline, from the top of the vertical wall down to the neck.
+ *
+ * **Straight, with a sharp shoulder.** Two shapes have been tried and reverted, and the reason is
+ * the same arithmetic both times.
+ *
+ * ⚠ **The cone cannot bow in the middle at this geometry.** The straight wall is at `FUNNEL_ANGLE`
+ * = 33°, the *minimum* at which a marble slides, and any curve between the same two endpoints
+ * averages the same 33° — so some stretch of it is shallower, and marbles stop there. `drainFunnel`
+ * only takes a marble within 46px of the neck, so one parked higher up never reaches the belt and
+ * the level hangs with nothing on screen to say why. Measured over nine candidate curves: the
+ * shallowest stretch above that safe line came out 29.0–31.6°, every one of them below the
+ * threshold. **A bowl needs headroom the current cone does not have** — either a deeper chute (33°
+ * → 38° costs ~30px of machine height, paid for in how big the game draws on a desktop frame) or a
+ * narrower cone mouth (starting it at x=70 instead of the cabinet wall gives 38° and allows 23px of
+ * bulge). Both are real options; neither is free, and neither should be guessed at.
+ *
+ * ⚠ **Rounding the shoulder instead is safe but was not what was wanted.** Every tangent through
+ * that corner runs between 90° and 33°, so nothing there is below the sliding angle — but it moves
+ * the curve to the wrong end of the funnel.
+ *
+ * ⚠ **Both the art and the Matter walls are built from this one function.** That is the other half
+ * of why the 2026-08-19 attempt failed: the curve was drawn and the wall left straight, so the
+ * marbles slid down an invisible line with a band of white between them and the surface they were
+ * supposed to be resting on. Whatever shape this returns, the picture and the physics agree.
+ */
+export function funnelSide(side: -1 | 1, steps = 16): Array<{ x: number; y: number }> {
+  const mx = side < 0 ? FUNNEL_WALL_L : FUNNEL_WALL_R;
+  const nx = side < 0 ? FUNNEL_NECK_L : FUNNEL_NECK_R;
+  const top = FUNNEL_TOP;
+  const coneY = FUNNEL_TOP + FUNNEL_CONE_DROP;
+  const dx = nx - mx, dy = coneY - top;
+  /**
+   * The bowl. A quadratic Bezier whose control point sits **below and outside** the straight line,
+   * so the wall leaves the mouth steeper than average and eases off as it nears the throat.
+   *
+   * ⚠ **What governs this is the LENGTH of the too-shallow stretch, not its angle**, and getting
+   * that wrong is what put a defect in front of the player. A pair at 0.32 / 0.95 was chosen against
+   * a criterion that only constrained chords **above** the drain line, on the argument that
+   * `drainFunnel` rescues anything below it. It does — for *reaching the belt*. It says nothing about
+   * whether the marbles sit still while they wait, and that is the half that shows: the last 30px of
+   * that curve ran at 20°, 15°, 10°, 6°, which is a ledge. Marbles rafted on it and shoved each other
+   * back up the cone. Reported from play as *"bi lăn lên trên hoặc ra ngoài đoạn phễu gần cổ"*.
+   *
+   * ⚠ **Counting marbles that move upward cannot tell the shapes apart** — all five candidates, the
+   * defect included, scored 0-1 climbs over 500 frames with the chute loaded to 25 bodies. A pile
+   * jostles, so the metric fires on ordinary bounces. What separates them is static: how much wall
+   * runs below 33°, measured in marble diameters.
+   *
+   * | shape | bulge | shallowest | wall under 33° |
+   * |-------|-------|------------|----------------|
+   * | 0.44 / 0.74 at 42° (shipped before) | 30px | 24.0° | 62px = 2.1 marbles |
+   * | 0.32 / 0.95 at 42° (the defect) | 64px | **6.0°** | 99px = 3.3 marbles |
+   * | **0.02 / 0.44 at 45° (this)** | **42px** | **30.4°** | **54px = 1.8 marbles** |
+   *
+   * So this is 40% more bowl than the shape that was fine and **strictly gentler than it on both
+   * measures at once** — never as shallow, and less of the wall spent down there. The profile falls
+   * smoothly 83.6° → 30.4° with no flat spot anywhere.
+   *
+   * ⚠ **It is bought with `FUNNEL_ANGLE`, not with the control point.** At the old 42° the same two
+   * constraints cap the bulge at 34px, barely more than the 30 it replaces. See that constant.
+   */
+  const CB = { a: 0.02, b: 0.44 };
+  const out: Array<{ x: number; y: number }> = [{ x: mx, y: top }];
+  for (let i = 1; i <= steps; i++) {
+    const t = i / steps, u = 1 - t;
+    out.push({
+      x: u * u * mx + 2 * u * t * (mx + CB.a * dx) + t * t * nx,
+      y: u * u * top + 2 * u * t * (top + CB.b * dy) + t * t * coneY,
+    });
+  }
+  // …then straight down. Vertical is 90°, so the throat can never be the stretch a marble stops on.
+  out.push({ x: nx, y: FUNNEL_TOP + FUNNEL_DROP });
+  return out;
+}
+
 export function slotPos(i: number, frac: number): BeltPoint {
   return beltPointAt(BELT_ENTRY_D + (i + frac) * BELT_SPACING);
 }

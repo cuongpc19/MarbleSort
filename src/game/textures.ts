@@ -18,11 +18,60 @@ export const TS = 2;
 const EGGS = TRAY_N;
 const EGG_COLS = 3;
 
+/**
+ * How much of a piece's height is **body wall** rather than face. What shows under the face is
+ * the piece's own thickness, and it is the only thing separating a box from a coloured bar.
+ *
+ * ⚠ **Measured off the reference machine** (`Manythings/IMG_6564.MP4`), one pixel column down a
+ * yellow box: 1px dark outline, 1px light rim, **20px of dead-flat face**, a 7px ramp, 2px dark
+ * outline. 32px tall — so the wall is 22% of the piece and the first attempt at this was already
+ * the right *depth*. What made it read heavy was every other decision:
+ *
+ * - ⚠ **The ramp changes hue, it does not darken.** Theirs runs (253,253,0) to (237,170,4): red
+ *   is untouched and only green falls, i.e. yellow rolling into amber. Ending it below `sw.dark`
+ *   — the first version went to `shade(dark, -0.34)` — turns a lit surface into a shadow, and a
+ *   shadow under every one of forty pieces is what "nặng nề" means. **Stop at `sw.dark`.**
+ * - ⚠ **The face is flat.** 20 of their 32 rows are the same three bytes. A gradient down the
+ *   whole face puts its darkest value directly above the wall, so the two read as one large mass
+ *   instead of a face and an edge. Ours keeps a short sheen over the top third and nothing below.
+ * - ⚠ **A crisp 1-2px outline is what buys the slimness.** With a hard edge the wall reads as an
+ *   edge; without one it reads as mass, and no amount of lightening the ramp fixes that. It is
+ *   also why the first version needed a side vignette and a seam line to look solid — both are
+ *   ink spent standing in for an outline, and both are gone.
+ */
+const BOX_LIP = 11;
+const TRAY_LIP = 10;
+
+/** Outline weight, and the tone of it against the piece's own swatch. */
+const OUT = 1.3;
+const outlineOf = (dark: number) => shade(dark, -0.3);
+
+/** The coloured face of a box — the part above its body wall. */
+export const BOX_FACE_H = L.box.h - BOX_LIP;
+
 /** Hole geometry for the active box — shared with GameScene so the marbles land in them. */
 export const HOLE_R = 11;
 export const HOLE_STEP = HOLE_R * 2.6;
+/** ⚠ A hole is an **oval**, not a circle — theirs run about 1.7 wide to 1 tall. */
+const HOLE_RY = HOLE_R * 0.8;
+
+/**
+ * Centre y of the holes inside a box sprite. ⚠ Exported because `GameScene.holePos` has to land
+ * its marbles in them: the two used to carry the same `h / 2 - 2` written out twice, which was
+ * only ever right while the face filled the sprite. It no longer does.
+ */
+export const HOLE_CY = BOX_FACE_H / 2 + 1;
 
 const hex = (n: number) => "#" + n.toString(16).padStart(6, "0");
+
+/** Lighten (`k > 0`) or darken (`k < 0`) a palette colour, for the tones between the swatches. */
+const shade = (n: number, k: number) => {
+  const ch = (sh: number) => {
+    const v = (n >> sh) & 255;
+    return Math.round(k < 0 ? v * (1 + k) : v + (255 - v) * k);
+  };
+  return "#" + ((ch(16) << 16) | (ch(8) << 8) | ch(0)).toString(16).padStart(6, "0");
+};
 
 function rr(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
   const k = Math.min(r, w / 2, h / 2);
@@ -154,26 +203,40 @@ export function bakeAll(scene: Phaser.Scene) {
       raised: boolean,
       cells = 1,
     ) => {
-      ctx.fillStyle = hex(sw.dark);
-      rr(ctx, 1, 4, w - 2, h - 4, 13);
+      const faceH = h - TRAY_LIP;
+      const face = () => rr(ctx, OUT, 1 + OUT, w - OUT * 2, faceH - OUT, 13);
+      // Outline first, over the whole silhouette; everything after it is drawn inside.
+      ctx.fillStyle = outlineOf(sw.dark);
+      rr(ctx, 0, 1, w, h - 1, 14);
       ctx.fill();
-      const g = ctx.createLinearGradient(0, 0, 0, h);
+      // The wall: one ramp from the face's own colour to `sw.dark`, and no further. It is the
+      // piece rolling away from the light, not a shadow under it.
+      const wall = ctx.createLinearGradient(0, faceH - 1, 0, h - OUT);
+      wall.addColorStop(0, hex(sw.base));
+      wall.addColorStop(1, hex(sw.dark));
+      ctx.fillStyle = wall;
+      rr(ctx, OUT, 1 + OUT, w - OUT * 2, h - 1 - OUT * 2, 13);
+      ctx.fill();
+      // The face, flat but for a sheen over the top third. ⚠ Run the gradient the whole way down
+      // and its darkest value lands directly on the wall, so face and wall read as one mass.
+      const g = ctx.createLinearGradient(0, 0, 0, faceH * 0.45);
       g.addColorStop(0, hex(raised ? sw.light : sw.base));
-      g.addColorStop(0.5, hex(sw.base));
-      g.addColorStop(1, hex(raised ? sw.base : sw.dark));
+      g.addColorStop(1, hex(sw.base));
       ctx.fillStyle = g;
-      rr(ctx, 1, 1, w - 2, h - 7, 13);
+      face();
       ctx.fill();
 
       const eggCols = EGG_COLS * cells;
       const rows = Math.ceil(EGGS / EGG_COLS);
       const er = 6.2;
+      // ⚠ Measured from `faceH`, not from the sprite: the eggs belong on the face and the wall is
+      // not part of it. Off the sprite they straddle the seam and the bottom row sits on the wall.
       const spanX = (w - 16) / eggCols;
-      const spanY = (h - 22) / rows;
+      const spanY = (faceH - 10) / rows;
       if (raised) {
         for (let i = 0; i < EGGS * cells; i++) {
           const cx = 8 + spanX * ((i % eggCols) + 0.5);
-          const cy = 8 + spanY * (((i / eggCols) | 0) + 0.5);
+          const cy = 6 + spanY * (((i / eggCols) | 0) + 0.5);
           // Cast down-right, then light up-left: the pair is what sells the bulge.
           ctx.globalAlpha = 0.5;
           ctx.fillStyle = hex(sw.dark);
@@ -195,16 +258,22 @@ export function bakeAll(scene: Phaser.Scene) {
         // a tray whose eggs happen to be badly lit.
         ctx.globalAlpha = 0.22;
         ctx.fillStyle = hex(sw.dark);
-        rr(ctx, 7, 6, w - 14, h - 18, 9);
+        rr(ctx, 8, 7, w - 16, faceH - 14, 9);
         ctx.fill();
         ctx.globalAlpha = 1;
       }
-      ctx.strokeStyle = hex(sw.dark);
-      ctx.globalAlpha = raised ? 0.55 : 0.75;
+      // A light rim along the **top edge only** — one pixel of it in the reference, and it is what
+      // makes a flat face read as the top of something. Stroked all the way round it is a second
+      // outline, and two outlines is most of the heaviness this replaced.
+      ctx.save();
+      face();
+      ctx.clip();
+      ctx.globalAlpha = 0.45;
+      ctx.strokeStyle = shade(sw.light, 0.45);
       ctx.lineWidth = 2;
-      rr(ctx, 2, 2, w - 4, h - 8, 12);
+      rr(ctx, OUT + 1, 2 + OUT, w - OUT * 2 - 2, faceH, 12);
       ctx.stroke();
-      ctx.globalAlpha = 1;
+      ctx.restore();
     };
     bake(scene, K.tray(c, true), L.cell, L.cell, (ctx, w, h) => trayFace(ctx, w, h, true));
     bake(scene, K.tray(c, false), L.cell, L.cell, (ctx, w, h) => trayFace(ctx, w, h, false));
@@ -218,47 +287,58 @@ export function bakeAll(scene: Phaser.Scene) {
     // holes showing. Only the top box of a column is ever drawn open.
     const bw = L.box.w;
     const bh = L.box.h;
+    const faceH = BOX_FACE_H;
+    const boxFace = (ctx: CanvasRenderingContext2D) =>
+      rr(ctx, OUT, OUT, bw - OUT * 2, faceH - OUT, 10);
     const drawBody = (ctx: CanvasRenderingContext2D) => {
-      ctx.fillStyle = hex(sw.dark);
-      rr(ctx, 1, 3, bw - 2, bh - 3, 10);
+      ctx.fillStyle = outlineOf(sw.dark);
+      rr(ctx, 0, 0, bw, bh, 11);
       ctx.fill();
-      // ⚠ The light stop runs to 0.7, not 0.35, and the inner stroke is softer than the tray's.
-      // A box is a flat bar and a tray is nine raised eggs with a highlight on each, so the same
-      // swatch drawn the same way reads *darker* on the box — measured over the whole sprite,
-      // orange came out #ff8e1a against the tray's #fc9d39. Reported from real play as the box
-      // orange being darker than the tray orange, and the palette was identical: the eggs were
-      // doing it. Match the mean lightness rather than the stops.
-      const g = ctx.createLinearGradient(0, 0, 0, bh);
+      const wall = ctx.createLinearGradient(0, faceH - 1, 0, bh - OUT);
+      wall.addColorStop(0, hex(sw.base));
+      wall.addColorStop(1, hex(sw.dark));
+      ctx.fillStyle = wall;
+      rr(ctx, OUT, OUT, bw - OUT * 2, bh - OUT * 2, 10);
+      ctx.fill();
+      // ⚠ The sheen runs over the top 45% and the face is flat below it. It used to run the whole
+      // height, and the note it replaces is still the reason the two pieces must be drawn the same
+      // way: a box is a flat bar and a tray is nine lit eggs, so one swatch drawn identically
+      // reads *darker* on the box — orange measured #ff8e1a against the tray's #fc9d39, and was
+      // reported from real play. Match the **mean** lightness, which means matching the recipe:
+      // same sheen fraction, same wall ramp, same outline on both.
+      const g = ctx.createLinearGradient(0, 0, 0, faceH * 0.45);
       g.addColorStop(0, hex(sw.light));
-      g.addColorStop(0.7, hex(sw.base));
       g.addColorStop(1, hex(sw.base));
       ctx.fillStyle = g;
-      rr(ctx, 1, 1, bw - 2, bh - 6, 10);
+      boxFace(ctx);
       ctx.fill();
-      ctx.strokeStyle = hex(sw.dark);
-      ctx.globalAlpha = 0.35;
+      ctx.save();
+      boxFace(ctx);
+      ctx.clip();
+      ctx.globalAlpha = 0.45;
+      ctx.strokeStyle = shade(sw.light, 0.45);
       ctx.lineWidth = 2;
-      rr(ctx, 2, 2, bw - 4, bh - 7, 9);
+      rr(ctx, OUT + 1, OUT + 1, bw - OUT * 2 - 2, faceH, 9);
       ctx.stroke();
-      ctx.globalAlpha = 1;
+      ctx.restore();
     };
     bake(scene, K.box(c), bw, bh, drawBody);
     bake(scene, K.boxOpen(c), bw, bh, (ctx) => {
       drawBody(ctx);
-      const hr = HOLE_R;
+      // ⚠ A **recess, not a punched hole**, and it was the single heaviest mark left on the piece.
+      // Measured down the reference's blue box: the hole runs (0,96,194) at its top to (0,122,220)
+      // at its foot against a (23,177,255) face — 0.55x rising to **0.70x**, i.e. lighter toward
+      // the bottom, where light bounces back out of it. `sw.dark` under 35% black is 0.40x flat
+      // all the way through, which reads as a dot painted on rather than a socket cut in.
       for (let i = 0; i < BOX_SLOTS; i++) {
         const cx = bw / 2 + (i - (BOX_SLOTS - 1) / 2) * HOLE_STEP;
-        const cy = bh / 2 - 2;
-        ctx.fillStyle = hex(sw.dark);
+        const pit = ctx.createLinearGradient(0, HOLE_CY - HOLE_RY, 0, HOLE_CY + HOLE_RY);
+        pit.addColorStop(0, shade(sw.dark, -0.16));
+        pit.addColorStop(1, shade(sw.dark, 0.16));
+        ctx.fillStyle = pit;
         ctx.beginPath();
-        ctx.arc(cx, cy, hr, 0, Math.PI * 2);
+        ctx.ellipse(cx, HOLE_CY, HOLE_R, HOLE_RY, 0, 0, Math.PI * 2);
         ctx.fill();
-        ctx.globalAlpha = 0.35;
-        ctx.fillStyle = "#000000";
-        ctx.beginPath();
-        ctx.arc(cx, cy + 1, hr - 1.5, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.globalAlpha = 1;
       }
     });
   });
@@ -315,20 +395,29 @@ export function bakeAll(scene: Phaser.Scene) {
 
   // A tile whose colour is still unknown. Cannot be tapped, so it reads as inert grey.
   bake(scene, K.trayHidden, L.cell, L.cell, (ctx, w, h) => {
-    ctx.fillStyle = "#5d6b85";
-    rr(ctx, 1, 4, w - 2, h - 4, 13);
+    // ⚠ Same body wall as a coloured tray, in grey. A face-down tray sitting flat beside pieces
+    // with visible thickness reads as a hole in the board rather than as a tray.
+    const faceH = h - TRAY_LIP;
+    ctx.fillStyle = "#414c60";
+    rr(ctx, 0, 1, w, h - 1, 14);
     ctx.fill();
-    const g = ctx.createLinearGradient(0, 0, 0, h);
-    g.addColorStop(0, "#8d9bb4");
-    g.addColorStop(1, "#75839c");
+    const wall = ctx.createLinearGradient(0, faceH - 1, 0, h - OUT);
+    wall.addColorStop(0, "#8d9bb4");
+    wall.addColorStop(1, "#5d6b85");
+    ctx.fillStyle = wall;
+    rr(ctx, OUT, 1 + OUT, w - OUT * 2, h - 1 - OUT * 2, 13);
+    ctx.fill();
+    const g = ctx.createLinearGradient(0, 0, 0, faceH * 0.45);
+    g.addColorStop(0, "#a3b0c6");
+    g.addColorStop(1, "#8d9bb4");
     ctx.fillStyle = g;
-    rr(ctx, 1, 1, w - 2, h - 7, 13);
+    rr(ctx, OUT, 1 + OUT, w - OUT * 2, faceH - OUT, 13);
     ctx.fill();
     ctx.fillStyle = "#dfe6f5";
-    ctx.font = `700 ${Math.round(h * 0.52)}px "Lilita One", Arial, sans-serif`;
+    ctx.font = `700 ${Math.round(faceH * 0.6)}px "Lilita One", Arial, sans-serif`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText("?", w / 2, h / 2 - 1);
+    ctx.fillText("?", w / 2, faceH / 2);
   });
 
   // Empty grid slot.
@@ -446,20 +535,27 @@ export function bakeAll(scene: Phaser.Scene) {
 
   // A box whose colour has not been revealed yet.
   bake(scene, K.boxHidden, L.box.w, L.box.h, (ctx, w, h) => {
-    ctx.fillStyle = "#4a5470";
-    rr(ctx, 1, 3, w - 2, h - 3, 10);
+    const faceH = BOX_FACE_H;
+    ctx.fillStyle = "#333b4f";
+    rr(ctx, 0, 0, w, h, 11);
     ctx.fill();
-    const g = ctx.createLinearGradient(0, 0, 0, h);
-    g.addColorStop(0, "#8b96b0");
-    g.addColorStop(1, "#6a7591");
+    const wall = ctx.createLinearGradient(0, faceH - 1, 0, h - OUT);
+    wall.addColorStop(0, "#8b96b0");
+    wall.addColorStop(1, "#4a5470");
+    ctx.fillStyle = wall;
+    rr(ctx, OUT, OUT, w - OUT * 2, h - OUT * 2, 10);
+    ctx.fill();
+    const g = ctx.createLinearGradient(0, 0, 0, faceH * 0.45);
+    g.addColorStop(0, "#a1abc2");
+    g.addColorStop(1, "#8b96b0");
     ctx.fillStyle = g;
-    rr(ctx, 1, 1, w - 2, h - 6, 10);
+    rr(ctx, OUT, OUT, w - OUT * 2, faceH - OUT, 10);
     ctx.fill();
     ctx.fillStyle = "#e4ebf8";
-    ctx.font = `700 ${Math.round(h * 0.62)}px "Lilita One", Arial, sans-serif`;
+    ctx.font = `700 ${Math.round(faceH * 0.72)}px "Lilita One", Arial, sans-serif`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText("?", w / 2, h / 2 - 2);
+    ctx.fillText("?", w / 2, HOLE_CY);
   });
 
   // The x2 bar. Bolted across two cells, and everything standing above it drops double —

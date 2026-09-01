@@ -30,7 +30,7 @@ import {
   gridMetrics,
   type GridMetrics,
   slotPos,
-  type Color,
+  type Color,  funnelSide,
 } from "../game/config";
 import { Game, boardBounds, hint, levelFingerprint, starsFor, type RevivePick, type TickEvents } from "../game/logic";
 import { Tutorial } from "./tutorial";
@@ -49,11 +49,11 @@ import { loadCustom, toLevelDef } from "../game/custom";
 import { save } from "../game/save";
 import { clearRuns, copyToClipboard, exportJsonl, saveRun, summary, uploadRuns } from "../game/playlog";
 import { openPrivacyPolicy } from "../game/privacy";
-import { sendRun, sendStart } from "../game/telemetry";
+import { sendRun, sendStart, sendSteps } from "../game/telemetry";
 import { Replay } from "../game/replay";
 import { startAnalytics, track } from "../game/analytics";
 import { sfx } from "../game/audio";
-import { HOLE_STEP, K, TS, bakeAll, img } from "../game/textures";
+import { BOX_FACE_H, HOLE_CY, HOLE_STEP, K, TS, bakeAll, img } from "../game/textures";
 import { dismissBootSplash, matchPageToCanvas, pageBackdrop } from "../game/bootsplash";
 import { MagnetTutor } from "./magnetTutor";
 import { teachAll } from "../game/teach";
@@ -152,6 +152,20 @@ interface Falling {
 const CHUTE_TIMEOUT_MS = 6000;
 
 /**
+ * How long the last box's clear is left on screen before the results card goes up.
+ *
+ * ⚠ **The win lands on the same tick the final box pops**, so `finish()` called straight from the
+ * tick puts the dimmer and the card over a burst that has not started drawing yet — the player taps
+ * the level's last tray and the thing they were working toward is hidden by the screen announcing
+ * it. Half a second is what the burst needs.
+ *
+ * It cannot fire twice: `onTick` returns early once `board.status` leaves "play". And `resetLevel`
+ * clears every timer, so leaving the level during the pause drops it rather than firing it into a
+ * rebuilt board.
+ */
+const WIN_CARD_DELAY_MS = 500;
+
+/**
  * Air drag applied only below L.funnel.brake. Drag alone sets the terminal speed, so no
  * velocity clamping is needed — but it has to leave the marbles genuinely rolling: too much
  * and they stall on the slope instead of reaching the neck and the rail.
@@ -215,6 +229,24 @@ export class GameScene extends Phaser.Scene {
   private tickMs = TICK_MS;
   private lastClackAt = 0;
   private levelStart = 0;
+  /**
+   * Holes whose marble is still in the air on its way in, keyed `col * BOX_SLOTS + hole`.
+   *
+   * ⚠ Not to be confused with `falling`, which is the marbles tumbling down the CHUTE on physics.
+   * Two different flights at two different ends of the machine; one name for both would be read as
+   * the same thing by whoever touches this next.
+   *
+   * ⚠ Cleared when the tween lands, and rebuilt from nothing on every level: a stale entry here
+   * leaves a hole permanently blank while the model says it is full, which reads as the box having
+   * lost a marble. Emptied in `resetLevel` for that reason, not just for tidiness.
+   */
+  private seating: number[] = [];
+  /**
+   * Taps already reported to `/steps` for this attempt, so leaving the page twice does not file
+   * the same row twice. -1 rather than 0: a player who leaves without tapping at ALL is the single
+   * most interesting row this whole channel exists to capture, and 0 would suppress it.
+   */
+  private stepsSent = -1;
   /**
    * Which go at this level this is, 1 for the first. Read from the save at level start and held
    * here so `finish()` cannot count itself — it is the number of goes *including* this one.
@@ -356,9 +388,71 @@ export class GameScene extends Phaser.Scene {
     // several ways off this scene — the win card, the lose card, the pause menu, the home
     // button — and the one that gets missed leaves the host believing a turn is still running,
     // so it never shows an ad. `once` rather than `on`: `create` runs again on every restart.
+    /**
+     * Report how far a level-1 attempt got, at the moment the player leaves the page.
+     *
+     * ⚠ **This is the only record an abandoned attempt will ever produce.** `finish()` writes the
+     * taps, the length and the moves; a player who closes the tab never reaches it, so a quarter of
+     * level-1 entries currently leave nothing but "they arrived". 88% of those devices are never
+     * seen again — the largest single loss in the funnel, and invisible.
+     *
+     * ⚠ **`visibilitychange` AND `pagehide`.** On mobile a tab is very often frozen rather than
+     * unloaded, so `pagehide` alone misses most of them; on desktop a close can skip
+     * `visibilitychange`. Neither is reliable on its own and both are cheap.
+     *
+     * ⚠ **Only while a game is actually running.** `paused` covers the pause menu, the win card and
+     * the lose card — a finished level already has its end row and must not also file an
+     * abandonment, or every completed game would look like one.
+     */
+    /**
+     * Has this page ever actually been on screen?
+     *
+     * ⚠ **Without this the channel reports tabs that were never looked at.** A headless run produced
+     * four rows of `taps 0, ms 0` — fired the instant the board opened, because the page was hidden
+     * the whole time and never became visible. The same shape is waiting in production: a host that
+     * preloads the game in a hidden iframe before the player has clicked anything would file an
+     * "abandoned at level 1, poured nothing" row for every impression. That is not a player leaving,
+     * it is a page that was never shown, and mixing the two would make the number useless in exactly
+     * the direction that flatters a wrong conclusion.
+     */
+    let everSeen = document.visibilityState === "visible";
+    const reportSteps = () => {
+      if (this.custom || this.level !== 1) return;
+      if (!everSeen) return;
+      if (this.paused || this.board.status !== "play") return;
+      const taps = this.board.taps;
+      // ⚠ Nothing new since the last report means nothing to say. A player switching tabs back and
+      // forth would otherwise file the same row a dozen times.
+      if (taps === this.stepsSent) return;
+      this.stepsSent = taps;
+      sendSteps({
+        lvl: this.level,
+        sig: levelFingerprint(this.board.def),
+        taps,
+        ms: Math.round(this.time.now - this.levelStart),
+        peak: this.board.maxBelt,
+        belt: this.board.beltUsed(),
+        left: this.board.tiles.filter(Boolean).length,
+        rep: this.replay.toString(),
+      });
+    };
+    const onHide = () => {
+      if (document.visibilityState === "visible") {
+        everSeen = true;
+        return;
+      }
+      reportSteps();
+    };
+    document.addEventListener("visibilitychange", onHide);
+    window.addEventListener("pagehide", reportSteps);
+
     this.events.once("shutdown", () => {
       this._paused = true;
       platform.gameplayStop();
+      // ⚠ Removed here or they stack up one pair per level played, and every one of them holds this
+      // scene alive. The same mistake the Matter `collisionstart` listener is warned about.
+      document.removeEventListener("visibilitychange", onHide);
+      window.removeEventListener("pagehide", reportSteps);
       // Its tweens loop forever and its timer fires on a scene that is going away.
       this.tutorial?.destroy();
       this.tutorial = null;
@@ -558,6 +652,11 @@ export class GameScene extends Phaser.Scene {
     this.board = new Game(scratch ? toLevelDef(scratch, this.level) : levelDefFor(this.level));
     this.replay = new Replay();
     this.board.rec = this.replay;
+    this.seating = [];
+    // ⚠ Per ATTEMPT, not per scene. `resetLevel` runs again on a retry without the scene being
+    // recreated, so leaving this alone would let the previous attempt's tap count suppress the new
+    // one's report — and a retry is exactly when somebody is about to give up.
+    this.stepsSent = -1;
     this.gm = gridMetrics(this.board.cols, this.board.rows, boardBounds(this.board.def));
 
     this.cameras.main.setBackgroundColor(UI.bg);
@@ -685,27 +784,43 @@ export class GameScene extends Phaser.Scene {
      * them and the wall they were supposed to be touching. It also did not look like the reference,
      * which is a shorter funnel, not a curved one.
      */
+    // ⚠ Drawn from `funnelSide`, the same polyline `buildWalls` turns into Matter bodies. The last
+    // point is dropped and replaced by `neckY + 16` so the throat runs on into the belt housing —
+    // the physics floor is at `neckY`, the picture has to continue past it or marbles arrive on the
+    // rail out of a gap of empty machine.
+    const sideL = funnelSide(-1);
+    const sideR = funnelSide(1);
+    const trace = (pts: Array<{ x: number; y: number }>, from: number) => {
+      for (let i = from; i < pts.length - 1; i++) g.lineTo(pts[i].x, pts[i].y);
+      g.lineTo(pts[pts.length - 1].x, f.neckY + 16);
+    };
+    /**
+     * ⚠ **The outline starts where the round starts, not at `shoulder`.** The round begins 34px up
+     * the vertical wall, which is *above* the shoulder line — so beginning the path at `shoulder`
+     * and then tracing to the first point drew a 28px spur running back up the wall, and it showed
+     * as a notch cut out of both mouths. Everything above the shoulder is painted over by
+     * `drawGridCavity` a few lines later, so starting higher costs nothing and the path only ever
+     * runs downward.
+     */
+    const topY = sideL[0].y;
     g.fillStyle(0xeef3fb, 1);
     g.beginPath();
-    g.moveTo(f.mouthL, f.shoulder);
-    g.lineTo(f.mouthR, f.shoulder);
-    g.lineTo(f.mouthR, f.top);
-    g.lineTo(f.neckR, f.neckY + 16);
-    g.lineTo(f.neckL, f.neckY + 16);
-    g.lineTo(f.mouthL, f.top);
+    g.moveTo(f.mouthL, topY);
+    g.lineTo(f.mouthR, topY);
+    trace(sideR, 0);
+    for (let i = sideL.length - 1; i >= 0; i--) {
+      if (i === sideL.length - 1) g.lineTo(sideL[i].x, f.neckY + 16);
+      else g.lineTo(sideL[i].x, sideL[i].y);
+    }
     g.closePath();
     g.fillPath();
     g.lineStyle(5, UI.machineEdge, 1);
-    g.beginPath();
-    g.moveTo(f.mouthL, f.shoulder);
-    g.lineTo(f.mouthL, f.top);
-    g.lineTo(f.neckL, f.neckY + 16);
-    g.strokePath();
-    g.beginPath();
-    g.moveTo(f.mouthR, f.shoulder);
-    g.lineTo(f.mouthR, f.top);
-    g.lineTo(f.neckR, f.neckY + 16);
-    g.strokePath();
+    for (const pts of [sideL, sideR]) {
+      g.beginPath();
+      g.moveTo(pts[0].x, topY);
+      trace(pts, 0);
+      g.strokePath();
+    }
 
     // Cavity last, over the funnel: where the board reaches the bottom row its floor *is* the
     // top of the chute, and that only reads if the white runs through uninterrupted.
@@ -717,6 +832,65 @@ export class GameScene extends Phaser.Scene {
   private buildBeltHousing() {
     const b = L.belt;
     const g = this.add.graphics();
+
+    /**
+     * **The belt and the box well are one block**, drawn here, before the belt housing goes on top
+     * of it.
+     *
+     * ⚠ They used to be two: a chrome stadium for the rail, then a separate white-and-slate recess
+     * starting 10px below it for the boxes. Two rounded shapes a hair apart read as two parts that
+     * failed to meet, not as one machine — and the boxes are where the rail's marbles *go*, so the
+     * seam was drawn across the one relationship the bottom of the machine is about.
+     *
+     * ⚠ **Drawn into `g` before the housing**, not as its own Graphics added afterwards. The well
+     * used to be added to `root` after this method's `g`, which put it *over* the rail — fine while
+     * it started below the rail, and it would cover it now. Same object, drawn first: the ordering
+     * cannot then drift apart from the geometry.
+     */
+    const blockTop = b.cy - b.shell - 8;
+    const blockH = L.machine.y + L.machine.h - blockTop;
+    const bx = L.machine.x + 10;
+    const bw = L.machine.w - 20;
+    g.fillStyle(UI.panelDeep, 1);
+    g.fillRoundedRect(bx - 7, blockTop - 7, bw + 14, blockH + 7, 34);
+    g.fillStyle(UI.panel, 1);
+    g.fillRoundedRect(bx, blockTop, bw, blockH, 28);
+    /**
+     * **The neck's two walls are the only thing that crosses onto the block, and they stop at its
+     * rim.** `funnelSide` already runs them 16px past the neck floor, which is 4px into the block,
+     * so the block's own slate rim paints over the last of them: the walls come down out of the cone
+     * and land on the bar, and nothing is drawn below it.
+     *
+     * ⚠ **Two pieces of furniture used to sit here and both were reported as stray marks.** The rim
+     * was *cut* between the walls with a white rounded rect, to say the throat was open — but the
+     * cut is 0xf4f7fd against the chute's 0xeef3fb, so it read as a brighter white hump sitting in
+     * the opening rather than as a hole. And the walls were then re-stroked from the neck floor down
+     * to the block's white, which put two blunt 5px tails through the rim and out the other side.
+     * Together they made the join look like two parts that had failed to meet, which is the opposite
+     * of what each was added for.
+     *
+     * ⚠ **The rim runs unbroken under the throat now, and that is the reference machine's own
+     * arrangement** — its chute walls simply land on a continuous bar. Marbles pass through in front
+     * of it, which is what says the throat is open; the drawing does not have to say it twice.
+     *
+     * ⚠ **A carved fillet was tried here too and reverted.** Fill the corner with slate, then punch
+     * a white disc out of it — the standard way to draw a concave curve. It failed for a reason
+     * worth writing down: the disc has to be centred *outside* the corner, which puts it above the
+     * block on the funnel's own near-white, and `UI.panel` is not that white. The result was two
+     * visible white blobs sitting in the chute with the neck walls erased underneath them. Anything
+     * drawn here has to stay inside the block's own paint, or it draws on a surface it does not own.
+     */
+    // The channels the columns drop into, still marked — they are what says a box belongs to a
+    // column rather than floating in the block.
+    // ⚠ Measured **to the block's own foot**, not given the block's full height from a lower start —
+    // that overhangs by exactly the distance from the block's top to the first box and paints the
+    // channel outside the rounded corner, onto the cabinet below.
+    const chanTop = L.box.top - 4;
+    for (let j = 0; j < BOX_COLS; j++) {
+      g.fillStyle(UI.panelDeep, 0.22);
+      g.fillRoundedRect(boxColX(j) - L.box.w / 2 - 3, chanTop, L.box.w + 6, blockTop + blockH - chanTop, 12);
+    }
+
     const ow = 2 * (b.hx + b.shell);
     const oh = 2 * b.shell;
     g.fillStyle(UI.machineEdge, 1).fillRoundedRect(
@@ -745,26 +919,10 @@ export class GameScene extends Phaser.Scene {
     g.fillStyle(UI.chrome, 1).fillRoundedRect(b.cx - b.hx - 6, b.cy - 5, 2 * b.hx + 12, 10, 5);
     this.root.add(g);
 
-    // Recessed well the box columns drop into.
-    const wellTop = L.box.top - 12;
-    // White floor with a slate lip, the same two tones as the tray cavity — the machine has one
-    // recess treatment and both ends of it should be the same material.
-    const well = this.add.graphics();
-    const wx = L.machine.x + 10;
-    const ww = L.machine.w - 20;
-    // ⚠ The well ends with the cabinet, not at the canvas edge. It used to run to `GAME_H` because
-    // the two happened to coincide; once the machine rides up for the hidden booster row they do
-    // not, and a well drawn past the cabinet's own bottom hangs out below it.
-    const wellH = L.machine.y + L.machine.h - wellTop;
-    well.fillStyle(UI.panelDeep, 1);
-    well.fillRoundedRect(wx - 7, wellTop - 7, ww + 14, wellH, 32);
-    well.fillStyle(UI.panel, 1);
-    well.fillRoundedRect(wx, wellTop, ww, wellH, 26);
-    for (let j = 0; j < BOX_COLS; j++) {
-      well.fillStyle(UI.panelDeep, 0.22);
-      well.fillRoundedRect(boxColX(j) - L.box.w / 2 - 3, wellTop + 8, L.box.w + 6, wellH - 8, 12);
-    }
-    this.root.add(well);
+    // ⚠ The well's own frame is gone — it is drawn at the top of this method as one block with the
+    // rail. What used to be here was a second rounded recess starting just above `L.box.top`, and
+    // both cannot exist: the block already covers this ground, so leaving the old one in would draw
+    // its slate lip straight across the middle of the block and put the seam back.
 
     /**
      * ⚠ **Do not clip the columns with a geometry mask.** It was tried, to stop the deepest box
@@ -796,6 +954,8 @@ export class GameScene extends Phaser.Scene {
     const gm = this.gm;
     const m = L.machine;
     const RIM = 9;
+    /** How far the throat's lower corners are eased where the board opens into the chute. */
+    const MOUTH_R = 8;
     const PAD = 12;
     const R = 20;
     const cellX = (i: number) => gm.x + (i % b.cols) * gm.pitch + gm.cell / 2;
@@ -827,7 +987,9 @@ export class GameScene extends Phaser.Scene {
       mouth < 0 ? 0 : L.funnel.shoulder + extra - (cellY(mouth * b.cols) - gm.cell / 2 - grow);
 
     for (const [grow, colour, radius, extra] of [
-      [PAD + RIM, UI.panelDeep, R + RIM, 2],
+      // ⚠ The rim stops AT the shoulder now, not 2px past it. Anything it draws below that line is
+      // slate inside the funnel, and the funnel is where the board stops being a board.
+      [PAD + RIM, UI.panelDeep, R + RIM, 0],
       // The fill runs deeper than the rim by more than the rim is thick, so the rim's own
       // bottom edge — and its rounded bottom corners — end up underneath it and the throat
       // stays open.
@@ -838,8 +1000,23 @@ export class GameScene extends Phaser.Scene {
       const tall = Math.max(half * 2, drop(grow, extra));
       for (let i = 0; i < b.cols * b.rows; i++) {
         if (b.wall[i]) continue;
-        const h = ((i / b.cols) | 0) === mouth ? tall : half * 2;
-        g.fillRoundedRect(cellX(i) - half, cellY(i) - half, half * 2, h, radius);
+        const onMouth = ((i / b.cols) | 0) === mouth;
+        const h = onMouth ? tall : half * 2;
+        /**
+         * ⚠ **The mouth row gets its own, much smaller bottom radius.** At the cell radius the
+         * throat ended in a rounded tab hanging below the shoulder — a little capsule floating in
+         * the top of the funnel, which is what it looked like and was reported as. Square was the
+         * other extreme and read as a hole punched with a chisel. `MOUTH_R` is the compromise: a
+         * corner that is eased rather than turned, on an edge that is a *cut through a floor*
+         * rather than the side of a panel.
+         */
+        g.fillRoundedRect(
+          cellX(i) - half,
+          cellY(i) - half,
+          half * 2,
+          h,
+          onMouth ? { tl: radius, tr: radius, bl: MOUTH_R, br: MOUTH_R } : radius,
+        );
       }
     }
   }
@@ -963,23 +1140,47 @@ export class GameScene extends Phaser.Scene {
    */
   private buildWalls() {
     const f = L.funnel;
-    const wall = (x1: number, y1: number, x2: number, y2: number) => {
+    /**
+     * A static wall along a segment.
+     *
+     * ⚠ **`push` moves the slab so its INNER FACE lands on the line, instead of its centre.** The
+     * bodies are 16px thick and were centred on the line they describe, so every surface here was
+     * really 8px inside where the drawing put it — and the two sides of the neck therefore left a
+     * gap 16px narrower than the number in `config`. It went unnoticed while the neck was 44 (a
+     * real 28px against a 30px marble — already too tight to pass, and the marbles only got through
+     * because the cone walls met at an angle rather than squarely). Narrowing the neck to 36 closed
+     * it to 20px, the marbles piled up on the slope and the level hung with a full chute and an
+     * empty rail. The number in `config` must be the number the marbles see.
+     */
+    const wall = (x1: number, y1: number, x2: number, y2: number, push = 0) => {
       const len = Math.hypot(x2 - x1, y2 - y1);
-      this.matter.add.rectangle((x1 + x2) / 2, (y1 + y2) / 2, len, 16, {
+      const a = Math.atan2(y2 - y1, x2 - x1);
+      // Normal to the segment, pushed by half the slab so the face — not the middle — is on the line.
+      const nx = Math.sin(a) * push, ny = -Math.cos(a) * push;
+      this.matter.add.rectangle((x1 + x2) / 2 + nx, (y1 + y2) / 2 + ny, len, 16, {
         isStatic: true,
-        angle: Math.atan2(y2 - y1, x2 - x1),
+        angle: a,
         friction: 0.02,
       });
     };
-    wall(f.mouthL - 6, L.gridPanel.y, f.mouthL - 6, f.top);
-    wall(f.mouthR + 6, L.gridPanel.y, f.mouthR + 6, f.top);
-    wall(f.mouthL, f.top, f.neckL, f.neckY);
-    wall(f.mouthR, f.top, f.neckR, f.neckY);
-    wall(f.neckL - 4, f.neckY, f.neckR + 4, f.neckY);
-    // Short lips either side of the neck so a marble resting on the floor cannot be squeezed
-    // out sideways by the weight of the pile above it.
-    wall(f.neckL, f.neckY - 18, f.neckL, f.neckY);
-    wall(f.neckR, f.neckY - 18, f.neckR, f.neckY);
+    /**
+     * ⚠ **Built from `funnelSide`, the same polyline the art is drawn from.** When the chute was
+     * given a curve once before, the curve was drawn and the wall left straight — so the marbles
+     * slid down an invisible line with a band of white between them and the surface they were
+     * supposed to be resting on. One source, or the picture and the physics describe two chutes.
+     */
+    for (const side of [-1, 1] as const) {
+      const pts = funnelSide(side);
+      // ⚠ `8 * side` pushes each slab outward, away from the chute, so the surface the marbles touch
+      // is the line `funnelSide` describes. `side` is -1 on the left and +1 on the right, and the
+      // segments run downward on both, so one signed number does both walls.
+      const push = 8 * side;
+      wall(pts[0].x, L.gridPanel.y, pts[0].x, pts[0].y, push);
+      for (let i = 1; i < pts.length; i++) wall(pts[i - 1].x, pts[i - 1].y, pts[i].x, pts[i].y, push);
+    }
+    // The floor of the neck, pushed DOWN so its top face is at `neckY` — a marble resting on it sits
+    // where the drawing says the floor is, not 8px into it.
+    wall(f.neckL - 4, f.neckY, f.neckR + 4, f.neckY, -8);
   }
 
   // ── HUD ────────────────────────────────────────────────────────────────────
@@ -1431,7 +1632,8 @@ export class GameScene extends Phaser.Scene {
     if (this.time.now - this.lastTickAt > this.tickMs * 4) this.lastTickAt = this.time.now;
     this.applyEvents(ev);
 
-    if (ev.status === "won") this.finish(true);
+    // ⚠ Delayed, not immediate — see WIN_CARD_DELAY_MS.
+    if (ev.status === "won") this.time.delayedCall(WIN_CARD_DELAY_MS, () => this.finish(true));
     // The rail filled up and nothing on it fits a box — the one position a revive exists for.
     // Offer it *before* `finish`, which writes the play log: a game that carries on is not over,
     // and logging it here would record a loss the player then went on to win.
@@ -1444,30 +1646,96 @@ export class GameScene extends Phaser.Scene {
 
   private applyEvents(ev: TickEvents) {
     for (const m of ev.matched) {
-      const from = slotPos(m.slot, 0);
+      /**
+       * ⚠ **It leaves the rail a slot early, not once it is over the hole.** Spawned at the matched
+       * slot, the ghost had to travel the whole horizontal offset while it fell — and with the drop
+       * now only 42px against a horizontal leg of the same order, a true parabola reads as "slide
+       * across until lined up, then drop". Starting one slot back is where the marble genuinely was
+       * one tick ago, so nothing rewinds: it simply does not take its last step along the belt and
+       * falls from there instead, which is what rolling off the end of a belt looks like.
+       *
+       * ⚠ **Half a slot, 17px, against a 42px fall.** A full slot was 34px and tipped the arc to
+       * about 40 degrees off vertical — a marble thrown sideways rather than one carrying its own
+       * speed off the end of the rail. Half is the shallow, mostly-downward curve that reads as
+       * momentum. Two slots would be a marble leaving the rail nowhere near its column.
+       */
+      const from = slotPos(m.slot, -0.5);
       const ghost = img(this, K.marble(m.color), from.x, from.y);
       this.fxLayer.add(ghost);
       const hole = this.holePos(m.col, m.filled - 1);
+      /**
+       * The marble **falls** off the rail into its hole.
+       *
+       * ⚠ **The two axes need different easings, and one tween cannot give them that.** A single
+       * tween applies its ease to x and y together, so `Quad.easeIn` on both drew a straight
+       * diagonal line that merely got faster — a marble sliding down an invisible wire, which is
+       * what this looked like and was reported as. Real falling is horizontal speed held constant
+       * while vertical speed builds: x linear, y accelerating. That is a parabola, and it is the
+       * only combination that reads as gravity.
+       *
+       * ⚠ `Quad.easeIn` on y is not a stylistic choice — quadratic in time IS constant
+       * acceleration, the same thing Matter does to the marbles in the chute. Anything stronger
+       * (Cubic, Expo) reads as the marble being sucked in rather than dropped.
+       *
+       * ⚠ **260ms**, and it has been walked in from both ends. 150ms was over before the eye could
+       * call it a fall; 300 over a 42px drop was a marble sinking through water; 220 was right for a
+       * full-slot arc and too brisk once the departure was halved — a shorter horizontal run needs
+       * longer in the air for the drift to read as momentum rather than as a jump sideways. Still
+       * inside two ticks, so the rail never visibly outruns the marble that just left it.
+       *
+       * ⚠ These three numbers are one setting: `BALL_CLEAR` fixes the drop, the drop fixes the
+       * duration, and the half-slot only looks like inertia at this ratio. Move the rail-to-box gap
+       * and all three have to be looked at again, or it goes straight back to reading as "slide
+       * across until lined up, then drop".
+       */
+      const FALL_MS = 260;
+      this.tweens.add({ targets: ghost, x: hole.x, duration: FALL_MS, ease: "Linear" });
+      /**
+       * ⚠ **It has to get smaller as it goes in, or it does not go in — it lands on top.** A marble
+       * on the rail is drawn full size and a marble seated in a hole at 0.78, so the ghost arrived
+       * full size and was swapped for a smaller sprite in one frame: a size snap exactly at the
+       * moment the eye is looking for the marble to sink. The shrink is **delayed to the last third**
+       * of the fall, so it drops at its own size and only shrinks as it enters the hole — shrinking
+       * the whole way reads as the marble receding into the distance instead.
+       */
       this.tweens.add({
         targets: ghost,
-        x: hole.x,
+        scale: 0.78 / TS,
+        delay: FALL_MS * 0.62,
+        duration: FALL_MS * 0.38,
+        ease: "Quad.easeIn",
+      });
+      this.tweens.add({
+        targets: ghost,
         y: hole.y,
-        duration: 150,
+        duration: FALL_MS,
         ease: "Quad.easeIn",
         onComplete: () => {
           ghost.destroy();
+          /**
+           * ⚠ **The whole column is held until the marble lands, not just its hole.** The model
+           * fills the hole, pops the box and advances the stack the instant the match happens — so
+           * redrawing the column then swapped in the *next* box while the third marble was still
+           * falling. The box cleared before the marble that cleared it arrived, which is exactly
+           * the "3 marbles should clear the box" complaint: the third one had nothing left to land
+           * in. Holding the column means the falling marble drops into the box it belongs to, and
+           * the clear happens on impact.
+           */
+          this.seating[m.col] = Math.max(0, (this.seating[m.col] ?? 0) - 1);
           this.refreshBoxes();
           this.seatFx(hole.x, hole.y, m.color, m.filled);
+          // ⚠ Fired here, after the marble is in. The burst used to go off on the tick, 300ms
+          // early, so the box flashed and swapped while its last marble was mid-air.
+          if (m.popped) this.popBox(m.col, m.color);
+          if (m.popped) this.refreshFixtures();
         },
       });
+      this.seating[m.col] = (this.seating[m.col] ?? 0) + 1;
       sfx.collect(m.filled / BOX_SLOTS);
-      if (m.popped) this.popBox(m.col, m.color);
     }
     if (ev.matched.length || ev.emitted.length || ev.revealed.length) this.refreshBoxes();
     if (ev.emitted.length || ev.revealed.length || ev.unlocked.length) this.refreshGrid();
     ev.unlocked.forEach((cell) => this.playUnlock(cell));
-    // Any box clear can move a counter, so redraw the fixtures whenever one popped.
-    if (ev.matched.some((m) => m.popped)) this.refreshFixtures();
     ev.opened.forEach((at) => this.playLidOpen(at));
     ev.emitted.forEach((cell) => this.playEmit(cell));
   }
@@ -1604,7 +1872,9 @@ export class GameScene extends Phaser.Scene {
     const run = sfx.boxClear();
     if (run >= COMBO_RUN && run % COMBO_RUN === 0) this.comboFireworks(color);
     const x = boxColX(j);
-    const y = L.box.top + L.box.h / 2;
+    // The face's centre, not the slot's: the burst comes off the holes, and the bottom of the
+    // slot is the box's own wall.
+    const y = L.box.top + BOX_FACE_H / 2;
 
     // Flash first — it covers the frame where the box is swapped out. Kept small and brief:
     // a box clears several times a level, so this has to be a punctuation mark, not an event.
@@ -1787,7 +2057,9 @@ export class GameScene extends Phaser.Scene {
   private holePos(j: number, hole: number) {
     return {
       x: boxColX(j) + (hole - (BOX_SLOTS - 1) / 2) * HOLE_STEP,
-      y: L.box.top + L.box.h / 2 - 2,
+      // ⚠ `HOLE_CY`, not `L.box.h / 2 - 2`. The face no longer fills the sprite — the bottom
+      // `BOX_LIP` of it is body wall — so the middle of the box is not the middle of its holes.
+      y: L.box.top + HOLE_CY,
     };
   }
 
@@ -2014,6 +2286,17 @@ export class GameScene extends Phaser.Scene {
   private refreshBoxes() {
     const g = this.board;
     for (let j = 0; j < BOX_COLS; j++) {
+      /**
+       * ⚠ **A column with a marble still in the air is left exactly as it is.** The model fills the
+       * hole, pops the box and advances the stack the moment a match happens — 300ms before the
+       * marble the player is watching gets there. Redrawing then showed the *next* box while the
+       * third marble was still falling, so the box cleared before the marble that cleared it landed.
+       * The tween's `onComplete` calls this again, and by then the column is free.
+       *
+       * ⚠ The whole column, not the one hole: the box texture, the stack behind it and the fill all
+       * describe the same moment, and holding only part of it is a column drawn half in the future.
+       */
+      if (this.seating[j]) continue;
       const stack = g.boxes[j].stack;
       for (let k = 0; k < BOX_VISIBLE; k++) {
         const s = this.boxImages[j][k];
