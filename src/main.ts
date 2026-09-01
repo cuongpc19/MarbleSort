@@ -2,7 +2,29 @@ import Phaser from "phaser";
 import { platform } from "./platform";
 import { GameScene, GAME_W, GAME_H } from "./scenes/GameScene";
 import { HomeScene } from "./scenes/HomeScene";
-import { SAVE_KEYS } from "./game/save";
+import { SAVE_KEYS, save } from "./game/save";
+
+/**
+ * Send a player who has not cleared level 1 yet **straight onto the board**, skipping the home
+ * screen and its PLAY button.
+ *
+ * ⚠ **Every new player goes through level 1** — 2527 of 2585 devices over seven days started there,
+ * and the other 2% are returning players resuming deeper in. So the PLAY tap is a gate that every
+ * single new player passes through exactly once, and nothing before it is measurable: the log's
+ * first row is written when a *board* is entered, so anyone who loads the game, looks at the home
+ * screen and leaves is invisible to every number this project has. That gate has already cost a
+ * whole audience once — PLAY once sat 34px below the bottom edge of the canvas in the CrazyGames
+ * desktop frame, and the game looked launched and could not be started, with no row to say so.
+ *
+ * ⚠ **Only until level 1 is cleared** (`save.unlocked === 1`), not for ever. The home screen is
+ * where the wallet, the settings and the daily reward live, and a win routes the player back to it
+ * deliberately. Skipping it permanently would delete a feature; skipping it once removes a tap
+ * nobody is there for. A player who fails level 1 and comes back still skips it, which is the case
+ * this is most for.
+ *
+ * ⚠ They can still reach it: the win card, the lose card and the pause menu all carry HOME.
+ */
+const STRAIGHT_TO_PLAY = true;
 
 // Warm the game font before Phaser draws any canvas text — a canvas texture baked
 // with a font that has not finished loading keeps the fallback shape forever.
@@ -119,6 +141,14 @@ async function boot() {
       game.events.once("ready", () => {
         game.scene.stop("Home");
         game.scene.start("Game", { level: level || 1, custom, preview });
+      });
+    } else if (STRAIGHT_TO_PLAY && save.unlocked === 1) {
+      // ⚠ Read **after** `platform.init()` has resolved — which it has, this is inside `boot()`.
+      // The host preloads the player's cloud save during init, so a read before that returns the
+      // local copy and would send a returning player to level 1 as though they were new.
+      game.events.once("ready", () => {
+        game.scene.stop("Home");
+        game.scene.start("Game", { level: 1 });
       });
     }
   } catch {

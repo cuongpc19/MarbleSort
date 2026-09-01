@@ -1,7 +1,11 @@
 // The level-1 walkthrough.
 //
-// Four coach marks, in the order the machine actually works: pour a tray, watch the marbles ride
-// the belt, watch one drop into a box of its colour, fill every box.
+// **One coach mark: where to tap.** It used to be four, walking the machine top to bottom — pour a
+// tray, the marbles ride the belt, one drops into a box of its colour, fill every box — and the
+// last three ran on timers totalling 7.6 seconds while the player was already playing. Cut to one
+// on instruction. The three that went were narration: the belt carries the marbles in front of the
+// player whether a caption says so or not, and a marble dropping into a box of its own colour is
+// the most legible event on the screen. What no picture can say is "this is a button".
 //
 // ⚠ **It never blocks input.** Every step advances on something the player did or on a timer; none
 // of them swallows a tap. A tutorial that gates taps would also gate `window.__ms.tap()` and every
@@ -36,10 +40,10 @@ const INK = Phaser.Display.Color.HexStringToColor(UI.ink).color;
 /**
  * How long the player may sit doing nothing before the walkthrough points at another tray.
  *
- * ⚠ The clock only runs **after the four captions are done**. Started at the first pour it would
- * fire in the middle of them — the belt caption alone runs 2.2s and the box caption 2.8s — and the
- * nudge draws on the same plate, so the two would take turns overwriting each other while the
- * player watched. The walkthrough has to finish saying its piece before it starts nagging.
+ * ⚠ The clock only runs **after the caption is done**. It mattered more when there were four of
+ * them — the belt caption alone ran 2.2s and the box caption 2.8s — and the nudge draws on the same
+ * plate, so armed early the two took turns overwriting each other while the player watched. With
+ * one caption the window is small, but the ordering is still the rule: say the piece, then nag.
  */
 const IDLE_MS = 5000;
 
@@ -195,13 +199,22 @@ export class Tutorial {
    */
   start(tray: { x: number; y: number }, nextTray?: () => { x: number; y: number } | null) {
     this.nextTray = nextTray ?? null;
-    this.steps = [
-      { text: "Tap a tray to pour its marbles", at: tray },
-      // The bottom run is the one that matters: it is the only stretch that passes over the boxes.
-      { text: "They ride the belt", at: { x: L.belt.cx, y: L.belt.cy + L.belt.r }, after: 2200 },
-      { text: "A marble drops into a box of its own colour", at: { x: GAME_W / 2, y: L.box.top + L.box.h / 2 }, after: 2800 },
-      { text: "Fill every box to clear the level", at: null, after: 2600 },
-    ];
+    /**
+     * ⚠ **One step, not four.** It used to walk the machine top to bottom — pour a tray, the
+     * marbles ride the belt, one drops into a box of its colour, fill every box — and the last
+     * three ran on timers totalling 7.6 seconds during which the player had already started
+     * playing. Cut on instruction to the only card that asks for anything: where to tap.
+     *
+     * The three that went were narration. The belt carries the marbles in front of the player
+     * whether or not a caption says so, and a marble dropping into a box of its own colour is the
+     * single most legible event on the screen. What no picture can say is "this is a button" —
+     * so that is what is left.
+     *
+     * ⚠ It has no `after`, so it waits for the pour rather than a clock, and `noteTap` ends the
+     * walkthrough from here. That also means `tutorialDone` is now written on the **first tap**
+     * rather than 7.6 seconds later, which is the honest moment: the card taught its one thing.
+     */
+    this.steps = [{ text: "Tap a tray to pour its marbles", at: tray }];
     this.show(0);
   }
 
@@ -312,7 +325,7 @@ export class Tutorial {
     // comes back gets the walkthrough again — they are precisely the player it exists for.
     // ⚠ Never while replaying (`?teach=`): looking at the walkthrough must not consume it.
     if (!teachAll()) save.tutorialDone = true;
-    // ⚠ `tutorialDone` is still written **here**, not after the nudges. The four captions are the
+    // ⚠ `tutorialDone` is still written **here**, not after the nudges. The caption is the
     // walkthrough; the nudge is a safety net under a player who has stalled, and it can go on
     // firing for the rest of the level without that meaning the walkthrough is unfinished.
     this.armIdle();
