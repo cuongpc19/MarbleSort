@@ -297,8 +297,12 @@ export const SHEET: Spec[] = [
   // row at a time, not as a sweep.
   { trays: 10, colors: 4, hidden: 0, hatches: 0, crates: 0, win: 1.00 }, //  2
   { trays: 10, colors: 4, hidden: 0, hatches: 0, crates: 0, win: 1.00 }, //  3
-  { trays: 12, colors: 4, hidden: 0, hatches: 0, crates: 0, win: 1.00 }, //  4
-  { trays: 14, colors: 5, hidden: 0, hatches: 0, crates: 0, win: 0.90 }, //  5
+  // ⚠ 4 and 5 re-specified on 2026-08-25, as their boards were replaced by the A/B variant's —
+  // one row at a time, the only way this column may be touched. 4 went 12 trays / 4 colours to
+  // 10 / 5, and 5 went 14 / 5 to 13 / 6. The `win` targets are untouched: both pin `columns`, so
+  // nothing reads them at load, and moving them would rewrite the design rather than record it.
+  { trays: 10, colors: 5, hidden: 0, hatches: 0, crates: 0, win: 1.00 }, //  4
+  { trays: 13, colors: 6, hidden: 0, hatches: 0, crates: 0, win: 0.90 }, //  5
   { trays: 10, colors: 4, hidden: 0, hatches: 0, crates: 0, win: 0.90 }, //  6
   { trays: 14, colors: 5, hidden: 0, hatches: 0, crates: 0, win: 0.90 }, //  7
   // ⚠ 8 and 10 were re-aimed on 2026-08-19, **as their boards were rebuilt** and one row at a
@@ -309,22 +313,25 @@ export const SHEET: Spec[] = [
   // search aims at, and a 1.00 there hands a level meant to be harder its *easiest* stack order.
   { trays: 10, colors: 3, hidden: 0, hatches: 3, crates: 0, win: 0.90 }, //  8
   { trays: 14, colors: 6, hidden: 0, hatches: 1, crates: 0, win: 0.90 }, //  9
-  { trays: 14, colors: 6, hidden: 0, hatches: 1, crates: 0, win: 0.12 }, // 10
+  { trays:  8, colors: 4, hidden: 0, hatches: 0, crates: 0, win: 1.00 }, // 10
   { trays: 13, colors: 6, hidden: 3, hatches: 0, crates: 0, win: 0.75 }, // 11
-  { trays: 13, colors: 6, hidden: 2, hatches: 0, crates: 0, win: 0.80 }, // 12
-  // ⚠ 13, 19 and 22 re-aimed on 2026-08-19 as their boards were rebuilt, same rule as 8, 10
-  // and 25: one row at a time, never as a sweep. 13 had drifted furthest — the row said 0.80 and
-  // the board measured 95%.
-  { trays: 14, colors: 6, hidden: 0, hatches: 0, crates: 0, win: 0.85 }, // 13
-  { trays:  8, colors: 4, hidden: 0, hatches: 0, crates: 0, win: 1.00 }, // 14
+  { trays: 14, colors: 6, hidden: 0, hatches: 0, crates: 0, win: 0.85 }, // 12
+  // ⚠ The board that was re-aimed here on 2026-08-19 (with 19 and 22) now sits at **12**: rows
+  // 12 and 13 were swapped on 2026-08-23 along with their boards, so its 0.85 travelled with it.
+  // The rule that re-aiming happens one row at a time, as a board is rebuilt, still stands.
+  { trays: 13, colors: 6, hidden: 2, hatches: 0, crates: 0, win: 0.80 }, // 13
+  { trays: 14, colors: 6, hidden: 0, hatches: 1, crates: 0, win: 0.12 }, // 14
   { trays: 14, colors: 6, hidden: 4, hatches: 1, crates: 1, win: 0.30 }, // 15
   { trays: 14, colors: 6, hidden: 5, hatches: 2, crates: 2, win: 0.80 }, // 16
-  { trays: 14, colors: 6, hidden: 0, hatches: 2, crates: 2, win: 0.80 }, // 17
+  { trays:  9, colors: 4, hidden: 0, hatches: 0, crates: 0, win: 1.00 }, // 17
   { trays: 14, colors: 6, hidden: 0, hatches: 0, crates: 0, win: 0.80 }, // 18
   { trays: 14, colors: 6, hidden: 4, hatches: 1, crates: 2, win: 0.33 }, // 19
-  // 20 asks for 1.00 and the board carries tag "none": the slot no longer promises a HARD
-  // badge, so the dip the curve used to dig here would be a dip nothing reads.
-  { trays:  9, colors: 4, hidden: 0, hatches: 0, crates: 0, win: 1.00 }, // 20
+  // ⚠ **Slot 20 has moved twice.** 17 and 20 were swapped first, putting the 26-tray board here;
+  // it measured 43% on (B+D)/2 and no re-deal of its well could lift that — on a board that long the
+  // difficulty is the tray count, not the box order — so 20 and 26 were swapped in turn and it went
+  // to 26. Rows travelled with boards both times. Badges are moot for now either way:
+  // `SHOW_LEVEL_TAGS` is false, and it silences `Blueprint.tag` as well as the number rule.
+  { trays: 14, colors: 7, hidden: 4, hatches: 2, crates: 1, win: 0.27 }, // 20
   { trays: 14, colors: 6, hidden: 0, hatches: 0, crates: 0, win: 0.80 }, // 21
   { trays: 14, colors: 6, hidden: 0, hatches: 0, crates: 0, win: 0.71 }, // 22
   { trays: 14, colors: 6, hidden: 0, hatches: 0, crates: 0, win: 0.80 }, // 23
@@ -343,7 +350,7 @@ export const SHEET: Spec[] = [
   // search aims at — leaving the CSV's 80% in place would have had it building the *easiest*
   // stack order for a level meant to be brutal. Revert these five to 0.80 / 0.80 / 0.30 / 0.20
   // and delete row 30 to put the sheet back exactly as the CSV has it.
-  { trays: 14, colors: 7, hidden: 4, hatches: 2, crates: 1, win: 0.27 }, // 26
+  { trays: 14, colors: 6, hidden: 0, hatches: 2, crates: 2, win: 0.80 }, // 26
   { trays: 14, colors: 7, hidden: 4, hatches: 2, crates: 1, win: 0.15 }, // 27
   { trays: 14, colors: 7, hidden: 4, hatches: 2, crates: 1, win: 0.15 }, // 28
   { trays: 14, colors: 7, hidden: 4, hatches: 2, crates: 1, win: 0.15 }, // 29
