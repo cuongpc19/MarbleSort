@@ -20,7 +20,7 @@
 //
 // Reading the data back: `node scripts/pull-runs.mjs` (see that file).
 
-import { abArm } from "./ab";
+import { abArm, AB_TEST } from "./ab";
 import { deviceId } from "./playlog";
 import { platform } from "../platform";
 import { gaLoaded } from "./analytics";
@@ -37,6 +37,47 @@ import { gaLoaded } from "./analytics";
  * way to share it: one ships to browsers, the other must never. If it changes, change both.
  */
 const ENDPOINT = "https://ball-flow-d1d9a-default-rtdb.asia-southeast1.firebasedatabase.app/runs.json";
+
+/**
+ * Where the **moves** of a finished game go, away from `/runs`.
+ *
+ * ⚠ **`rep` is 61% of every byte `/runs` used to weigh** — 9.1 MB of 14.9 over a seven-day window,
+ * against 26,774 rows that are otherwise about 200 bytes each. `public/stats.html` reads none of
+ * it, and the Realtime Database's REST API has **no way to ask for a row without one of its
+ * fields**, so every byte of it was downloaded and thrown away. Measured on a phone: the dashboard
+ * stopped loading at all, because the window had grown past what Safari will parse in one go.
+ *
+ * ⚠ **A separate node, not deleted.** A replay is the only way to watch a game somebody actually
+ * lost instead of guessing at it (`scripts/replay.mjs`), and nothing was wrong with keeping it —
+ * only with keeping it where the dashboard had to walk past it.
+ *
+ * ⚠ **The row is the run row plus `rep`, not a new shape.** `sendRun` sends one object to two
+ * places and the only difference is that field, so a field added to a game row lands in both
+ * without anybody remembering to. `replay.mjs` reads `lvl`, `sig`, `result`, `ms`, `taps`, `peak`
+ * and `used` off it, so a lean `{run, rep}` row would need a join it does not have.
+ */
+const REPS_ENDPOINT = ENDPOINT.replace("/runs.json", "/reps.json");
+
+/**
+ * Where an **abandoned level-1 attempt** goes — the one thing the log has never been able to see.
+ *
+ * ⚠ **Everything that happens inside an attempt is written by the END row**, and an attempt somebody
+ * walks away from has none. So a quarter of level-1 entries currently leave exactly one record —
+ * "this device reached level 1 at this time" — and nothing about whether they tapped once, ten
+ * times, or never touched the screen. Measured over five hours: 33 abandoned entries, **88% of them
+ * never sent another row from that device again**. That is people leaving the game for good at the
+ * first board, and it is the largest single loss in the funnel; it cannot be worked on blind.
+ *
+ * ⚠ **Sent on `pagehide` / `visibilitychange`, with `keepalive`** — the same mechanism the end row
+ * already relies on to escape a closing tab. If the browser is killed outright nothing is sent and
+ * we are exactly where we were, so this can only ever add information.
+ *
+ * ⚠ **Its own node, and level 1 only.** The dashboard pulls `/runs` whole on every load, and this
+ * project has just spent a day undoing the last field that made that query heavy — `rep` was 61% of
+ * it. A per-attempt trace does not belong in the node the dashboard reads. Level 1 alone bounds the
+ * volume to roughly one row per abandoned entry: a few hundred a day, against `/runs`'s thousands.
+ */
+const STEPS_ENDPOINT = ENDPOINT.replace("/runs.json", "/steps.json");
 
 /** Is telemetry switched on in this build? */
 export function telemetryOn(): boolean {
@@ -86,9 +127,36 @@ export function sendStart(row: Record<string, unknown>) {
   send({ ...row, ev: "start", run: attempt });
 }
 
-/** A finished attempt. Carries the same `run` as the start row it closes. */
+/**
+ * A finished attempt. Carries the same `run` as the start row it closes.
+ *
+ * ⚠ **Two rows out of one object**: the game row goes to `/runs` without its `rep`, and the same
+ * object *with* it goes to `/reps`. The split lives here rather than at the call site so there is
+ * exactly one place that knows about it — `GameScene` still builds one run and hands it over, and
+ * `saveRun`'s copy on the player's own device keeps the moves, where they cost us nothing.
+ */
 export function sendRun(row: Record<string, unknown>) {
-  send({ ...row, ev: "end", run: attempt });
+  const { rep, ...lean } = row as { rep?: unknown } & Record<string, unknown>;
+  send({ ...lean, ev: "end", run: attempt });
+  // ⚠ Guarded: a row with no moves must not open an empty `/reps` row, or `replay.mjs`'s "games
+  // with a replay" count starts including games that have none.
+  if (typeof rep === "string" && rep.length) send({ ...row, ev: "rep", run: attempt }, REPS_ENDPOINT);
+}
+
+/**
+ * How far an attempt got, sent while the player is leaving rather than when the level ends.
+ *
+ * ⚠ **Carries the same `run` as the start row it belongs to**, so a row here can be paired with its
+ * entry and — if the player comes back and finishes — with its end row too. Without that the trace
+ * is a free-floating fact about a device rather than about an attempt.
+ *
+ * ⚠ **It may be sent more than once for one attempt**, if the player leaves, comes back and leaves
+ * again. That is deliberate: the last row is the one that matters and de-duplicating on read is a
+ * `sort by at, take last` — whereas suppressing later sends on the device would throw away the
+ * progress made after the first one. The caller only sends again when something has changed.
+ */
+export function sendSteps(row: Record<string, unknown>) {
+  send({ ...row, ev: "steps", run: attempt }, STEPS_ENDPOINT);
 }
 
 /**
@@ -119,7 +187,7 @@ export function sendDaily(row: Record<string, unknown>) {
  * a player closes the tab — without it the browser cancels the request as the page goes away, and
  * the most interesting rows are the ones that never arrive.
  */
-function send(row: Record<string, unknown>) {
+function send(row: Record<string, unknown>, to: string = ENDPOINT) {
   if (!ENDPOINT) return;
   try {
     const body = {
@@ -133,13 +201,18 @@ function send(row: Record<string, unknown>) {
       // `build` alone. Extra fields pass the database rules untouched — only a new `ev` value
       // needs `database.rules.json` redeployed, and this is not one.
       ab: abArm(),
+      // ⚠ **Which split, not just which arm.** This game has run two A/B tests and both stamp
+      // `ab: "A"` / `ab: "B"`; without an id the dashboard pooled them, and since the arms mean
+      // different things in each, it reported a 48-second difference in play time that belonged
+      // entirely to the older test. See `AB_TEST`.
+      abt: AB_TEST,
       // ⚠ Whether gtag.js actually loaded. One bit, and it is the only way to tell "Analytics is
       // empty because it is blocked" from "Analytics is empty because the code is wrong" — GA
       // itself cannot distinguish those, it is silent in both cases.
       ga: gaLoaded() ? 1 : 0,
       at: Date.now(),
     };
-    void fetch(ENDPOINT, {
+    void fetch(to, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),

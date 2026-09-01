@@ -27,11 +27,28 @@ const arg = (k, d = null) => {
 };
 const has = (k) => process.argv.includes(k);
 
-const TMP = "scripts/.runs.json";
+const TMP = "scripts/.reps.json";
 
-/** Same route as `pull-runs.mjs`: the CLI authenticates as project owner; reads are closed to all. */
+/**
+ * Same route as `pull-runs.mjs`: the CLI authenticates as project owner; reads are closed to all.
+ *
+ * ⚠ **`/reps`, not `/runs`.** Since 2026-08-23 the moves live in their own node: `rep` was 61% of
+ * every byte `/runs` weighed — 9.1 MB of 14.9 over a seven-day window — and `public/stats.html`,
+ * which never reads it, had to download the lot on every load, until it stopped loading on a phone
+ * at all. RTDB's REST API cannot return a row without one of its fields, so splitting the node was
+ * the only way to shrink that query.
+ *
+ * ⚠ **A `/reps` row is the whole game row *plus* `rep`**, which is why nothing below changes: this
+ * tool reads `lvl`, `sig`, `result`, `ms`, `taps`, `peak` and `used` off it, and a lean
+ * `{run, rep}` row would have needed a join against `/runs` that does not exist here.
+ *
+ * ⚠ **The 11,638 games recorded before the split were migrated in**, keeping their original push
+ * keys, so this reads exactly the history it read before. `/runs` is not consulted and must not be
+ * added back: its `rep` fields were deleted in the same operation, so pulling it would cost 5.8 MB
+ * to find nothing.
+ */
 function fromFirebase() {
-  const r = spawnSync("npx", ["-y", "firebase-tools", "database:get", "/runs", "-o", TMP], {
+  const r = spawnSync("npx", ["-y", "firebase-tools", "database:get", "/reps", "-o", TMP], {
     encoding: "utf8",
     shell: true,
   });

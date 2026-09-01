@@ -32,6 +32,27 @@
   .card .k { color:var(--soft); }
   .card .d { color:var(--soft); font-size:.85em; margin-top:2px; }
   h2 { font-size:1rem; margin:24px 0 6px; }
+  /* The A/B pair. ⚠ Two tables side by side are only readable while their rows LINE UP, which is
+     why both are drawn over the union of both arms' levels and a level missing from one arm keeps
+     its row there. Below 1100px they stack and the alignment is gone — that is the honest failure,
+     since two half-width tables of numbers are unreadable on a phone either way. */
+  /* ⚠ The A/B level table pairs the two arms INSIDE each metric — "Người A, Người B, Ván A,
+     Ván B…" — rather than putting two whole tables side by side. Which means the reader needs to
+     see where one metric ends and the next begins, or thirteen numbers read as one run: `.g` is
+     the first column of each group and carries the divider. */
+  #tAbLv th, #tAbLv td { padding:5px 7px; }
+  #tAbLv th.g, #tAbLv td.g { border-left:1px solid var(--line); }
+  /* ⚠ Headers align RIGHT here, unlike the other tables. The metric is named over the A column
+     only, so a left-aligned label would sit at the far edge of a two-column group and read as
+     belonging to whatever is left of it — which is the previous metric's B column. */
+  #tAbLv th { text-align:right; vertical-align:bottom; }
+  #tAbLv th:first-child { text-align:left; }
+  /* The A/B marker under each header. Quiet on purpose: the metric is what you scan for, the arm
+     is what you check once you have found it. */
+  .arm { color:var(--soft); font-weight:600; }
+  b.arm { color:var(--accent); }
+  /* The three boards the test is actually about; every other row on those tables is downstream. */
+  tr.abhit td { background:rgba(122,167,240,.16); font-weight:600; }
   .note { color:var(--soft); font-size:.87em; margin:0 0 10px; }
   .scroll { overflow:auto; border:1px solid var(--line); border-radius:12px; background:var(--panel); }
   table { width:100%; border-collapse:collapse; }
@@ -110,9 +131,9 @@
         <option value="0.0833333">last 2 hours</option>
         <option value="0.25">last 6 hours</option>
         <option value="0.5">last 12 hours</option>
-        <option value="1">last 24 hours</option>
+        <option value="1" selected>last 24 hours</option>
         <option value="2">last 2 days</option>
-        <option value="7" selected>last 7 days</option>
+        <option value="7">last 7 days</option>
         <option value="30">last 30 days</option>
         <option value="9999">everything</option>
         <option value="custom">khoảng tự chọn…</option>
@@ -147,6 +168,21 @@
     <div class="scroll" style="max-height:70vh"><table id="tLv"></table></div>
 
     <p class="note" id="foot"></p>
+
+    <h2>A/B test — hai nhánh cạnh nhau</h2>
+    <p class="note" id="abNote"></p>
+    <div class="scroll" style="margin-bottom:14px"><table id="abSum"></table></div>
+    <p class="note" style="margin-bottom:6px">
+      Mỗi chỉ số có hai cột kề nhau: <b class="arm">A</b> là bản đang chạy, <b class="arm">B</b> là biến thể.
+      <b>User start</b> là số người vào màn (mỗi người tính một lần), <b>Lượt vào</b> là số lần vào —
+      chia hai số đó ra là số lần thử lại mỗi người. <b>Ván</b> là số ván kết thúc, <b>User xong</b> là
+      số người từng thắng màn này. <b>Win/ván</b> = thắng ÷ <b>Lượt vào</b>; <b>Win/người</b> =
+      <b>User xong</b> ÷ <b>User start</b>.
+      ⚠ Ô <b>mờ</b> nghĩa là dưới 8 ván nên chưa đọc được — median của một hai ván là chính một hai
+      ván đó, không phải đặc điểm của màn. Level ngoài 3, 4, 5 là <em>cùng một bàn cờ</em> ở hai nhánh,
+      nên chênh lệch ở đó gần như luôn là mẫu nhỏ.
+    </p>
+    <div class="scroll" style="max-height:66vh"><table id="tAbLv"></table></div>
 
     <h2>Reading the columns</h2>
     <p class="note">
@@ -294,6 +330,17 @@ $("signout").onclick = () => signOut(auth);
 // rots. Cache the string and the first load works while an hour later every request comes back
 // 401 "Permission denied", which reads exactly like a rules mistake and sends you editing rules
 // that were never wrong.
+/**
+ * ⚠ **A page that breaks must say it broke.** Everything here runs off promises — the fetch, the
+ * token refresh, the JSON parse — and `$("status")` is only cleared after `render()` returns, so
+ * a single rejection anywhere leaves "loading…" on screen with every table empty and the build
+ * dropdown never filled. That is indistinguishable from a slow connection, which is exactly how it
+ * was reported. Two lines, and the difference is legible.
+ */
+const oops = (m) => { $("status").innerHTML = `<b style="color:#d2452f">lỗi:</b> ${m}`; };
+addEventListener("unhandledrejection", (e) => oops(e.reason?.message ?? String(e.reason)));
+addEventListener("error", (e) => oops(e.message));
+
 let user = null;
 onAuthStateChanged(auth, (u) => {
   user = u;
@@ -374,6 +421,18 @@ const askedLabel = () => {
 };
 
 async function load() {
+  // ⚠ The whole body, because every step of it can throw and any one of them would otherwise be
+  // silent. The advice is part of the message: nearly every real failure here is the window being
+  // too wide, and the fix is one dropdown away.
+  try {
+    await loadNow();
+  } catch (e) {
+    const m = String(e?.message ?? e);
+    $("status").innerHTML =
+      `<b style="color:#d2452f">lỗi tải:</b> ${m} — thử chọn cửa sổ hẹp hơn (last 24 hours) rồi bấm reload`;
+  }
+}
+async function loadNow() {
   if (!user) return;
   const { since, until } = windowWanted();
   // ⚠ Empty is not an error and must not be one: a range whose ends are the wrong way round is a
@@ -391,17 +450,37 @@ async function load() {
     since || until != null
       ? `&orderBy="at"${since ? `&startAt=${since}` : ""}${until != null ? `&endAt=${until}` : ""}`
       : "";
+  // ⚠ **A fetch with no deadline cannot be told from a slow one**, and on a phone the difference
+  // is the whole question. Ninety seconds is generous for the widest window this page offers and
+  // still short enough that nobody sits watching a dead request.
+  const ac = new AbortController();
+  const bomb = setTimeout(() => ac.abort(), 90000);
   const get = async (force) => {
     const t = await user.getIdToken(force);
-    return fetch(`${DB}/runs.json?auth=${encodeURIComponent(t)}${q}`);
+    return fetch(`${DB}/runs.json?auth=${encodeURIComponent(t)}${q}`, { signal: ac.signal });
   };
-  let res = await get(false);
-  // A token can still expire between the check and the request — force a refresh and retry ONCE.
-  if (res.status === 401) res = await get(true);
+  let res;
+  try {
+    res = await get(false);
+    // A token can still expire between the check and the request — force a refresh and retry ONCE.
+    if (res.status === 401) res = await get(true);
+  } catch (e) {
+    clearTimeout(bomb);
+    // ⚠ Named, because "AbortError" on its own sends you looking for a bug in the page.
+    throw ac.signal.aborted
+      ? new Error("quá 90 giây chưa tải xong — cửa sổ này có lẽ quá rộng cho đường mạng hiện tại")
+      : e;
+  }
+  clearTimeout(bomb);
   if (!res.ok) {
     $("status").innerHTML = `error ${res.status} — ${await res.text()}`;
     return;
   }
+  // ⚠ The parse is where a wide window actually hurts on a phone, and it is not interruptible —
+  // so the size goes up BEFORE it starts rather than after. RTDB usually answers chunked and sends
+  // no length, hence the fallback.
+  const len = Number(res.headers.get("content-length") || 0);
+  $("status").textContent = len ? `đang đọc ${(len / 1048576).toFixed(1)} MB…` : "đang đọc dữ liệu…";
   const j = await res.json();
   // ⚠ Two kinds of row now. A start row has no `result`, so counting them as games would double
   // every total and halve every winrate. Rows written before start-logging existed carry no `ev`
@@ -611,6 +690,360 @@ function filtered(src = rows) {
 /** Boosters spent in a row. Absent means none — RTDB drops empty arrays, it is not missing data. */
 const usedOf = (r) => (Array.isArray(r.used) ? r.used : []);
 
+// ---- the A/B test: two arms, three boards apart ------------------------------------------------
+//
+// Arm **A is the control** — the ladder exactly as it ships. Arm **B differs at levels 3, 4 and 5
+// and nowhere else**, so a gap on any other level is either the downstream effect of those three
+// boards or it is noise. The split itself lives in `src/game/ab.ts`.
+//
+// ⚠ **Only rows that actually carry an arm.** `ab` was added in the build that opened the test, so
+// every row before it has none — and defaulting those to A would pour the whole history into the
+// control arm and make it unbeatable. They are counted and reported, never assigned.
+//
+// ⚠ **The arm is a property of the device**, not of the session. A device appearing in both arms is
+// a fault — only the `?ab=` override can do it — so it is flagged rather than merged; merging hides
+// the one thing that would invalidate the comparison.
+//
+// ⚠ **Both tables are drawn over the SAME level list**, the union of the two arms. Side by side
+// they are only readable while their rows line up, so a level absent from one arm keeps its row
+// there and prints "—". Dropping it slides every row below it against the wrong partner.
+const AB_ONLY = [3, 4, 5];
+
+/**
+ * **Which split's rows to count** — `abt` on the row, `AB_TEST` in `src/game/ab.ts`.
+ *
+ * ⚠ **The arm alone is not enough, and this was live and wrong.** This is the second A/B the game
+ * has run: the first pitted the 21/8 opening against the ladder at levels 1-10, was retired in
+ * `18b17c7`, and stamped the same `ab: "A"` / `ab: "B"`. Five builds carry it — 2a11d8d, 771b2f2,
+ * 908259e, 9e8d7c6, e5b1d69 — and grouping on the arm pooled them with this test. Because arm A
+ * there was the *long* 21/8 boards, the section reported a median game of **80s for A against 32s
+ * for B** where this test's own rows say 69s against 44s. Every second of that 48-second gap
+ * belonged to the other experiment.
+ *
+ * ⚠ **A row with an arm but no `abt` is from an older split, not from this one**, and is counted
+ * and reported rather than assumed — the same rule as a row with no arm at all. The 282 rows this
+ * test had already gathered under `b3f7623` were backfilled with `abt` so nothing was lost; there
+ * is deliberately no "or this build" fallback, because a list of build hashes is a thing somebody
+ * has to remember to extend and `abt` is not.
+ */
+const AB_TEST = "l345";
+
+/**
+ * Builds that belong to a split but were shipped **before `abt` existed**.
+ *
+ * ⚠ **Not a convenience — without it the section stops counting the live build.** `b3f7623` is the
+ * commit that wired the 3/4/5 split and it is what players are on today; it sends `ab` and no
+ * `abt`, so every row it writes from here on would be filed as "some other split" and dropped. The
+ * 282 rows it had already written were backfilled with `abt` by hand, and within an hour another
+ * 133 had arrived — which is the argument against backfilling as the answer.
+ *
+ * ⚠ **A build hash maps to a test exactly**, so this is a safe bridge rather than a guess: a build
+ * is one commit, and that commit either wired this split or it did not. What it must never become
+ * is the main mechanism — it needs a human to extend it for every release, and `abt` does not.
+ * The entry stops mattering the moment a build carrying `abt` reaches players, and can be deleted
+ * once no untagged `b3f7623` rows fall inside the window being viewed.
+ */
+const AB_LEGACY = { b3f7623: "l345" };
+
+/** Which split a row belongs to: what it says, or what its build says, or nothing. */
+const testOf = (r) => r.abt ?? AB_LEGACY[r.build] ?? null;
+
+/** Abramowitz & Stegun 7.1.26 — plenty for a p printed to three places. */
+const erf = (x) => {
+  const s = x < 0 ? -1 : 1;
+  const a = Math.abs(x), t = 1 / (1 + 0.3275911 * a);
+  return s * (1 - ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-a * a));
+};
+/**
+ * Two-sided p for a difference of two proportions, pooled normal approximation.
+ *
+ * ⚠ It is here to stop a five-point gap over forty players being read as a result, which is the
+ * failure mode of every A/B table ever drawn. It is an approximation and it is wrong on small
+ * counts, so the caller refuses to print it under ten successes a side.
+ */
+const zP = (a, na, b, nb) => {
+  if (!na || !nb) return null;
+  const p = (a + b) / (na + nb);
+  const se = Math.sqrt(p * (1 - p) * (1 / na + 1 / nb));
+  if (!se) return null;
+  return 1 - erf(Math.abs(a / na - b / nb) / se / Math.SQRT2);
+};
+const nextD = (d) => new Date(Date.parse(d + "T00:00:00Z") + 864e5).toISOString().slice(0, 10);
+
+/**
+ * The A/B section. Takes the same filtered rows the rest of the page is drawn from, so the window,
+ * the build filter and the hide-test-games box all apply here unchanged.
+ *
+ * `tracked` is passed in rather than recomputed: winrate on this page is wins over **start rows**,
+ * and a second copy of "is this attempt accounted for" would disagree with the first the day either
+ * one moved — which would show up as a percentage rather than as a missing row.
+ */
+function renderAB(g, sg, tracked) {
+  const mk = () => ({ devs: new Set(), lv: new Map(), perDev: new Map(), deep: new Map(), days: new Map() });
+  const arms = { A: mk(), B: mk() };
+  const seenIn = new Map();
+  let noArm = 0, otherTest = 0;
+  const cellOf = (o, n) => {
+    // ⚠ `won` is everyone who cleared the board; `wonT` only those whose winning attempt has a
+    // start row in this window. The first is the count on screen, the second is the denominator's
+    // own population — see the note on Win/người below.
+    if (!o.lv.has(n)) o.lv.set(n, { devs: new Set(), ev: 0, n: 0, wt: 0, won: new Set(), wonT: new Set(), ms: [], sigs: new Set() });
+    return o.lv.get(n);
+  };
+  const claim = (r) => {
+    // ⚠ Order matters for the counters: a row from the OTHER split has a perfectly good arm, so
+    // testing the arm first would file it under "no arm" and hide what is actually happening.
+    if (r.ab === "A" || r.ab === "B") {
+      if (testOf(r) !== AB_TEST) { otherTest++; return null; }
+    }
+    const o = arms[r.ab];
+    if (!o) { noArm++; return null; }
+    o.devs.add(r.dev);
+    if (!seenIn.has(r.dev)) seenIn.set(r.dev, new Set());
+    seenIn.get(r.dev).add(r.ab);
+    o.deep.set(r.dev, Math.max(o.deep.get(r.dev) ?? 0, r.lvl));
+    return o;
+  };
+  for (const r of sg) {
+    const o = claim(r);
+    if (!o) continue;
+    const c = cellOf(o, r.lvl);
+    c.ev++;
+    c.devs.add(r.dev);
+  }
+  for (const r of g) {
+    const o = claim(r);
+    if (!o) continue;
+    const c = cellOf(o, r.lvl);
+    c.n++;
+    if (r.result === "win") { c.won.add(r.dev); if (tracked(r)) { c.wt++; c.wonT.add(r.dev); } }
+    // The board this row was actually played on — a content hash, so two arms on one board must
+    // agree and two arms on different boards must not.
+    if (r.sig) c.sigs.add(r.sig);
+    if (Number.isFinite(r.ms)) c.ms.push(r.ms);
+    o.perDev.set(r.dev, (o.perDev.get(r.dev) || 0) + (r.ms || 0));
+    if (!o.days.has(r.dev)) o.days.set(r.dev, new Set());
+    o.days.get(r.dev).add(day(r.at));
+  }
+  const A = arms.A, B = arms.B;
+  const both = [...seenIn.values()].filter((v) => v.size > 1).length;
+  /**
+   * Does the split actually look like the split?
+   *
+   * ⚠ **`leak`** — a level outside the test where the two arms played different boards. Every
+   * "downstream effect" reading assumes those boards are shared; if they are not, the section is
+   * comparing two different ladders and saying nothing about levels 3, 4 and 5.
+   *
+   * ⚠ **`same`** — a test level where both arms played the *same* board, i.e. the variant is not
+   * reaching anybody. This is the expensive failure: it does not look like a broken test, it looks
+   * like a test that found no difference.
+   *
+   * ⚠ Only levels **both** arms have rows for can be compared; one-sided levels say nothing and are
+   * skipped rather than counted as agreement.
+   */
+  const leak = [], same = [];
+  for (const n of new Set([...A.lv.keys(), ...B.lv.keys()])) {
+    const sa = A.lv.get(n)?.sigs, sb = B.lv.get(n)?.sigs;
+    if (!sa?.size || !sb?.size) continue;
+    const shared = [...sa].some((x) => sb.has(x));
+    if (AB_ONLY.includes(n)) { if (shared) same.push(n); }
+    else if (!shared) leak.push(n);
+  }
+  $("abNote").innerHTML =
+    `Nhánh <b>A</b> là bản đang chạy; nhánh <b>B</b> chỉ khác ở <b>level ${AB_ONLY.join(", ")}</b> — các dòng tô đậm.
+     Mọi level khác là <em>cùng một bàn cờ</em> ở hai nhánh, nên chênh lệch ở đó là hệ quả về sau, hoặc là nhiễu.` +
+    (noArm ? `<br>⚠ ${noArm} dòng không mang nhãn nhánh (build cũ hơn lúc mở test) — đã loại, <b>không</b> gộp vào A.` : "") +
+    (otherTest
+      ? `<br>⚠ ${otherTest} dòng <b>có nhãn nhánh nhưng thuộc đợt A/B khác</b> (đợt mở màn 21/8, level 1-10) — đã loại.
+         Gộp vào thì nhánh A của đợt đó là những bàn dài hơn hẳn và nó kéo lệch mọi con số thời gian.`
+      : "") +
+    (both ? `<br>⚠ ${both} thiết bị nằm ở cả hai nhánh; chỉ <code>?ab=</code> mới làm được thế, số liệu dưới đang trộn.` : "") +
+    (leak.length
+      ? `<br>⚠ <b>Level ${leak.join(", ")} lẽ ra phải giống nhau ở hai nhánh nhưng vân tay bàn cờ lại khác.</b>
+         Nếu đúng thế thì phần này đang so hai ladder khác nhau, không phải so ba bàn cờ 3/4/5.`
+      : "") +
+    (same.length
+      ? `<br>⚠ <b>Level ${same.join(", ")} nằm trong đợt test nhưng hai nhánh cùng một vân tay</b> — biến thể
+         không tới được người chơi. Đây là kiểu hỏng đắt nhất: nó không giống test hỏng, nó giống test
+         chạy xong và không thấy khác biệt.`
+      : "") +
+    (leak.length || same.length || !A.devs.size || !B.devs.size
+      ? ""
+      : `<br>✓ Vân tay bàn cờ khớp: level ${AB_ONLY.join(", ")} khác nhau ở hai nhánh, mọi level khác giống nhau.`);
+  if (!A.devs.size && !B.devs.size) {
+    $("abSum").innerHTML = $("tAbLv").innerHTML = "";
+    return;
+  }
+
+  // ---- the comparison strip
+  const maxDay = day(Math.max(...g.map((r) => r.at)));
+  /**
+   * D1 as a cohort: of the devices whose FIRST day in this window was d, how many played on d+1.
+   *
+   * ⚠ The newest cohort is excluded, not counted as 0 — it has not had its next day yet, and a
+   * zero there reads as a collapse in whichever arm happens to hold the freshest players.
+   * ⚠ Computed only from the loaded window, so someone who played before it counts as new here.
+   */
+  const d1Of = (o) => {
+    let n = 0, back = 0;
+    for (const ds of o.days.values()) {
+      const first = [...ds].sort()[0];
+      if (first >= maxDay) continue;
+      n++;
+      if (ds.has(nextD(first))) back++;
+    }
+    return { a: back, n };
+  };
+  const startedAt = (o, n) => o.lv.get(n)?.devs ?? new Set();
+  /** Of the devices that started `from`, how many also started `to`. A cohort, not two totals. */
+  const through = (o, from, to) => {
+    const base = startedAt(o, from), hit = startedAt(o, to);
+    let k = 0;
+    for (const d of base) if (hit.has(d)) k++;
+    return { a: k, n: base.size };
+  };
+  const totals = (o) => {
+    let ev = 0, wt = 0, n = 0;
+    for (const c of o.lv.values()) { ev += c.ev; wt += c.wt; n += c.n; }
+    return { ev, wt, n };
+  };
+  const tA = totals(A), tB = totals(B);
+  const sum = [];
+  /** A rate on both arms, with the gap in points and a p-value beside it. */
+  const pRow = (name, x, y, title) => {
+    const pa = x.n ? pct(x.a, x.n) : null, pb = y.n ? pct(y.a, y.n) : null;
+    // ⚠ Under ten successes a side the normal approximation is not worth printing, and a p-value on
+    // screen is read as a verdict whatever the counts behind it are.
+    const p = x.a >= 10 && y.a >= 10 ? zP(x.a, x.n, y.a, y.n) : null;
+    const d = pa == null || pb == null ? null : pb - pa;
+    // ⚠ Colour only where the difference clears p<0.05. Colouring every gap is exactly how a table
+    // like this talks somebody into shipping noise.
+    const k = p != null && p < 0.05 && d ? (d > 0 ? "good" : "bad") : "";
+    sum.push(`<tr><td title="${title}">${name}</td>
+      <td>${pa == null ? "—" : pa + "%"} <span class="thin">${x.a}/${x.n}</span></td>
+      <td>${pb == null ? "—" : pb + "%"} <span class="thin">${y.a}/${y.n}</span></td>
+      <td class="${k}">${d == null ? "—" : (d > 0 ? "+" : "") + d + " đ"}</td>
+      <td class="thin">${p == null ? "—" : p < 0.001 ? "&lt;0.001" : p.toFixed(3)}</td></tr>`);
+  };
+  /** A plain number on both arms. No p — these are not proportions and a test on them would lie. */
+  const nRow = (name, a, b, fmt, title) => {
+    const f = fmt || ((v) => (v == null ? "—" : v));
+    // ⚠ Rounded, because a difference of two one-decimal numbers is a float: 9.4 − 7.3 printed
+    // "+2.1000000000000005" in the first run, which reads as the page having lost its mind rather
+    // than as arithmetic. Harmless on the millisecond rows — `mmss` rounds to whole seconds anyway.
+    const d0 = a == null || b == null ? null : b - a;
+    const d = d0 == null ? null : Math.round(d0 * 10) / 10;
+    sum.push(`<tr><td title="${title || ""}">${name}</td><td>${f(a)}</td><td>${f(b)}</td>
+      <td class="thin">${d == null ? "—" : (d > 0 ? "+" : "") + f(d)}</td><td class="thin">—</td></tr>`);
+  };
+  const med = (m) => (m.size ? median([...m.values()]) : null);
+  nRow("Người chơi (thiết bị)", A.devs.size, B.devs.size, null,
+    "Chia nhánh bằng hash mã thiết bị, kỳ vọng 50/50. Lệch nhiều là hash hỏng, không phải kết quả.");
+  nRow("Ván đã chơi", tA.n, tB.n);
+  nRow("Ván / người", A.devs.size ? +(tA.n / A.devs.size).toFixed(1) : null,
+    B.devs.size ? +(tB.n / B.devs.size).toFixed(1) : null);
+  // ⚠ **Not a like-for-like comparison, and it is the row most likely to be misread.** If one arm
+  // gets people further, its players spend more of their games on the harder boards downstream, so
+  // its overall winrate falls *because the arm worked*. The three test levels themselves are on the
+  // two tables below, level by level — that is where a winrate can be compared honestly.
+  pRow("Winrate chung (/ván)", { a: tA.wt, n: tA.ev }, { a: tB.wt, n: tB.ev },
+    "Ván thắng chia cho số lượt vào màn. ⚠ Trộn mọi level: nhánh đưa người đi sâu hơn sẽ chơi nhiều " +
+      "màn khó hơn nên winrate chung tụt xuống — so từng level ở hai bảng dưới.");
+  nRow("Thời gian / người (median)", med(A.perDev), med(B.perDev), (v) => (v == null ? "—" : mmss(v)),
+    "Median chứ không phải trung bình: vài người ngồi cả tiếng kéo trung bình lên gấp mấy lần.");
+  nRow("Level sâu nhất (median)", med(A.deep), med(B.deep), null,
+    "Median của level cao nhất mỗi người chạm tới trong cửa sổ này.");
+  pRow("Vào L3 → tới L6", through(A, 3, 6), through(B, 3, 6),
+    "Trong số người đã vào level 3, bao nhiêu đi hết vùng test và sang được level 6. Đây là số đo chính của test này.");
+  pRow("Vào L3 → tới L10", through(A, 3, 10), through(B, 3, 10),
+    "Cùng cohort đó, đo sâu hơn — hiệu ứng có còn giữ đến level 10 hay không.");
+  pRow("D1 (quay lại hôm sau)", d1Of(A), d1Of(B),
+    "Cohort theo ngày đầu tiên trong cửa sổ; cohort mới nhất bị loại vì chưa có ngày kế.");
+  $("abSum").innerHTML =
+    `<thead><tr><th>Chỉ số</th><th>Nhánh A</th><th>Nhánh B</th><th>Chênh (B−A)</th><th>p</th></tr></thead>` +
+    `<tbody>${sum.join("")}</tbody>`;
+
+  // ---- level by level, the two arms PAIRED INSIDE each metric
+  //
+  // ⚠ **Paired, not two tables.** Side by side, the two winrates of one level sat fourteen columns
+  // apart and the eye had to carry a number across the seam — the thing it is worst at. This also
+  // survives a narrow window: the two-table layout had to stack below 1100px, and stacked it was
+  // not a comparison at all.
+  //
+  // ⚠ The **level list is the union of both arms**, so a level only one arm reached keeps its row
+  // and prints "—" on the other side. Dropping it would hide exactly the case worth seeing: a board
+  // the other arm's players never got to.
+  const nums = [...new Set([...A.lv.keys(), ...B.lv.keys()])].sort((x, y) => x - y);
+  /** One metric, both arms, as two `<td>`s. `g` marks the first cell of a group for the rule. */
+  const pair = (a, b, kls) =>
+    `<td class="g ${kls ? kls(a) : ""}">${a?.txt ?? "—"}</td><td class="${kls ? kls(b) : ""}">${b?.txt ?? "—"}</td>`;
+  const lvBody = nums
+    .map((n) => {
+      const hit = AB_ONLY.includes(n) ? " abhit" : "";
+      const ca = A.lv.get(n), cb = B.lv.get(n);
+      const stat = (c) => {
+        if (!c) return null;
+        const wr = c.ev ? pct(c.wt, c.ev) : null;
+        /**
+         * ⚠ **`wonT`, not `won`.** Divided by `devs` — which is built from START rows — a count
+         * of every winner can exceed the denominator: a device whose start row fell outside the
+         * window still lands in `won`. It printed **114%** on level 5 of arm B (8 over 7) the
+         * first time this ran on real rows. Same rule the main table applies to Winrate/player.
+         */
+        const wp = c.devs.size ? pct(c.wonT.size, c.devs.size) : null;
+        const mean = c.ms.length ? Math.round(c.ms.reduce((x, y) => x + y, 0) / c.ms.length / 1000) : 0;
+        return {
+          devs: { txt: c.devs.size }, ev: { txt: c.ev }, games: { txt: c.n }, done: { txt: c.won.size },
+          wr: { txt: wr == null ? "—" : wr + "%", v: wr, n: c.ev },
+          wp: { txt: wp == null ? "—" : wp + "%", v: wp, n: c.devs.size },
+          // ⚠ `n` so the cell can grey itself out, the same rule the winrate ramp uses. Without
+          // it a median of one game sat in full ink beside the other arm's and read as a finding.
+          ms: { txt: c.ms.length ? Math.round(median(c.ms) / 1000) + "s" : "—", n: c.ms.length,
+                t: c.ms.length ? `median của ${c.ms.length} ván có độ dài; trung bình ${mean}s` : "không ván nào báo độ dài" },
+        };
+      };
+      const a = stat(ca), b = stat(cb);
+      const rate = (x) => (x ? band(x.v ?? 0, x.n) : "");
+      /**
+       * B − A in points.
+       *
+       * ⚠ **Grey until both arms clear `MIN_N`, and never green or red.** A per-level gap has no
+       * p-value behind it — most levels here are a handful of attempts — and colouring it would
+       * make the noise on a thin row look exactly like the signal on a thick one. The two winrate
+       * cells beside it already carry the ramp, which is banded and greys itself out below `MIN_N`.
+       */
+      const gap = (x, y) => {
+        if (!x || !y || x.v == null || y.v == null) return `<td class="thin">—</td>`;
+        const d = y.v - x.v;
+        const solid = x.n >= MIN_N && y.n >= MIN_N;
+        return `<td class="${solid ? "" : "thin"}">${(d > 0 ? "+" : "") + d}</td>`;
+      };
+      return `<tr class="lv${hit}"><td>L${n}</td>` +
+        pair(a?.devs, b?.devs) + pair(a?.ev, b?.ev) + pair(a?.games, b?.games) +
+        pair(a?.wr, b?.wr, rate) + gap(a?.wr, b?.wr) +
+        pair(a?.done, b?.done) +
+        pair(a?.wp, b?.wp, rate) + gap(a?.wp, b?.wp) +
+        `<td class="g ${(a?.ms.n ?? 0) < MIN_N ? "thin" : ""}" title="${a?.ms.t ?? ""}">${a?.ms.txt ?? "—"}</td>` +
+        `<td class="${(b?.ms.n ?? 0) < MIN_N ? "thin" : ""}" title="${b?.ms.t ?? ""}">${b?.ms.txt ?? "—"}</td>` +
+        `</tr>`;
+    })
+    .join("");
+  // ⚠ One header ROW, not a group row over an A/B row. Two rows both stick to `top:0` and land on
+  // top of each other — the second needs the first one's exact height, which is a number that has
+  // to be maintained by hand every time the font or the padding moves.
+  // ⚠ The name goes over the A column ONLY. Printed over both, a pair of "Winrate/ván" headers
+  // made each column as wide as the word and pushed the two numbers being compared ~120px apart —
+  // undoing most of what pairing them was for. The `.g` divider is what says the lone "B" belongs
+  // to the metric on its left, so that rule and this header are one decision, not two.
+  const h2 = (name) =>
+    `<th class="g">${name}<br><span class="arm">A</span></th><th>&nbsp;<br><span class="arm">B</span></th>`;
+  $("tAbLv").innerHTML =
+    `<thead><tr><th>Level</th>` +
+    h2("User<br>start") + h2("Lượt<br>vào") + h2("Ván") + h2("Win<br>/ván") + `<th>Δ</th>` +
+    h2("User<br>xong") + h2("Win<br>/người") + `<th>Δ</th>` + h2("Thời<br>gian") +
+    `</tr></thead><tbody>${lvBody}</tbody>`;
+}
+
 function render() {
   const g = filtered();
   // ⚠ Start rows, through the **same** `filtered` as the ends. This used to be an inline copy of
@@ -625,6 +1058,10 @@ function render() {
   if (!g.length) {
     $("cards").innerHTML = "<div class='card'><div class='n'>0</div><div class='k'>no data</div></div>";
     $("tDay").innerHTML = $("tLv").innerHTML = $("foot").innerHTML = "";
+    // ⚠ The A/B section clears with them. Left alone it keeps the PREVIOUS window on screen
+    // beside a range label saying this one is empty — two panels disagreeing about one query.
+    $("abSum").innerHTML = $("tAbLv").innerHTML = "";
+    $("abNote").textContent = "";
     // ⚠ The range label has to be rewritten here too. Left alone it still reads the *previous*
     // window, so a custom range that matched nothing looks like a range that loaded something —
     // and an empty window is exactly what a picker set an hour too early produces.
@@ -1172,6 +1609,8 @@ function render() {
          (${multi.map((n) => "L" + n).join(", ")}) — their numbers are averaging games from two different designs.
          Filter by build to separate them.`
       : "");
+
+  renderAB(g, sg, tracked);
 }
 </script>
 </body>

@@ -29,9 +29,34 @@ import { deviceId } from "./playlog";
 export type Arm = "A" | "B";
 
 /** The levels the two arms disagree on. Everything else resolves the same way for everybody. */
-export const AB_LEVELS = [3, 4, 5];
+export const AB_LEVELS: number[] = [];
 
-const VARIANT = {"3":{"cols":5,"rows":4,"cells":[{"kind":"tile","color":2,"hidden":false},{"kind":"tile","color":3,"hidden":false},{"kind":"tile","color":2,"hidden":false},{"kind":"tile","color":3,"hidden":false},{"kind":"tile","color":0,"hidden":false},{"kind":"tile","color":0,"hidden":false},{"kind":"wall"},{"kind":"tile","color":0,"hidden":false},{"kind":"wall"},{"kind":"wall"},{"kind":"tile","color":2,"hidden":false},{"kind":"tile","color":0,"hidden":false},{"kind":"tile","color":1,"hidden":false},{"kind":"wall"},{"kind":"wall"},{"kind":"floor"},{"kind":"floor"},{"kind":"floor"},{"kind":"floor"},{"kind":"floor"}],"columns":[[0,2,2,2,2,2,2,2],[0,1,0,3,3,2,0,0],[0,1,0,3,3,2,0],[0,1,0,3,3,0,0]],"refTaps":[11,12,7,2,1,0,5,3,10,4]},"4":{"cols":4,"rows":4,"cells":[{"kind":"wall"},{"kind":"wall"},{"kind":"wall"},{"kind":"wall"},{"kind":"wall"},{"kind":"tile","color":4,"hidden":true},{"kind":"tile","color":4,"hidden":true},{"kind":"wall"},{"kind":"tile","color":6,"hidden":true},{"kind":"tile","color":1,"hidden":true},{"kind":"tile","color":4,"hidden":true},{"kind":"tile","color":1,"hidden":true},{"kind":"tile","color":4,"hidden":false},{"kind":"tile","color":2,"hidden":false},{"kind":"tile","color":3,"hidden":false},{"kind":"tile","color":2,"hidden":false}],"columns":[[4,4,3,4,1,6,1,1],[4,3,4,2,6,4,4],[2,3,4,2,4,2,1,1],[2,4,4,6,1,2,4]],"refTaps":[12,15,14,11,8,10,6,13,5,9]},"5":{"cols":6,"rows":4,"cells":[{"kind":"wall"},{"kind":"crate"},{"kind":"crate"},{"kind":"crate"},{"kind":"crate"},{"kind":"crate"},{"kind":"wall"},{"kind":"tile","color":3,"hidden":true},{"kind":"tile","color":1,"hidden":true},{"kind":"wall"},{"kind":"tile","color":1,"hidden":true},{"kind":"tile","color":3,"hidden":true},{"kind":"wall"},{"kind":"tile","color":5,"hidden":true},{"kind":"tile","color":4,"hidden":true},{"kind":"wall"},{"kind":"tile","color":4,"hidden":true},{"kind":"tile","color":5,"hidden":true},{"kind":"wall"},{"kind":"tile","color":2,"hidden":false},{"kind":"tile","color":3,"hidden":false},{"kind":"tile","color":0,"hidden":false},{"kind":"tile","color":3,"hidden":false},{"kind":"tile","color":2,"hidden":false}],"columns":[[4,0,2,2,3,4,5,3,1,3],[4,0,2,3,3,5,5,3,1,3],[5,0,2,3,3,4,5,1,1,3],[5,2,2,3,4,4,3,1,1]],"refTaps":[23,17,16,22,10,21,19,13,14,20,11,7,8]}} as unknown as LevelBook;
+/**
+ * **Which split this is.** Stamped on every telemetry row as `abt`, beside the arm.
+ *
+ * ⚠ **`ab` alone is not enough, and the cost of learning that was a wrong number on screen.** This
+ * is the *second* A/B this game has run: the first compared the 21/8 opening against the ladder at
+ * levels 1-10 and was retired in `18b17c7`, and its rows carry `ab: "A"` / `ab: "B"` too. Grouping
+ * on the arm alone pooled the two — and the two arms mean opposite things in them, so the
+ * dashboard read arm A at a median of **80s** against arm B's 32s, when this test's own rows say
+ * 69s against 44s. The 21/8 boards were simply longer; none of that gap was about levels 3, 4, 5.
+ *
+ * ⚠ **So it changes whenever the split changes** — new levels, new variant, new id. A test whose
+ * rows cannot be told from the last test's is the same defect as arms that cannot be told apart,
+ * one level up, and it is quieter: the rows all look valid.
+ *
+ * ⚠ Rows written before this field existed have none. `stats.html` counts and reports them rather
+ * than assuming, which is the same rule it applies to rows with no `ab` at all.
+ */
+export const AB_TEST = "l345";
+
+// ⚠ **Empty: the levels-3/4/5 split closed on 2026-08-25 and arm B's three boards were adopted
+// into `HANDMADE` for everybody.** The arm is still computed and still stamped on every row, and
+// that is deliberate — with no variant the two arms are an A/A, and this test ended needing one:
+// arm B came out **+4.3 points ahead on levels 1 and 2** (p = 0.032), boards byte-identical in both
+// arms and played before the split. An imbalance that size is either bad luck or a broken hash, and
+// nothing else on this project can tell those apart. Watch it here before running another split.
+const VARIANT = {} as unknown as LevelBook;
 
 let forced: Arm | null | undefined;
 function fromQuery(): Arm | null {

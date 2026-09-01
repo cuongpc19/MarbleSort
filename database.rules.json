@@ -42,6 +42,58 @@
         // tell — the fetch is never awaited and the failure reaches nobody.
         ".validate": "newData.hasChildren(['lvl', 'at']) && (newData.hasChild('result') || newData.child('ev').val() === 'start' || newData.child('ev').val() === 'daily')"
       }
+    },
+
+    // The moves of each finished game, moved out of /runs on 2026-08-23.
+    //
+    // ⚠ **Why it is a separate node at all.** `rep` is a few hundred to a few thousand characters
+    // and was 61% of every byte /runs weighed — 9.1 MB of 14.9 over a seven-day window. RTDB's
+    // REST API cannot return a row *without* one of its fields, so `public/stats.html`, which
+    // never reads `rep`, had to download all of it and throw it away. On a phone the dashboard
+    // stopped loading entirely. Splitting the node is the only way to make that query smaller.
+    //
+    // ⚠ **Same permissions as /runs, deliberately.** Open to write (the game posts with no login,
+    // so there is no credential to check) and readable by the one uid. A replay names a level, a
+    // device and every move somebody made; it is not less private than the row it came from.
+    //
+    // ⚠ **`ev` is `"rep"`, which is a new event type — these rules had to be redeployed for it.**
+    // A row whose shape the rules refuse is rejected at the door and the game cannot tell: the
+    // send is fire-and-forget and the failure reaches nobody. That is how a claimed daily reward
+    // went missing for a whole build, and the give-away was every row arriving after one deploy.
+    "reps": {
+      ".write": true,
+      ".read": "auth != null && auth.uid === 'bTh6GMIhhYdbJauI3Fm5k9AhQk93'",
+      ".indexOn": ["at"],
+      "$row": {
+        ".validate": "newData.hasChildren(['lvl', 'at', 'rep'])"
+      }
+    },
+
+    // How far an attempt got, written while the player is leaving the page rather than when the
+    // level ends. Added 2026-08-25.
+    //
+    // ⚠ **Why it exists.** Everything about what happened inside an attempt is written by the END
+    // row, so an attempt somebody walks away from leaves nothing but "they arrived". A quarter of
+    // level-1 entries are that, and 88% of those devices never send another row from anywhere —
+    // people leaving the game at the first board, and no way to tell whether they tapped once or
+    // never touched the screen.
+    //
+    // ⚠ **Its own node, deliberately.** `public/stats.html` pulls /runs whole on every load, and
+    // this project has just spent a day taking `rep` out of it for exactly that reason — it was 61%
+    // of every byte. A per-attempt trace must not go back into the node the dashboard reads.
+    //
+    // ⚠ `ev` is `"steps"`, a new event type, so these rules had to be redeployed for it. A row whose
+    // shape the rules refuse is rejected at the door and the game cannot tell: the send is
+    // fire-and-forget and the failure reaches nobody.
+    "steps": {
+      ".write": true,
+      ".read": "auth != null && auth.uid === 'bTh6GMIhhYdbJauI3Fm5k9AhQk93'",
+      ".indexOn": ["at"],
+      "$row": {
+        // ⚠ `taps` and not `rep`: the row worth having most is the one where the player poured
+        // nothing, and requiring a replay string would reject exactly that row.
+        ".validate": "newData.hasChildren(['lvl', 'at', 'taps'])"
+      }
     }
   }
 }
