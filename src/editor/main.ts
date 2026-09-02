@@ -46,7 +46,7 @@ const TOOLS: { id: Tool; label: string; key: string; hint: string }[] = [
   // drawing. Every other tool paints on contact: to reach an arrow tray's direction you had to
   // click it with the arrow tool, and one wrong tool selected meant the piece was overwritten
   // before you saw what it was. Reaching a piece to read or adjust it should not be a bet.
-  { id: "pick", label: "Chọn / xem", key: "0", hint: "bấm vào một vật thể để sửa nó — không vẽ đè" },
+  { id: "pick", label: "Chọn / xem", key: "0", hint: "bấm để sửa, kéo để chuyển khay sang ô trống — không vẽ đè" },
   { id: "wall", label: "Thành máy", key: "1", hint: "vẽ viền — ngoài hình" },
   { id: "floor", label: "Ô trống", key: "2", hint: "trong hình, khay trượt sang được" },
   { id: "tile", label: "Ô màu", key: "3", hint: "khay, hiện màu" },
@@ -492,11 +492,15 @@ function renderWell() {
   // ⚠ Always offered while there is an order at all. It is the only thing that re-deals the well,
   // and a control that appears and disappears is one the designer has to go looking for at exactly
   // the moment they have decided the order is wrong.
-  wellAutoEl.hidden = !pinned;
+  // ⚠ Always on, unlike the shuffles: this one *builds* an order rather than re-rolling one, so
+  // it is exactly what a board with no order yet needs.
+  wellAutoEl.hidden = false;
   wellAutoEl.textContent = "Sắp lại tự động";
-  wellAutoEl.title = "Bỏ thứ tự hiện tại và để máy xếp lại, nhắm vào độ khó của level này";
+  wellAutoEl.title =
+    "Xếp hộp theo màu khay, đọc từ hàng dưới cùng lên trên cùng — mỗi khay 3 hộp, điền theo hàng của giếng";
   // Same rule as the button beside them: offered whenever there is an order to shuffle.
   for (const b of shuffleBtns) b.hidden = !pinned;
+  wellDeriveEl.hidden = !pinned;
   const g = preview;
   const stacks = g ? g.boxes.map((b) => b.stack) : [];
   if (!stacks.some((st) => st.length)) {
@@ -873,12 +877,103 @@ const SHUFFLES: { id: string; label: string; from: number; to: number; hint: str
   { id: "shTail15", label: "Trộn 15 hộp cuối", from: -15, to: Infinity, hint: "Xáo ngẫu nhiên 15 hộp cuối cùng của giếng" },
 ];
 
-wellAutoEl.onclick = () => {
-  // Back under the normal derivation: the search rebuilds the stacks against this slot's target.
+/**
+ * The trays in the order the board actually lets the player reach them: **bottom row first, then
+ * up**, left to right within a row.
+ *
+ * ⚠ Bottom-up is not an arbitrary reading direction. The bottom row sits on the mouth of the chute
+ * and is the one edge of the board that counts as an exit, so it is what a player can pour first
+ * and a block is peeled upward from there. Reading top-down would order the well against the way
+ * the board empties.
+ *
+ * ⚠ Counts exactly what `trayCounts` counts — grid tiles, **both halves of a linked pair**, hatch
+ * queues and the four trays parked under a chocolate box — and `arrangeByTrayOrder` checks the two
+ * histograms against each other before pinning anything. Miss one and the well is short by that
+ * many boxfuls, which is a level unwinnable by arithmetic alone rather than a hard one.
+ *
+ * A hatch's queue is taken at the hatch's own row: its trays land in the cell below it as the
+ * board drains, so that is roughly where they belong in the order, and nothing better is knowable
+ * from a drawing.
+ */
+function trayOrderBottomUp(): Color[] {
+  const out: Color[] = [];
+  for (let y = bp.rows - 1; y >= 0; y--) {
+    for (let x = 0; x < bp.cols; x++) {
+      const c = bp.cells[y * bp.cols + x];
+      if (!c) continue;
+      if (c.kind === "tile" && c.color !== undefined) {
+        out.push(c.color);
+        if (c.wide) out.push(c.mate ?? c.color);
+      } else if (c.kind === "hatch") {
+        (c.queue ?? []).forEach((q) => out.push(q));
+      } else if (c.kind === "choc") {
+        (c.under ?? []).forEach((u) => out.push(u.color));
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Lay the well out to match the trays: `TRAY_N / BOX_SLOTS` = 3 boxes of a tray's colour, in tray
+ * order, filled into the well **row by row** — so the first three boxes the player meets are the
+ * three the first tray needs.
+ *
+ * ⚠ Row-major, via `wellSlots`, because every column's open box is live at once. Filling one
+ * column top to bottom and then the next would put a tray's three boxes minutes apart in play.
+ *
+ * ⚠ **This is not the difficulty search, and it does not aim at `targetWin`.** `Máy dò theo độ khó`
+ * beside it still does. This is the deterministic reading of the drawing that was asked for; it
+ * pins, so `lineFor` runs and the panel says immediately if the result has no winning line.
+ */
+function arrangeByTrayOrder() {
+  const order = trayOrderBottomUp();
+  if (!order.length) return;
+  // ⚠ Cross-check against the engine's own count before touching anything. Two ways of counting
+  // the same trays that disagree is exactly the class of bug this file keeps paying for.
+  const mine = new Map<Color, number>();
+  order.forEach((c) => mine.set(c, (mine.get(c) ?? 0) + 1));
+  const want = trayCounts(bp);
+  const same =
+    mine.size === want.size && [...want].every(([c, n]) => mine.get(c) === n);
+  if (!same) {
+    alert("Không sắp được: số khay đếm theo hàng không khớp với số khay của bản vẽ.");
+    return;
+  }
+  const per = TRAY_N / BOX_SLOTS;
+  const boxes: Color[] = [];
+  for (const c of order) for (let k = 0; k < per; k++) boxes.push(c);
+  const cols: Color[][] = Array.from({ length: BOX_COLS }, () => []);
+  // Shape the columns first so `wellSlots` has the right slots to walk, then fill in its order.
+  boxes.forEach((_, k) => cols[k % BOX_COLS].push(0 as Color));
+  wellSlots(cols).forEach((slot, k) => {
+    cols[slot.col][slot.idx] = boxes[k];
+  });
+  pinCols(cols);
+}
+
+wellAutoEl.onclick = arrangeByTrayOrder;
+
+/**
+ * The old meaning of `Sắp lại tự động`, kept as its own button.
+ *
+ * ⚠ **It is the only thing that aims the board at its slot.** `toLevelDef` skips the search
+ * whenever `columns` is set, so un-pinning is what puts the level back under the derivation that
+ * builds ~10 candidate layouts, scores each with bot games and keeps whichever lands nearest
+ * `targetWin(level)`. Folding it into the tray-order button would have quietly removed the
+ * difficulty-targeting path from the editor altogether.
+ */
+const wellDeriveEl = document.createElement("button");
+wellDeriveEl.className = "ghost";
+wellDeriveEl.textContent = "Máy dò theo độ khó";
+wellDeriveEl.title =
+  "Bỏ thứ tự đang giữ và để máy tìm lại, nhắm vào độ khó mà level này đáng ra phải có";
+wellDeriveEl.onclick = () => {
   delete bp.columns;
   delete bp.refTaps;
   commit();
 };
+wellAutoEl.parentElement!.appendChild(wellDeriveEl);
 
 // ⚠ Built once and only toggled afterwards. Rebuilding them inside `renderWell` would re-create
 // four nodes on every commit — including every cell of a drag-paint — and drop the button under
@@ -1870,6 +1965,92 @@ function scheduleLine() {
   }, 400);
 }
 
+/**
+ * Dragging a tray to an empty cell, on the **select** tool.
+ *
+ * ⚠ Only on `pick`. Every other tool paints on contact, so a drag there already means "paint a
+ * stroke" — giving it a second meaning would make the same gesture destroy the drawing on nine
+ * tools out of ten. `pick` is the one tool that cannot damage anything, which is exactly why the
+ * move belongs on it.
+ *
+ * ⚠ A click still selects. The drag is decided on `pointerup`: no valid target under the pointer
+ * and it was a click, which is what the tool did before. A tool whose behaviour depends on how far
+ * the hand moved has to keep the short version working.
+ */
+let dragTray = -1;
+let trayTo = -1;
+
+/**
+ * Is this cell genuinely empty, or is it the **right half of a linked pair**?
+ *
+ * ⚠ A pair is stored once, at its left cell, and the cell it covers is left as `floor` — so a
+ * plain `kind === "floor"` test reads the occupied half of a two-cell piece as free ground. Drop a
+ * tray there and the anchor is still `wide` with a tile sitting in the cell it claims: a piece
+ * that renders as half a pair and half a tray, and that `gridDef` then silently degrades. Every
+ * "is this cell free" question in this file has to go through the anchor, which is the same rule
+ * `Game.anchorAt` exists for on the engine side.
+ */
+function isEmptyCell(i: number): boolean {
+  if (bp.cells[i]?.kind !== "floor") return false;
+  const x = i % bp.cols;
+  if (x === 0) return true;
+  const left = bp.cells[i - 1];
+  return !(left?.kind === "tile" && left.wide);
+}
+
+/** Where a tray may land: an empty cell of the board, and for a pair the cell beside it too. */
+function trayCanDrop(from: number, to: number): boolean {
+  const cell = bp.cells[from];
+  if (!cell || cell.kind !== "tile" || to === from) return false;
+  // The mate cell of the pair being dragged is about to be vacated, so it is not in the way.
+  if (!(cell.wide && to === from + 1) && !isEmptyCell(to)) return false;
+  if (!cell.wide) return true;
+  // ⚠ A pair is one piece across two cells, so it needs the cell to its right as well — and it
+  // must not wrap onto the next row, which is the same check the pair tool makes when placing one.
+  if (to % bp.cols >= bp.cols - 1) return false;
+  return isEmptyCell(to + 1) || to + 1 === from + 1 || to + 1 === from;
+}
+
+function moveTray(from: number, to: number) {
+  const cell = bp.cells[from];
+  if (!cell || cell.kind !== "tile") return;
+  const wide = !!cell.wide;
+  bp.cells[from] = { kind: "floor" };
+  if (wide) bp.cells[from + 1] = { kind: "floor" };
+  bp.cells[to] = cell;
+  // ⚠ Written *after* the destination, not before: moving a pair one cell to the right has
+  // `to + 1 === from + 1`, and clearing the mate cell last would blank the tray just placed.
+  if (wide) bp.cells[to + 1] = { kind: "floor" };
+  selected = to;
+  commit();
+}
+
+function markTrayDrop() {
+  boardEl.querySelectorAll(".dropok, .lifting").forEach((el) => el.classList.remove("dropok", "lifting"));
+  if (dragTray < 0) return;
+  // ⚠ Re-marked here rather than stamped once on `pointerdown`. `apply()` commits, `commit()`
+  // re-renders, and `render()` calls `replaceChildren` — so a class put on the cell element at
+  // pointerdown is on a node that no longer exists by the time the hand moves. Anything the
+  // editor marks across a commit has to be re-derived, not remembered on the DOM.
+  boardEl.querySelector(`.cell[data-i="${dragTray}"]`)?.classList.add("lifting");
+  if (trayTo < 0) return;
+  const cell = bp.cells[dragTray];
+  const span = cell?.kind === "tile" && cell.wide ? 2 : 1;
+  for (let k = 0; k < span; k++) {
+    boardEl.querySelector(`.cell[data-i="${trayTo + k}"]`)?.classList.add("dropok");
+  }
+}
+
+function endTrayDrag() {
+  const from = dragTray;
+  const to = trayTo;
+  dragTray = -1;
+  trayTo = -1;
+  boardEl.querySelectorAll(".dropok").forEach((el) => el.classList.remove("dropok"));
+  boardEl.querySelectorAll(".lifting").forEach((el) => el.classList.remove("lifting"));
+  if (from >= 0 && to >= 0) moveTray(from, to);
+}
+
 boardEl.addEventListener("pointerdown", (e) => {
   const t = (e.target as HTMLElement).closest(".cell") as HTMLElement | null;
   if (!t) return;
@@ -1885,11 +2066,25 @@ boardEl.addEventListener("pointerdown", (e) => {
     }
     return;
   }
+  const startDrag = tool === "pick" && bp.cells[i]?.kind === "tile";
   painting = true;
   boardEl.setPointerCapture(e.pointerId);
   apply(i);
+  // After `apply`, which commits and re-renders: see `markTrayDrop`.
+  if (startDrag) {
+    dragTray = i;
+    markTrayDrop();
+  }
 });
 boardEl.addEventListener("pointermove", (e) => {
+  if (dragTray >= 0) {
+    // Hit-test the point: pointer capture sends every move to the cell the drag started in.
+    const t = document.elementFromPoint(e.clientX, e.clientY)?.closest(".cell") as HTMLElement | null;
+    const i = t ? Number(t.dataset.i) : -1;
+    trayTo = i >= 0 && trayCanDrop(dragTray, i) ? i : -1;
+    markTrayDrop();
+    return;
+  }
   if (!painting) return;
   // Drag-paint has to hit-test the point rather than trust the event target: pointer capture
   // sends every move to the cell the drag started in.
@@ -1900,7 +2095,10 @@ boardEl.addEventListener("pointermove", (e) => {
   if (tool === "hatch" || tool === "pair" || tool === "choc" || tool === "arrow" || tool === "pick") return;
   apply(i);
 });
-const stopPaint = () => (painting = false);
+const stopPaint = () => {
+  painting = false;
+  endTrayDrag();
+};
 boardEl.addEventListener("pointerup", stopPaint);
 boardEl.addEventListener("pointercancel", stopPaint);
 window.addEventListener("blur", stopPaint);

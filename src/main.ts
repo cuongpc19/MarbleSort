@@ -3,6 +3,7 @@ import { platform } from "./platform";
 import { GameScene, GAME_W, GAME_H } from "./scenes/GameScene";
 import { HomeScene } from "./scenes/HomeScene";
 import { SAVE_KEYS, save } from "./game/save";
+import { DAILY_FROM } from "./game/daily";
 
 /**
  * Send a player who has not cleared level 1 yet **straight onto the board**, skipping the home
@@ -71,6 +72,42 @@ function applyReset() {
   }
 }
 
+/**
+ * Put the daily reward back on the table: `?daily=1`.
+ *
+ * Clears the two stamps the streak keeps — `bf_daily` (claimed) and `bf_dailyoffer` (offered) — and
+ * raises `unlocked` past `DAILY_FROM` so the gate is open at all. Combine it with `?level=N`
+ * (`?daily=1&level=1`) and one win puts the card on screen: the offer is gated on `save.unlocked`,
+ * **not** on the level being 10, so level 1 is the cheapest board to prove it on.
+ *
+ * ⚠ **A testing hook, and it must stay out of the shipped game.** Gated on the target rather than
+ * on `import.meta.env.DEV`, for the same reason the play-log controls in `GameScene` are: the
+ * playtesting that needs it happens on a real `build:web` served over a tunnel to a phone, where
+ * there is no console to paste into and a DEV gate would delete the one route it has.
+ *
+ * ⚠ **It raises `unlocked`; it never lowers it.** `save.unlocked` is a `Math.max`, so this cannot
+ * take progress away from whoever is holding the phone.
+ *
+ * ⚠ Same ordering rule as `applyReset` — after `platform.init()`, before anything reads progress.
+ */
+function applyDailyReset() {
+  if (__TARGET__ === "crazy") return;
+  try {
+    const p = new URLSearchParams(location.search);
+    if (!p.get("daily")) return;
+    for (const k of ["bf_daily", "bf_dailyoffer"]) {
+      localStorage.removeItem(k);
+      platform.storage.removeItem(k);
+    }
+    save.unlocked = DAILY_FROM + 2;
+    p.delete("daily");
+    const qs = p.toString();
+    history.replaceState(null, "", location.pathname + (qs ? "?" + qs : "") + location.hash);
+  } catch {
+    /* storage unavailable */
+  }
+}
+
 // ⚠ **No dev wallet float.** A dev build used to top the wallet up to 1000 at boot, and that made
 // the economy unreadable from the machine it is being tuned on: 1000 coins is twenty revives, while
 // a real new player starts on **nothing** and earns `WIN_COINS` = 20 a level. To exercise a booster
@@ -90,6 +127,7 @@ function applyReset() {
 async function boot() {
   await platform.init();
   applyReset();
+  applyDailyReset();
   platform.loadingStart();
 
   // Render at the device pixel ratio so the baked textures stay crisp, capped at 2 —

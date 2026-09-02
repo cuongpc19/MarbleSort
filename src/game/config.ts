@@ -304,7 +304,7 @@ const TIGHTEN = TRIM_RIM + TRIM_PANEL;
  * `tan` of this), which comes off how big the game draws on a desktop frame, where `GAME_H` is
  * clamped to the cabinet. Paid for out of the row of boxes that was taken off the well.
  */
-const FUNNEL_ANGLE = 45;
+const FUNNEL_ANGLE = 24;
 /**
  * Where the taper begins: the cavity walls themselves, 48/492 -> 34/506.
  *
@@ -371,7 +371,7 @@ const FUNNEL_CONE_DROP = Math.round(
  * below 33° marbles stop sliding and never reach the neck at all. The throat has to be new height,
  * which is the whole reason a row of boxes had to go first.
  */
-const FUNNEL_NECK_LEN = 16;
+const FUNNEL_NECK_LEN = 9;
 
 /**
  * Clear air between the floor of the neck and the top of the belt housing.
@@ -595,7 +595,7 @@ export const GRID_ROWS = 5;
 /** Widest the *generator* builds. Hand-built boards may go up to GRID_MAX. */
 export const GRID_COLS = 6;
 /** Hard ceiling on a board in either direction. Past this the cells stop being tappable. */
-export const GRID_MAX = 7;
+export const GRID_MAX = 8;
 /** How many boxes of a column are drawn before the stack runs off the bottom. */
 /**
  * ⚠ **Four, down from five.** The fifth row was the price of the chute having a throat: dropping
@@ -677,10 +677,15 @@ export const PALETTE: Swatch[] = [
 
 // ── Chrome ───────────────────────────────────────────────────────────────────
 export const UI = {
-  bg: 0x3d3a7a,
-  bgTop: 0x2f2c63,
-  bgBottom: 0x6a4f9e,
-  glow: 0x8f7ce8,
+  // ⚠ **Teal, not violet, from 2026-08-28** — matched to the reference machine rather than chosen.
+  // `HomeScene` is deliberately NOT affected: it paints `COVER_BG` and `HOME_FOOT`, both sampled
+  // from the cover render's own corner pixels, so changing these would leave the home screen's
+  // letterbox disagreeing with the art it sits behind. If Home is ever meant to follow, the render
+  // has to be re-made first and the two constants re-sampled from it.
+  bg: 0xa9dedb,
+  bgTop: 0xc2e9e4,
+  bgBottom: 0x8ecfcf,
+  glow: 0xe4f7f3,
   // ⚠ Three tones, not two, and only the middle one is solid slate.
   //
   //   machine   — the cabinet interior, white. It is the *ground* the board sits on.
@@ -692,15 +697,21 @@ export const UI = {
   // Filling the cavity with slate (or painting the whole cabinet slate) both collapse it to two
   // tones and lose the outline: the first makes the board a dark sticker on a white box, the
   // second makes the casing read as the hole rather than the solid part.
-  machine: 0xdfe6f5,
-  machineEdge: 0xa9b6d6,
-  panel: 0xf4f7fd,
-  panelDeep: 0x9fb0cb,
-  cell: 0xe4ebf8,
+  // ⚠ The three tones survive the hue change intact — only the hue moved. Interior and cavity stay
+  // the near-white ground the pieces sit on; the rim stays the one solid mid-tone. Warming them all
+  // toward the new background is what collapses this to two tones, which the note above forbids.
+  // ⚠ **The page is the lightest thing on screen and the cabinet sits darker inside it** — the way
+  // the reference machine reads, and the opposite of the first teal pass, which kept the white
+  // cabinet and put a dark teal page around it. Reported as *"trong đậm ngoài nhạt chứ"*.
+  machine: 0x62b4b8,
+  machineEdge: 0x3f9095,
+  panel: 0xeaf7f6,
+  panelDeep: 0x9ed0d2,
+  cell: 0xd6eeed,
   belt: 0x6f7686,
   beltDeep: 0x565d6b,
   beltLight: 0x8b93a3,
-  chrome: 0xf3f6fc,
+  chrome: 0xeff9f9,
   ink: "#2b3550",
   /**
    * The level pill and the coin, and now the mount under the booster too.
@@ -787,8 +798,24 @@ export const L = {
    * ⚠ **A cap below what the panel can fit is invisible.** Every board measured 56 exactly while
    * the panel could fit 82 — the numbers looked like a width limit and were the cap, which is the
    * kind of thing that gets diagnosed twice.
+   *
+   * ⚠ **Back to 56 on 2026-08-28, and this time for the spread rather than for a row of buttons.**
+   * `GRID_MAX` is now 8, and an 8x8 board is held to 48 by the panel's own height whatever this
+   * says — the cap cannot help it fit. What the cap decides is the *gap between board sizes*: at 64
+   * a 5x5 drew a quarter larger than an 8x8, so an 8x8 level would have arrived looking like a
+   * different game. At 56 every board from 4x4 to 7x7 draws identically and only 8-wide or 8-tall
+   * boards step down, to 48.
+   *
+   * ⚠ **48 from the same day**, another 15% down and asked for by eye — *"khu vực phía trên vẫn lớn
+   * quá, cho bé hơn 15% nữa"*. It lands on the one value where the panel can fit **every** board
+   * size at the cap: 4x4 through 8x8 all draw at 48, so no level ever steps down and the grid is
+   * one size for the whole game.
+   *
+   * ⚠ This breaks the "a 5-row board must stay pixel-identical" rule that stood above it, on
+   * instruction. Anything measured against cell 64 — egg sizes, the badge insets, the coach ring —
+   * now rides `L.cell`, and the tray sprites bake at 48.
    */
-  cell: 64,
+  cell: 48,
   gap: 7,
 
   // The chute proper starts well below the grid — above `top` the walls run straight down,
@@ -817,7 +844,17 @@ export const L = {
     // under the cone, and braking at 43% of the longer number would move the brake line down into
     // the cone — marbles then hang about halfway and never reach the neck, which is the exact
     // failure the note on this constant describes from the other direction.
-    brake: FUNNEL_TOP + Math.round(FUNNEL_CONE_DROP * 0.43),
+    /**
+     * Where `CONE_DRAG` switches on.
+     *
+     * ⚠ **0.43 of the way down was written for a cone twice this tall, and on a short one it brakes
+     * the whole chute.** At the current drop that put the line 32px below the mouth with only 74px
+     * of cone below it — so a marble was under drag for four fifths of its run and its measured
+     * speed *fell* all the way down: 2.64 → 1.60 → 1.35 → 1.18 px/frame in bands from mouth to
+     * neck. A ball rolling downhill that slows as it goes reads as broken, and was reported that
+     * way. At 0.85 the brake is the throat only, and the run down the wall is gravity's.
+     */
+    brake: FUNNEL_TOP + Math.round(FUNNEL_CONE_DROP * 0.85),
     // ⚠ **The taper starts at the cavity wall, not inside it.** It used to begin at 54/486 — six
     // pixels in from the cabinet — which made the chute a wide wedge with a short vertical lip on
     // top. Starting it at the wall turns the whole thing into one continuous funnel, which is what
@@ -918,6 +955,22 @@ const GRID_MAX_W = FUNNEL_WALL_R - FUNNEL_WALL_L - 3;
 const GRID_MAX_H = FUNNEL_SHOULDER - GRID_TOP;
 
 /**
+ * Where a board that does not fill the panel sits in it — 0 is against the top rim, 1 against the
+ * funnel's shoulder.
+ *
+ * ⚠ **Not 0.5.** The panel runs from `GRID_TOP` all the way down to `FUNNEL_SHOULDER`, because that
+ * is the space a *full* board may use; centring in it puts a board that uses half of it squarely
+ * over the place the funnel begins. Level 21 occupies five rows of a seven-by-six grid and came out
+ * with its bottom row hanging in the chute's throat, reported as *"kích thước k lớn lắm mà nó tràn
+ * cả ra phễu"*.
+ *
+ * ⚠ The slack is **not symmetric**, and that is the whole point: above the board is the cabinet's
+ * own rim, and below it is the mouth the cavity opens into the chute. The room below has a job, so
+ * a short board hangs from the top instead of floating in the middle.
+ */
+const GRID_BIAS = 0.22;
+
+/**
  * The part of the grid a board actually occupies, in cells — everything outside it is casing.
  *
  * ⚠ **This is what the cells are sized against, not `cols x rows`.** A board is declared on a grid
@@ -965,7 +1018,7 @@ export function gridMetrics(cols: number, rows: number, used?: GridBox): GridMet
   const uw = box.w * pitch - GRID_GAP;
   const uh = box.h * pitch - GRID_GAP;
   const x = Math.round((GAME_W - uw) / 2) - box.x * pitch;
-  const y = Math.round(L.gridPanel.y + Math.max(0, L.gridPanel.h - uh) / 2) - box.y * pitch;
+  const y = Math.round(L.gridPanel.y + Math.max(0, L.gridPanel.h - uh) * GRID_BIAS) - box.y * pitch;
   return { cell, pitch, x, y, w, h, bottom: y + h };
 }
 
@@ -1117,7 +1170,7 @@ export function funnelSide(side: -1 | 1, steps = 16): Array<{ x: number; y: numb
    * ⚠ **It is bought with `FUNNEL_ANGLE`, not with the control point.** At the old 42° the same two
    * constraints cap the bulge at 34px, barely more than the 30 it replaces. See that constant.
    */
-  const CB = { a: 0.02, b: 0.44 };
+  const CB = { a: 0.02, b: 0.49 };
   const out: Array<{ x: number; y: number }> = [{ x: mx, y: top }];
   for (let i = 1; i <= steps; i++) {
     const t = i / steps, u = 1 - t;
@@ -1126,9 +1179,111 @@ export function funnelSide(side: -1 | 1, steps = 16): Array<{ x: number; y: numb
       y: u * u * top + 2 * u * t * (top + CB.b * dy) + t * t * coneY,
     });
   }
-  // …then straight down. Vertical is 90°, so the throat can never be the stretch a marble stops on.
-  out.push({ x: nx, y: FUNNEL_TOP + FUNNEL_DROP });
+  /**
+   * …then into the throat, through a **fillet** rather than a corner.
+   *
+   * ⚠ **The bowl meets the neck at a 79° turn taken in a single step**, and that is what the drop
+   * into the throat was reported as looking wrong. The bowl's last stretch runs at 11° — nearly flat
+   * — and the neck is vertical, so a marble rolling along the bottom reaches the end of the wall and
+   * simply falls off the edge of it. Nothing guides it in; the geometry stops supporting it.
+   *
+   * A quadratic Bezier whose control point **is the corner** is tangent to both lines at its ends by
+   * construction, so the wall now curves from the bowl into the throat with no vertex at all. The
+   * marble is carried round instead of dropped.
+   *
+   * ⚠ The tangent length is capped against **both** neighbours — half the last bowl chord and half
+   * the neck — so a short neck or a fine subdivision cannot make the fillet eat the pieces either
+   * side of it and move the throat. At the shipped geometry it is the neck that binds.
+   *
+   * ⚠ It rounds the corner *away* from the chute, so the opening can only get wider here, never
+   * narrower. A fillet that cut the other way would pinch the throat, which is sized for two marbles.
+   */
+  const corner = { x: nx, y: coneY };
+  const end = { x: nx, y: FUNNEL_TOP + FUNNEL_DROP };
+  const prev = out[out.length - 2] ?? { x: mx, y: top };
+  const back = Math.hypot(corner.x - prev.x, corner.y - prev.y);
+  const T = Math.min(10, back / 2, (end.y - corner.y) / 2);
+  if (T > 0.5) {
+    const ux = (corner.x - prev.x) / (back || 1), uy = (corner.y - prev.y) / (back || 1);
+    const A = { x: corner.x - ux * T, y: corner.y - uy * T };
+    const B = { x: corner.x, y: corner.y + T };
+    out.pop(); // the corner itself is now the fillet's control point, not a vertex
+    out.push(A);
+    for (let i = 1; i <= 4; i++) {
+      const t = i / 4, u = 1 - t;
+      out.push({
+        x: u * u * A.x + 2 * u * t * corner.x + t * t * B.x,
+        y: u * u * A.y + 2 * u * t * corner.y + t * t * B.y,
+      });
+    }
+  }
+  // …and straight down the rest of the throat. Vertical is 90°, so it can never be where a marble
+  // stops sliding.
+  out.push(end);
   return out;
+}
+
+/** Half the width of the rim stroke, so the drawing and the offset below cannot drift apart. */
+export const FUNNEL_RIM_W = 5;
+
+/**
+ * How far outside the physical surface the rim is drawn: half its own width, **plus the depth the
+ * solver lets a body sink**.
+ *
+ * ⚠ Half the width alone is not enough, and the reason is measurable rather than aesthetic. Matter
+ * resolves contacts with a slop — bodies are allowed to overlap slightly, and it needs that to keep
+ * a resting stack stable. Measured over 10136 wall contacts: 10104 sit under 1px of penetration, 30
+ * land in 1-3px, and 2 go past that in a squeeze at the throat. That is healthy physics, but it is
+ * also 1-3px of marble drawn over a rim whose inner edge is exactly on the surface, and a screen
+ * recording catches it. Reported from play as marbles rolling over the wall.
+ *
+ * So the rim is pushed out by the slop as well. The marble still rests on the same surface — nothing
+ * about the physics moves — and the line it appears to rest on is now the line it cannot reach.
+ */
+export const FUNNEL_RIM_OFF = FUNNEL_RIM_W / 2 + 2.5;
+
+/**
+ * `funnelSide`, moved `dist` px **outward** — away from the chute.
+ *
+ * ⚠ **A stroke straddles the line it is given, and the inside half is the half a marble covers.**
+ * The Matter face sits exactly on `funnelSide`, so a marble resting on the wall reaches the line and
+ * buries `FUNNEL_RIM_W / 2` of a 5px rim under itself. Reported from play as marbles rolling over the
+ * rim, and it is exactly that: 2.5px each side, which is 5 device pixels on a phone. Drawing the rim
+ * from here, offset by half its own width, puts its **inner edge** on the surface the marbles
+ * actually touch — so the rim is what they rest on, and the number in `config` is the clear opening
+ * rather than 5px more than it.
+ *
+ * ⚠ Offset per **vertex**, not per segment. A per-segment offset — which is the right thing for the
+ * Matter slabs, and what `buildWalls` does — leaves the stroke in disconnected pieces at every joint.
+ * The vertex normal is the mean of its two adjacent segment normals, which is what a mitre is.
+ *
+ * ⚠ `side * (dy, -dx)` is the same outward direction `buildWalls` pushes its slabs by. One
+ * expression, or the picture and the physics disagree about which way is out.
+ */
+export function funnelSideOffset(side: -1 | 1, dist: number, steps = 16): Array<{ x: number; y: number }> {
+  const pts = funnelSide(side, steps);
+  const segN = pts.slice(0, -1).map((p, i) => {
+    const q = pts[i + 1];
+    const len = Math.hypot(q.x - p.x, q.y - p.y) || 1;
+    return { x: (side * (q.y - p.y)) / len, y: (side * -(q.x - p.x)) / len };
+  });
+  return pts.map((p, i) => {
+    const a = segN[Math.max(0, i - 1)];
+    const b = segN[Math.min(segN.length - 1, i)];
+    const nx = a.x + b.x, ny = a.y + b.y;
+    const sq = nx * nx + ny * ny;
+    /**
+     * ⚠ **A true mitre, not the unit bisector times `dist`.** For unit normals `a` and `b` turning
+     * by θ, `|a+b|` is `2cos(θ/2)`, and the offset corner has to sit `dist / cos(θ/2)` along the
+     * bisector — so the factor is `2 * dist / |a+b|²`. Normalising instead lands every corner short
+     * by `cos(θ/2)`, which is nothing along the smooth part of the curve and 0.7px at the elbow into
+     * the neck, where the wall turns nearly 80° in one step. That is exactly where the rim was still
+     * being overlapped.
+     */
+    if (sq < 1e-6) return { x: p.x, y: p.y };
+    const k = (2 * dist) / sq;
+    return { x: p.x + nx * k, y: p.y + ny * k };
+  });
 }
 
 export function slotPos(i: number, frac: number): BeltPoint {

@@ -320,11 +320,15 @@ export const SHEET: Spec[] = [
   // 12 and 13 were swapped on 2026-08-23 along with their boards, so its 0.85 travelled with it.
   // The rule that re-aiming happens one row at a time, as a board is rebuilt, still stands.
   { trays: 13, colors: 6, hidden: 2, hatches: 0, crates: 0, win: 0.80 }, // 13
-  { trays: 14, colors: 6, hidden: 0, hatches: 1, crates: 0, win: 0.12 }, // 14
-  { trays: 14, colors: 6, hidden: 4, hatches: 1, crates: 1, win: 0.30 }, // 15
+  // ⚠ 14 and 15 swapped boards on 2026-09-02, and the rows travelled with them. The board now at
+  // 14 also had its **two crates taken out** on the same pass, so its `crates` goes 1 -> 0 — this
+  // column is a floor, and leaving a 1 there would have `npm run sheet` reporting the board as
+  // failing its own row, and would put a crate back the moment anything re-derived it.
+  { trays: 14, colors: 6, hidden: 4, hatches: 1, crates: 0, win: 0.30 }, // 14
+  { trays: 14, colors: 6, hidden: 0, hatches: 1, crates: 0, win: 0.12 }, // 15
   { trays: 14, colors: 6, hidden: 5, hatches: 2, crates: 2, win: 0.80 }, // 16
   { trays:  9, colors: 4, hidden: 0, hatches: 0, crates: 0, win: 1.00 }, // 17
-  { trays: 14, colors: 6, hidden: 0, hatches: 0, crates: 0, win: 0.80 }, // 18
+  { trays: 14, colors: 6, hidden: 0, hatches: 0, crates: 0, win: 0.71 }, // 18
   { trays: 14, colors: 6, hidden: 4, hatches: 1, crates: 2, win: 0.33 }, // 19
   // ⚠ **Slot 20 has moved twice.** 17 and 20 were swapped first, putting the 26-tray board here;
   // it measured 43% on (B+D)/2 and no re-deal of its well could lift that — on a board that long the
@@ -333,7 +337,7 @@ export const SHEET: Spec[] = [
   // `SHOW_LEVEL_TAGS` is false, and it silences `Blueprint.tag` as well as the number rule.
   { trays: 14, colors: 7, hidden: 4, hatches: 2, crates: 1, win: 0.27 }, // 20
   { trays: 14, colors: 6, hidden: 0, hatches: 0, crates: 0, win: 0.80 }, // 21
-  { trays: 14, colors: 6, hidden: 0, hatches: 0, crates: 0, win: 0.71 }, // 22
+  { trays: 14, colors: 6, hidden: 0, hatches: 0, crates: 0, win: 0.80 }, // 22
   { trays: 14, colors: 6, hidden: 0, hatches: 0, crates: 0, win: 0.80 }, // 23
   // ⚠ 24 and 26 re-aimed on 2026-08-19 as their boards were rebuilt to 30%, one row at a time.
   // Neither pins `columns`, so this number is re-read on **every load** — the box-order search

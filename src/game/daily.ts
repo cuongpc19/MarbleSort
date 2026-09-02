@@ -50,28 +50,34 @@ export const DAILY_MAGNETS = [0, 1, 2];
 /**
  * The level that unlocks it. Below this the icon is not on the home screen at all.
  *
- * ⚠ **Read as "after clearing level 10", not "from level 10".** Both gates are strict: `dailyReady`
- * asks `save.unlocked > DAILY_FROM`, and `unlocked` only passes 10 once level 10 is won. Lowering
- * this to 9 to mean the same thing would open the card a level early.
+ * ⚠ **Read as "after clearing level 16", not "from level 16".** Both gates are strict: `dailyReady`
+ * asks `save.unlocked > DAILY_FROM`, and `unlocked` only passes 16 once level 16 is won. Lowering
+ * this to 15 to mean the same thing would open the card a level early.
  *
- * ⚠ **It has been 10, then 5, and is 10 again — set deliberately each time, so do not "restore" a
- * previous value from the history below.** It started at 10; the play log showed players jamming
- * around level 3 with about 20 coins, unable to afford the 50-coin revive that would rescue them,
- * so it went to 5 to put a hundred coins in their hands earlier. It is back at 10 by decision.
- * What that costs, and what to watch for if the early-quit numbers move: a player who jams in the
- * first handful of levels is again facing a revive they cannot pay for, and `WIN_COINS` = 20 is the
- * only other way they earn — which is half the levels it used to take, since that constant doubled
- * on 2026-08-20 for exactly this reason.
+ * ⚠ **It has been 10, then 5, then 10, and is 16 since 2026-09-02 — set deliberately each time, so
+ * do not "restore" a previous value from the history below.** It started at 10; the play log showed
+ * players jamming around level 3 with about 20 coins, unable to afford the 50-coin revive that
+ * would rescue them, so it went to 5 to put a hundred coins in their hands earlier; it went back to
+ * 10, and now to 16, by decision.
+ *
+ * ⚠ **What 16 costs, and it is the thing to watch.** Two measured facts point the same way. The
+ * revive is 50 coins against `WIN_COINS` = 20 a win, so a player who jams before their first
+ * hundred coins has exactly one outcome — and 16 wins is a long way to make them earn it. And the
+ * funnel is steep early: 11% of players never open level 3 after clearing level 2, and about
+ * two-thirds are gone inside the first six levels, so **most of the audience now never reaches the
+ * reward at all**. If early-quit numbers move after this, this constant is the first place to look.
  *
  * ⚠ It no longer lines up with the magnet. At 5 the cycle landed day 2 — the first day that pays a
- * magnet — right before `MAGNET_TUTOR_LEVEL` = 6 taught what a magnet is. At 10 the lesson comes
- * first and the reward later, which is the safer order of the two but no longer a designed pairing.
+ * magnet — right before `MAGNET_TUTOR_LEVEL` = 6 taught what a magnet is. From 10 up the lesson
+ * comes first and the reward later, which is the safer order of the two but no longer a designed
+ * pairing; at 16 they are ten levels apart and the pairing is gone entirely.
  *
- * ⚠ `GameScene` reads this constant too — clearing level `DAILY_FROM` routes the player **home** to
- * the card rather than on to the next level. Change the number here and that routing follows; there
- * is no second copy, and there must not be one.
+ * ⚠ **Nothing anywhere tests the level number against this.** `GameScene` offers the card on a win
+ * through `dailyOfferable()`, which asks the gate and the streak, never `this.level === DAILY_FROM`
+ * — see the note at that call site for what the equality test cost. So moving this number moves the
+ * whole feature and there is no second copy to keep in step. There must not be one.
  */
-export const DAILY_FROM = 10;
+export const DAILY_FROM = 16;
 
 /** Local calendar day, `YYYY-MM-DD`. The player's own midnight is the boundary they expect. */
 export function dayKey(ms: number): string {

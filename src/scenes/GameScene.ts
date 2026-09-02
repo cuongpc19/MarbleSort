@@ -31,6 +31,9 @@ import {
   type GridMetrics,
   slotPos,
   type Color,  funnelSide,
+  funnelSideOffset,
+  FUNNEL_RIM_W,
+  FUNNEL_RIM_OFF,
 } from "../game/config";
 import { Game, boardBounds, hint, levelFingerprint, starsFor, type RevivePick, type TickEvents } from "../game/logic";
 import { Tutorial } from "./tutorial";
@@ -44,6 +47,7 @@ import {
   type FeatureProgress,
 } from "../game/board";
 import { dailyOfferable, markDailyOffered } from "../game/daily";
+import { showDailyCard } from "./dailyCard";
 import { platform } from "../platform";
 import { loadCustom, toLevelDef } from "../game/custom";
 import { save } from "../game/save";
@@ -170,9 +174,13 @@ const WIN_CARD_DELAY_MS = 500;
  * velocity clamping is needed — but it has to leave the marbles genuinely rolling: too much
  * and they stall on the slope instead of reaching the neck and the rail.
  */
-const CONE_DRAG = 0.09;
+const CONE_DRAG = 0.008;
+/** Chute wall thickness. Never drawn — it is the tunnelling margin. See `buildWalls`. */
+const WALL_T = 40;
+/** Hard ceiling on how far a marble may move in one physics step: half a wall. See `update`. */
+const MAX_STEP = WALL_T / 2;
 /** Contact friction down there too, so they slide off the cone walls rather than stick. */
-const CONE_FRICTION = 0.008;
+const CONE_FRICTION = 0.02;
 
 /**
  * The horizontal centre of the design box.
@@ -210,6 +218,8 @@ export class GameScene extends Phaser.Scene {
   private boxLayer!: Phaser.GameObjects.Container;
   private fxLayer!: Phaser.GameObjects.Container;
   private uiLayer!: Phaser.GameObjects.Container;
+  /** The HUD coin, in design units — see `buildHud`. */
+  private walletAt = { x: CX, y: 0 };
 
   private cellSprites: Phaser.GameObjects.Image[] = [];
   private tileSprites: Phaser.GameObjects.Image[] = [];
@@ -814,8 +824,20 @@ export class GameScene extends Phaser.Scene {
     }
     g.closePath();
     g.fillPath();
-    g.lineStyle(5, UI.machineEdge, 1);
-    for (const pts of [sideL, sideR]) {
+    /**
+     * ⚠ **The rim is stroked along the wall moved OUT by half its own width, not along the wall.**
+     * A stroke straddles its path, so drawn on `funnelSide` itself half of it lands inside the chute
+     * — and that is the half a marble resting on the surface sits on top of. The Matter face is on
+     * `funnelSide` exactly, so the marble reaches the line and buries 2.5px of the 5px rim.
+     * Reported from play as marbles rolling over the rim. Offset, the rim's inner edge is the
+     * surface, which is what the picture has been claiming all along.
+     *
+     * ⚠ The **fill** still runs to `funnelSide`. Only the rim moves: the white has to reach the
+     * surface the marbles touch, and the rim then sits outside it like the wall of a pipe.
+     */
+    g.lineStyle(FUNNEL_RIM_W, UI.machineEdge, 1);
+    for (const side of [-1, 1] as const) {
+      const pts = funnelSideOffset(side, FUNNEL_RIM_OFF);
       g.beginPath();
       g.moveTo(pts[0].x, topY);
       trace(pts, 0);
@@ -1152,15 +1174,27 @@ export class GameScene extends Phaser.Scene {
      * it to 20px, the marbles piled up on the slope and the level hung with a full chute and an
      * empty rail. The number in `config` must be the number the marbles see.
      */
+    /**
+     * ⚠ **`WALL_T` is 40, not 16, and the thickness is a safety margin rather than a look** — none
+     * of it is ever drawn. Matter has no continuous collision detection, so a body that moves more
+     * than a slab's thickness in one step can cross it between frames and end up outside the chute.
+     * Marbles were measured at **13 px/frame** against 16px slabs, which is close enough to that
+     * limit to explain marbles found outside the wall, and taking the brake off the run down the
+     * wall makes them faster still. 40px cannot be crossed at any speed this game produces.
+     *
+     * The inner face does not move: `push` is half of this, so the surface stays exactly on
+     * `funnelSide` and every other number in the chute is untouched.
+     */
     const wall = (x1: number, y1: number, x2: number, y2: number, push = 0) => {
       const len = Math.hypot(x2 - x1, y2 - y1);
       const a = Math.atan2(y2 - y1, x2 - x1);
       // Normal to the segment, pushed by half the slab so the face — not the middle — is on the line.
       const nx = Math.sin(a) * push, ny = -Math.cos(a) * push;
-      this.matter.add.rectangle((x1 + x2) / 2 + nx, (y1 + y2) / 2 + ny, len, 16, {
+      this.matter.add.rectangle((x1 + x2) / 2 + nx, (y1 + y2) / 2 + ny, len, WALL_T, {
         isStatic: true,
         angle: a,
         friction: 0.02,
+        frictionStatic: 0.05,
       });
     };
     /**
@@ -1174,13 +1208,13 @@ export class GameScene extends Phaser.Scene {
       // ⚠ `8 * side` pushes each slab outward, away from the chute, so the surface the marbles touch
       // is the line `funnelSide` describes. `side` is -1 on the left and +1 on the right, and the
       // segments run downward on both, so one signed number does both walls.
-      const push = 8 * side;
+      const push = (WALL_T / 2) * side;
       wall(pts[0].x, L.gridPanel.y, pts[0].x, pts[0].y, push);
       for (let i = 1; i < pts.length; i++) wall(pts[i - 1].x, pts[i - 1].y, pts[i].x, pts[i].y, push);
     }
     // The floor of the neck, pushed DOWN so its top face is at `neckY` — a marble resting on it sits
     // where the drawing says the floor is, not 8px into it.
-    wall(f.neckL - 4, f.neckY, f.neckR + 4, f.neckY, -8);
+    wall(f.neckL - 4, f.neckY, f.neckR + 4, f.neckY, -WALL_T / 2);
   }
 
   // ── HUD ────────────────────────────────────────────────────────────────────
@@ -1246,6 +1280,11 @@ export class GameScene extends Phaser.Scene {
       .setStroke(UI.ink, 5);
 
     this.uiLayer.add([gear, gearIcon, pill, lvl, coinBg, coin, this.coinLabel, gearZone]);
+    // Where a daily-reward coin flies to. ⚠ The **icon**, not the number beside it: the two are 56
+    // units apart and a coin landing on the digits reads as overshooting the wallet. Recorded here
+    // rather than recomputed at the card, because `coinX` is a wide-layout branch and a second copy
+    // of it would aim at the phone's row on a desktop.
+    this.walletAt = { x: coinX - 42, y: coinY };
 
     // Centred on its own row, because it is the only one. Left at 180 it reads as the first of a
     // row whose other two buttons failed to draw.
@@ -1520,7 +1559,8 @@ export class GameScene extends Phaser.Scene {
     // at a time, not ricochet. The gravity that goes with this is set in main.ts.
     const body = this.matter.add.circle(x, y, L.marbleR, {
       restitution: 0.18,
-      friction: 0.05,
+      friction: 0.02,
+      frictionStatic: 0.05,
       frictionAir: 0.004,
       density: 0.005,
     });
@@ -1536,9 +1576,33 @@ export class GameScene extends Phaser.Scene {
     // the chute back up visibly when the belt is congested, instead of quietly swallowing
     // marbles into an off-screen queue.
     if (!this.board.entryFreeNextTick()) return;
+    /**
+     * ⚠ **A marble is only taken from the chute when it is actually AT the throat — over the
+     * opening, not merely low enough.** The test used to be `y >= neckY - 46` and nothing else. That
+     * was written for a 186px chute, where 46px above the neck *is* the throat. The chute is 74px
+     * now, so the same line sits above the middle of the bowl and the whole lower half of it became
+     * a pickup zone: measured over 197 pickups, **59 were taken outside the opening, up to 140px
+     * away from it**, straight off the wall at x=163-209 against a neck at 236-304.
+     *
+     * What that looks like in play is the bug that was reported. The marble is lifted out of the
+     * chute mid-bowl and flown to the rail from wherever it happened to be, so it leaves the wall
+     * sideways and crosses the funnel's own outline on the way — "bi lăn ra ngoài thành", at the
+     * last marbles of a pour, which are exactly the ones rolling alone down the wall with no queue
+     * ahead of them to reach the throat first.
+     *
+     * ⚠ The horizontal test is the one that matters, and it is the one that was missing. The
+     * vertical line is unchanged — `coneY - 2 * marbleR` is the same 586 — so this does not make the
+     * chute slower to drain; it only stops it reaching across the bowl for marbles.
+     *
+     * ⚠ Written against the neck's own coordinates rather than a constant, so it cannot come loose
+     * from the geometry again the next time the chute changes shape. `CHUTE_TIMEOUT_MS` below is
+     * still the backstop for a marble that somehow never reaches the opening.
+     */
+    const fn = L.funnel;
     let best: Falling | null = null;
     for (const f of this.falling) {
-      if (f.body.position.y < L.funnel.neckY - 46) continue;
+      if (f.body.position.y < fn.coneY - 2 * L.marbleR) continue;
+      if (f.body.position.x < fn.neckL - L.marbleR || f.body.position.x > fn.neckR + L.marbleR) continue;
       if (!best || f.body.position.y > best.body.position.y) best = f;
     }
     // Backstop: logic is owed marbles but there is not a single body in the chute to supply
@@ -1550,20 +1614,45 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    // Nothing has reached the neck. If something has been stuck up there long enough, take
-    // the oldest one regardless — see CHUTE_TIMEOUT_MS.
+    /**
+     * Nothing has reached the throat. If something has been stuck up there long enough, take one
+     * regardless — see `CHUTE_TIMEOUT_MS`.
+     *
+     * ⚠ **The one NEAREST the throat, not the oldest.** This path is the reason tightening the test
+     * above only cut the misplaced pickups from 59 to 38: whatever the main rule refuses, this one
+     * takes anyway, and taking the oldest means taking a marble that may be right at the top of the
+     * bowl — the furthest possible from where a marble should leave. The marble then flies to the
+     * rail from there, across the funnel's own outline, which is the artefact this whole path is
+     * being blamed for. It is a backstop against a hang, so it still fires; it just no longer picks
+     * the worst candidate on the board to fire on.
+     */
     if (!best) {
+      let bestD = Infinity;
+      const cx = (fn.neckL + fn.neckR) / 2;
       for (const f of this.falling) {
         if (this.time.now - f.born < CHUTE_TIMEOUT_MS) continue;
-        if (!best || f.born < best.born) best = f;
+        const d = Math.hypot(f.body.position.x - cx, f.body.position.y - fn.coneY);
+        if (d < bestD) { bestD = d; best = f; }
       }
     }
     if (!best) return;
     // ⚠ Read the body's real position and spin **before** destroying it. This is the whole join
     // between the two halves of the drop: the chute is physics and the rail is interpolation, and
     // the player is following one ball across the seam.
+    /**
+     * ⚠ **The hand-over starts at the throat, never further out than the opening.** The rail feed
+     * animates from this point, in a straight line — so a marble taken from out on the wall was
+     * flown to the rail *through* the funnel's own outline, and what that draws is a ball leaving
+     * the wall sideways and crossing it. That is the artefact reported as "bi lăn ra ngoài thành",
+     * and it is drawn by the hand-over rather than by the physics: measured 31 of 195 pickups still
+     * happen away from the opening even after the rule above was tightened, because the timeout
+     * backstop has to fire on something.
+     *
+     * Clamping x into the neck cannot make the path cross a wall: everything below the throat is
+     * inside the machine. The y is left alone — it is already at or below the pickup line.
+     */
     this.feedQueue.push({
-      x: best.body.position.x,
+      x: Phaser.Math.Clamp(best.body.position.x, fn.neckL + L.marbleR, fn.neckR - L.marbleR),
       y: best.body.position.y,
       rot: best.sprite.rotation,
     });
@@ -1578,10 +1667,16 @@ export class GameScene extends Phaser.Scene {
   /**
    * Marbles knocking down the chute. Rate-limited hard — Matter reports a burst of pairs on
    * a single pile-up, and playing all of them turns the ASMR into a buzz.
+   *
+   * ⚠ **300 ms, not 45.** 45 allows 22 sounds a second from this one source; the reference plays
+   * **2.97 a second** over its whole clip, 7/s at the 90th percentile and 15/s in its busiest
+   * single second. With the belt on top we were at ~34/s, and once every marble sound became a
+   * *note* rather than a click that stopped being texture and became a wall. The limit is a
+   * musical decision now, not just a defence against Matter's pair bursts.
    */
   private onCollide(e: { pairs: { collision: { depth: number } }[] }) {
     if (this.paused || !this.falling.length) return;
-    if (this.time.now - this.lastClackAt < 45) return;
+    if (this.time.now - this.lastClackAt < 300) return;
     this.lastClackAt = this.time.now;
     const depth = e.pairs[0]?.collision?.depth ?? 0;
     sfx.tumble(Math.min(2, depth));
@@ -1607,6 +1702,10 @@ export class GameScene extends Phaser.Scene {
     // The tread travels exactly one marble-slot per tick, same as the marbles, so the two
     // stay locked together and the belt reads as carrying them.
     this.beltTravel = (this.beltTravel + BELT_SPACING) % BELT_PERIM;
+    // ⚠ Marbles rolling. Fed the **occupancy**, not a flag: one knock per tick is a metronome on
+    // a clock that never varies, and the whole reason the chute knocks come off Matter is that a
+    // fixed rhythm is the one thing this machine must not have. `sfx.roll` spreads them itself.
+    sfx.roll(this.board.beltUsed(), this.tickMs);
     // ⚠ Two conditions, not one. The lesson ends by the **booster firing**, which happens outside
     // this block — so testing `!finished` before calling `tick` and again inside it meant the
     // finishing path was never reached and the lesson was never marked seen. It replayed on every
@@ -2427,7 +2526,30 @@ export class GameScene extends Phaser.Scene {
       const tail = f.body.position.y <= topY + 2;
       const slow = f.body.position.y > L.funnel.brake && !tail;
       f.body.frictionAir = slow ? CONE_DRAG : 0.004;
-      f.body.friction = slow ? CONE_FRICTION : 0.05;
+      f.body.friction = slow ? CONE_FRICTION : 0.02;
+      /**
+       * ⚠ **A speed cap, so tunnelling is impossible by construction rather than by margin.**
+       * Matter has no continuous collision detection: a body that moves further than a wall is thick
+       * in one step passes through it between frames, and the failure is speed-dependent — slow
+       * marbles are fine, fast ones near the neck go through. Reported from play in exactly those
+       * words, and the walls were 16px thick against marbles measured at 13 px/step.
+       *
+       * Thickening the walls to `WALL_T` fixed the case that was reported. It does not fix the
+       * *class*: the step is real time, so a device that drops frames takes bigger steps and gets
+       * faster marbles for free. Headless runs at about 13fps and is already the harsh end of that —
+       * a phone at 60 is four times gentler — but nothing guarantees the ceiling.
+       *
+       * `MAX_STEP` is half the wall thickness, so a marble can never cross one. It sits far above
+       * anything the game produces (13 measured against a cap of 20), so it never binds in normal
+       * play and costs nothing; it is there so the failure mode cannot return through some future
+       * change to gravity, the brake, or the chute's slope.
+       */
+      const v = f.body.velocity;
+      const sp = Math.hypot(v.x, v.y);
+      if (sp > MAX_STEP) {
+        const k = MAX_STEP / sp;
+        this.matter.body.setVelocity(f.body, { x: v.x * k, y: v.y * k });
+      }
       f.sprite.setPosition(f.body.position.x, f.body.position.y);
       f.sprite.setRotation(f.body.angle);
     }
@@ -3103,7 +3225,7 @@ export class GameScene extends Phaser.Scene {
       const stars = won ? 3 : 0;
       if (won) sfx.win();
       else sfx.deny();
-      this.overlay(won ? "LEVEL CLEAR!" : "JAMMED!", stars, 0);
+      this.overlay(won ? "LEVEL COMPLETE!" : "JAMMED!", stars, 0);
       return;
     }
     if (won) {
@@ -3114,7 +3236,7 @@ export class GameScene extends Phaser.Scene {
       save.coins = save.coins + WIN_COINS;
       sfx.win();
       // ⚠ Asked for `this.level`, the level just cleared — the bar is the reward for *this* game.
-      this.overlay("LEVEL CLEAR!", stars, WIN_COINS, featureProgress(this.level));
+      this.overlay("LEVEL COMPLETE!", stars, WIN_COINS, featureProgress(this.level));
     } else {
       sfx.deny();
       this.overlay("JAMMED!", 0, 0);
@@ -3246,9 +3368,13 @@ export class GameScene extends Phaser.Scene {
       );
     }
 
-    // ⚠ A win with a reward waiting sends the player **home**, not on to the next board. The reward
-    // lives on the home screen; handing them "NEXT LEVEL" here means the feature's whole job is to
-    // be skipped past.
+    // ⚠ A win with a reward waiting offers **the card itself**, not NEXT LEVEL. It used to send the
+    // player home for it — the reward lived on the home screen and handing them NEXT LEVEL meant the
+    // feature's whole job was to be skipped past — and the detour is now gone: `dailyCard.ts` draws
+    // the same card over this one, and a claim carries straight on to the next level. What that
+    // buys is four steps off the collection path (results → Home → card → claim → spent card →
+    // PLAY becomes results → card → claim), and, more to the point, no scene change at the exact
+    // moment the player's finger is over the middle of the screen.
     //
     // ⚠ **Gated on the daily rule, not on `this.level === DAILY_FROM`.** The equality test only ever
     // fired for someone who cleared level 5 *after* this shipped — a player already at level 16 when
@@ -3270,20 +3396,61 @@ export class GameScene extends Phaser.Scene {
     // A loss never routes (`stars` is 0), so nobody is pulled off a board they are still fighting.
     const toDaily = !!stars && !this.custom && dailyOfferable();
     if (toDaily) markDailyOffered();
+    const onward = () => {
+      if (stars) this.level++;
+      this.scene.restart({ level: this.level });
+    };
+    /**
+     * ⚠ **One button that changes its mind, not two.** After the card has been offered and closed
+     * without a claim there has to be a way on to the next level, and the only place for it is this
+     * button — a second one appearing beside HOME would move HOME under the player's thumb between
+     * one tap and the next. `daily` is what it is currently for.
+     */
+    let daily = toDaily;
     const primary = toDaily ? "CLAIM REWARD" : stars ? "NEXT LEVEL" : "TRY AGAIN";
-    c.add(
-      this.button(CX, midY + 130 + dy, primary, "wide", () => {
-        if (toDaily) {
-          this.scene.start("Home", { daily: true });
-          return;
-        }
-        if (stars) this.level++;
-        this.scene.restart({ level: this.level });
-      }),
-    );
+    const btn = this.button(CX, midY + 130 + dy, primary, "wide", () => {
+      if (!daily) {
+        onward();
+        return;
+      }
+      daily = false;
+      // ⚠ The card is only ever offered on a win, so what this falls back to is always NEXT LEVEL.
+      this.showDaily(onward, () => {
+        const label = btn.list.find(
+          (o): o is Phaser.GameObjects.Text => o instanceof Phaser.GameObjects.Text,
+        );
+        label?.setText("NEXT LEVEL");
+      });
+    });
+    c.add(btn);
     c.add(this.button(CX, midY + 212 + dy, "HOME", "wideBlue", () => this.scene.start("Home")));
 
     this.uiLayer.add(c);
+  }
+
+  /**
+   * The daily-reward card, over the results card.
+   *
+   * ⚠ **Claiming goes straight on to the next level**, which is the whole reason the detour through
+   * Home was removed: the card used to close onto a home screen the player then had to press PLAY
+   * on. Closing it *without* claiming does not — they are put back on the results card with the
+   * button now reading NEXT LEVEL, because a player who dismissed the reward has not asked to leave
+   * the screen.
+   *
+   * ⚠ `into` is `uiLayer` and the dimmer is `stageDim`, so on a wide frame the pads and the HUD
+   * column dim with the machine. A `GAME_W`-wide rectangle would leave them lit beside a dimmed
+   * board, which reads as the card having failed to cover the screen.
+   */
+  private showDaily(onClaimed: () => void, onDismissed: () => void) {
+    showDailyCard(this, {
+      cx: CX,
+      cy: GAME_H / 2,
+      into: this.uiLayer,
+      dim: () => this.stageDim(0x0d0a2a, 0.78),
+      wallet: this.walletAt,
+      onClaimed: () => this.coinLabel.setText(String(save.coins)),
+      onClosed: (claimed) => (claimed ? onClaimed() : onDismissed()),
+    });
   }
 
   /**

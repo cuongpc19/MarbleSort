@@ -1,8 +1,8 @@
 import Phaser from "phaser";
 import { GAME_H, GAME_W, L, UI } from "../game/config";
 import { save } from "../game/save";
-import { DAILY_DAYS, DAILY_FROM, DAILY_ON, claimDaily, dailyPrize, dailyState } from "../game/daily";
-import { sendDaily } from "../game/telemetry";
+import { DAILY_FROM, DAILY_ON, dailyState } from "../game/daily";
+import { showDailyCard } from "./dailyCard";
 import { sfx } from "../game/audio";
 import { K, TS, bakeAll, img } from "../game/textures";
 import { dismissBootSplash, matchPageToCanvas, pageBackdrop } from "../game/bootsplash";
@@ -390,285 +390,36 @@ export class HomeScene extends Phaser.Scene {
   }
 
   /**
-   * The three-day card.
+   * Open the streak card.
    *
-   * ⚠ Every day is on screen, including the ones already banked and the ones still to come. A card
-   * that showed only today would be a coin popup; what makes a streak work is seeing day 3's 250
-   * while standing on day 1.
+   * ⚠ **Drawn by `dailyCard.ts`, not here.** The board offers the same card now — a win on
+   * `DAILY_FROM` used to send the player back to this screen to collect it, and no longer does —
+   * so what is left here is only where it sits: this scene's own middle, its own dimmer, and the
+   * wallet the coins fly to.
    *
-   * ⚠ The three states are told apart by **presence, not brightness** — a live day has a red tab
-   * and a cream face, a locked day has a padlock, a banked day has a tick. Shading alone has to be
-   * compared against a neighbour to be read, and day 3 has no brighter neighbour to compare with.
-   * Same reasoning as the raised/flat eggs on a tray.
+   * ⚠ `scale` matters. Home lays out in design units and adds its cards straight to the scene
+   * rather than to a scaled root, so the container has to be scaled by hand; `GameScene` parents
+   * its cards to `uiLayer` inside an already-scaled `root` and passes nothing.
    */
   private showDaily() {
-    // ⚠ Guarded here as well as at the button. `init` can still be handed `{daily: true}` by a
-    // stale scene transition or a hand-typed restart, and a card with no way to reach it is worse
-    // than one that is simply absent.
-    if (!DAILY_ON) return;
-    if (this.children.getByName("dailyCard")) return;
-    const c = this.add.container(0, 0).setName("dailyCard").setDepth(100);
-    c.setScale(this.scale.width / this.W);
-    const st = dailyState();
-    const midY = this.H / 2;
-
-    const dim = this.add.rectangle(this.W / 2, this.H / 2, this.W, this.H, 0x0d0a2a, 0.78);
-    dim.setInteractive();     // swallows taps on the art behind, which would otherwise start a level
-    c.add(dim);
-
-    const W = 478;
-    const HH = 520;
-    const X = (this.W - W) / 2;
-    const Y = midY - HH / 2;
-    const panel = this.add.graphics();
-    panel.fillStyle(0x0a1730, 0.55).fillRoundedRect(X - 8, Y + 8, W + 16, HH, 36);
-    panel.fillStyle(0x0e2145, 1).fillRoundedRect(X - 6, Y - 6, W + 12, HH, 34);
-    panel.fillStyle(0x16305a, 1).fillRoundedRect(X, Y, W, HH, 30);
-    c.add(panel);
-
-    c.add(
-      this.add
-        .text(this.W / 2, Y + 52, "DAILY BONUS", { fontFamily: FONT, fontSize: "40px", color: "#ffd453" })
-        .setOrigin(0.5)
-        .setStroke("#7a3d06", 9),
-    );
-    // ⚠ Two lines, not one. "Claim your gift!" over a card whose button says COME BACK TOMORROW is
-    // the card arguing with itself, and the state where there is nothing to take is exactly the one
-    // a player is most likely to misread as broken.
-    c.add(
-      this.add
-        .text(this.W / 2, Y + 100, st.claimable ? "Thanks for playing! Claim your gift!" : "See you tomorrow!", {
-          fontFamily: FONT,
-          fontSize: "19px",
-          color: "#a9c2e6",
-        })
-        .setOrigin(0.5),
-    );
-
-    // ⚠ `DAILY_DAYS` drives the loop, never a literal 3. The table in `daily.ts` is the one
-    // definition of how long a cycle is; a second one here is a silently wrong card the day it moves.
-    const CW = 140;
-    const CH = 258;
-    const gap = 14;
-    for (let d = 1; d <= DAILY_DAYS; d++) {
-      const cx = this.W / 2 + (d - 1 - (DAILY_DAYS - 1) / 2) * (CW + gap);
-      this.dailyCell(c, cx, Y + 150 + CH / 2, CW, CH, d, st);
-    }
-
-    // ⚠ **One Claim button for the card, not one per column.** Only ever one day is takeable, so a
-    // button on every cell is two that do nothing beside one that does, and the player has to read
-    // three columns to find out which. The single button also has somewhere to say why it is off,
-    // which a missing button does not.
-    const bY = Y + HH - 62;
-    if (st.claimable) {
-      c.add(this.wideBtn(this.W / 2, bY, "CLAIM", 0x4bc84b, 0x2f8f2f, () => this.doClaim(c)));
-    } else {
-      c.add(this.wideBtn(this.W / 2, bY, "COME BACK TOMORROW", 0x3f5578, 0x2b3c56, () => c.destroy(), 20));
-    }
-
-    // The close cross — the way out that takes nothing.
-    const kx = X + W - 30;
-    const ky = Y + 22;
-    const cross = this.add.graphics();
-    cross.fillStyle(0x8f2f2f, 1).fillCircle(kx, ky + 3, 23);
-    cross.fillStyle(0xe04b4b, 1).fillCircle(kx, ky, 23);
-    c.add(cross);
-    c.add(
-      this.add
-        .text(kx, ky - 2, "X", { fontFamily: FONT, fontSize: "24px", color: "#ffffff" })
-        .setOrigin(0.5)
-        .setStroke(UI.ink, 4),
-    );
-    const closeHit = this.add.rectangle(kx, ky, 62, 62, 0xffffff, 0).setInteractive({ useHandCursor: true });
-    closeHit.on("pointerdown", () => {
-      sfx.pick();
-      c.destroy();
+    showDailyCard(this, {
+      cx: this.W / 2,
+      cy: this.H / 2,
+      scale: this.scale.width / this.W,
+      dim: () => this.add.rectangle(this.W / 2, this.H / 2, this.W, this.H, 0x0d0a2a, 0.78),
+      wallet: { x: this.walletX + 40, y: this.walletY },
+      onClaimed: () => {
+        this.coinTxt.setText(String(save.coins));
+        // ⚠ Put the badge out here, not on the next visit to this screen. The card closes back
+        // onto the home screen, and a red dot still sitting on the icon says there is something to
+        // take when there is not — the player taps it again and is shown a card with nothing on
+        // it for them.
+        this.dailyPulse?.remove();
+        this.dailyPulse = null;
+        this.dailyDot?.destroy();
+        this.dailyDot = null;
+      },
     });
-    c.add(closeHit);
-  }
-
-  /**
-   * One day of the streak: banked, live, or still locked.
-   *
-   * ⚠ The reward is read from `dailyPrize`, never from the tables directly. The card and the payout
-   * have to agree, and the only way to guarantee that is for both to ask the same function — a card
-   * promising 150 over a `claimDaily` paying 100 is the worst bug this feature can have.
-   */
-  private dailyCell(
-    into: Phaser.GameObjects.Container,
-    cx: number,
-    cy: number,
-    w: number,
-    h: number,
-    day: number,
-    st: { day: number; claimable: boolean; done: number },
-  ) {
-    const banked = day <= st.done;
-    const live = day === st.day && st.claimable;
-    const top = cy - h / 2;
-
-    // Body. Live is cream inside a gold rim; locked is the reference's blue; banked is sunk back
-    // into the panel so it reads as spent rather than as one more offer.
-    const rim = live ? 0xf5c344 : banked ? 0x22385a : 0x2f74b4;
-    const face = live ? 0xfdf4dc : banked ? 0x1b3050 : 0x3d8fd6;
-    const g = this.add.graphics();
-    g.fillStyle(rim, 1).fillRoundedRect(cx - w / 2, top, w, h, 18);
-    g.fillStyle(face, 1).fillRoundedRect(cx - w / 2 + 5, top + 5, w - 10, h - 10, 14);
-    into.add(g);
-
-    // The day tab. Red on the live day — the only hue on the card that is not blue or gold, so the
-    // eye lands on it before it has read a word.
-    const tabW = w - 26;
-    const tabH = 40;
-    const tab = this.add.graphics();
-    tab
-      .fillStyle(live ? 0xd93b32 : banked ? 0x2b4468 : 0x2f74b4, 1)
-      .fillRoundedRect(cx - tabW / 2, top + 12, tabW, tabH, 12);
-    into.add(tab);
-    into.add(
-      this.add
-        .text(cx, top + 32, "Day " + day, {
-          fontFamily: FONT,
-          fontSize: "22px",
-          color: live ? "#ffffff" : banked ? "#7f93b3" : "#dceaf9",
-        })
-        .setOrigin(0.5),
-    );
-
-    const prize = dailyPrize(day);
-    const ink = live ? "#7a5a12" : banked ? "#6d81a1" : "#ffffff";
-    const edge = live ? 0 : 4;
-
-    // ⚠ The prize block is centred on what this day actually pays, not pinned to the top. Day 1 has
-    // no magnet row, and pinned it left a third of the column empty below the coin — which reads as
-    // a reward that failed to draw rather than as one item. `drop` re-centres the shorter block.
-    const drop = prize.magnets ? 0 : 30;
-
-    // Coins, every day. Sized a little by the day so the cycle reads as building before the numbers
-    // have been compared at all.
-    into.add(img(this, K.coin, cx, top + 106 + drop).setScale((1.35 + day * 0.12) / TS));
-    into.add(
-      this.add
-        .text(cx, top + 148 + drop, String(prize.coins), { fontFamily: FONT, fontSize: "27px", color: ink })
-        .setOrigin(0.5)
-        .setStroke(UI.ink, edge),
-    );
-
-    // Magnets, only on the days that pay them. ⚠ Nothing at all on day 1, rather than a greyed
-    // slot: an empty slot is one more thing the player has to work out is not a reward.
-    if (prize.magnets) {
-      into.add(img(this, K.icon("magnet"), cx - 16, top + 198).setScale(1.05 / TS));
-      into.add(
-        this.add
-          .text(cx + 22, top + 198, "x" + prize.magnets, { fontFamily: FONT, fontSize: "23px", color: ink })
-          .setOrigin(0.5)
-          .setStroke(UI.ink, edge),
-      );
-    }
-
-    if (banked) {
-      // Sunk **and** ticked. The sinking alone is only legible beside a brighter column, and on the
-      // last day of a finished cycle there is not one.
-      into.add(
-        this.add
-          .text(cx, cy + h / 2 - 30, "✓", { fontFamily: FONT, fontSize: "38px", color: "#4bc86e" })
-          .setOrigin(0.5),
-      );
-    } else if (!live) {
-      // The padlock, hung off the bottom-right corner as in the reference — over the rim rather
-      // than inside the face, so it reads as fastening the card shut.
-      const lx = cx + w / 2 - 16;
-      const ly = cy + h / 2 - 14;
-      const halo = this.add.graphics();
-      halo.fillStyle(0x0e2145, 1).fillCircle(lx, ly, 25);
-      halo.fillStyle(0xdfe8f5, 1).fillCircle(lx, ly, 21);
-      into.add(halo);
-      into.add(img(this, K.lock, lx, ly).setScale(0.92 / TS));
-    }
-  }
-
-  /**
-   * A card-sized button.
-   *
-   * ⚠ Drawn at this size rather than `button()` scaled down: `button()` bakes a 260px face with a
-   * 25px label, and squeezing that into a card left the word eight pixels tall while the tap target
-   * shrank with it. A small button is its own shape, not a big one seen from far away.
-   */
-  private wideBtn(
-    x: number,
-    y: number,
-    label: string,
-    top: number,
-    shadow: number,
-    onTap: () => void,
-    size = 26,
-  ) {
-    const c = this.add.container(x, y);
-    const bw = 300;
-    const bh = 62;
-    const g = this.add.graphics();
-    g.fillStyle(shadow, 1).fillRoundedRect(-bw / 2, -bh / 2 + 5, bw, bh, 16);
-    g.fillStyle(top, 1).fillRoundedRect(-bw / 2, -bh / 2, bw, bh - 5, 16);
-    const t = this.add
-      .text(0, -2, label, { fontFamily: FONT, fontSize: size + "px", color: "#ffffff" })
-      .setOrigin(0.5)
-      .setStroke(UI.ink, 5);
-    const hit = this.add.rectangle(0, 0, bw + 10, bh + 14, 0xffffff, 0).setInteractive({ useHandCursor: true });
-    hit.on("pointerdown", () => {
-      sfx.pick();
-      onTap();
-    });
-    c.add([g, t, hit]);
-    return c;
-  }
-
-  /** Take today's reward, then rebuild the card so every state on it is the new one. */
-  private doClaim(card: Phaser.GameObjects.Container) {
-    // ⚠ Read the day **before** claiming. `claimDaily` advances the streak, so asking afterwards
-    // reports the day the player will take tomorrow rather than the one they were just paid for.
-    const day = dailyState().day;
-    const prize = claimDaily();
-    // ⚠ Logged after the null check, never before it. `claimDaily` returns null when there is
-    // nothing to take — a row written there would record a reward the player never received, and
-    // this whole log exists to answer how many of them are actually collected.
-    if (!prize) return;
-    sendDaily({ lvl: save.unlocked, day, coins: prize.coins, magnets: prize.magnets });
-    sfx.win();
-    this.coinTxt.setText(String(save.coins));
-
-    // ⚠ Put the badge out here, not on the next visit to this screen. The card closes back onto the
-    // home screen, and a red dot still sitting on the icon says there is something to take when
-    // there is not — the player taps it again and is shown a card with nothing on it for them.
-    this.dailyPulse?.remove();
-    this.dailyPulse = null;
-    this.dailyDot?.destroy();
-    this.dailyDot = null;
-
-    // Coins flying to the wallet. The number changing on its own is a fact; watching it arrive is
-    // the reward — same reasoning as the feature bar on the results card.
-    for (let i = 0; i < 8; i++) {
-      const s = img(this, K.coin, this.W / 2, this.H / 2 - 40).setScale(1.2 / TS).setDepth(200);
-      this.tweens.add({
-        targets: s,
-        x: this.walletX + 40,
-        y: this.walletY,
-        scale: 0.5 / TS,
-        duration: 520,
-        delay: i * 55,
-        ease: "Quad.easeIn",
-        onComplete: () => s.destroy(),
-      });
-    }
-
-    // ⚠ **Magnets are paid silently, on purpose.** They are credited by `claimDaily` above; what is
-    // deliberately absent is any animation for them. There is no magnet counter on the home screen
-    // for a sprite to land on, so a magnet flying anywhere would be flying at nothing — and a
-    // caption in mid-air is a second, competing announcement over the coins already in flight. The
-    // card the player just read is where the magnet was promised, and the rebuilt card below is
-    // where the tick confirming it appears.
-
-    card.destroy();
-    this.time.delayedCall(700, () => this.showDaily());
   }
 
   /**

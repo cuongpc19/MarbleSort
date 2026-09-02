@@ -515,17 +515,43 @@ rail a single tap eats.
 ## The daily reward — `src/game/daily.ts`
 
 Three days, 100/150/250 coins and 0/1/2 magnets, resetting the moment a day is missed. Unlocked
-after clearing `DAILY_FROM` = 10.
+after clearing `DAILY_FROM` = 16. The card is drawn by `dailyCard.ts` for both scenes; the rule is a
+pure function of the clock and the save.
 
-⚠ **`DAILY_FROM` has been 10, then 5, then 10 again, each time on purpose.** The note on the
-constant carries what each move was for; do not read the history as a value to restore. The live
-cost of 10 is that a player jamming in the first few levels cannot afford the 50-coin revive on
-`WIN_COINS` = 10 a win, which is exactly what the drop to 5 was for. The card is drawn by `HomeScene`; the rule is a pure function of
-the clock and the save.
+⚠ **`DAILY_FROM` has been 10, then 5, then 10, and is 16 since 2026-09-02, each time on purpose.**
+The note on the constant carries what each move was for; do not read the history as a value to
+restore. What 16 costs is measured and worth restating here: a revive is 50 coins against
+`WIN_COINS` = 20 a win, so a player who jams before their first hundred coins has one outcome — and
+the funnel is steep long before 16. 11% of players never open level 3 after clearing level 2 and
+about two-thirds are gone inside six levels, so **most of the audience never reaches the reward**.
+It is the first constant to look at if early-quit numbers move.
 
-**A win routes the player home to it** instead of offering NEXT LEVEL — the reward lives on the home
-screen, and handing them NEXT LEVEL means the feature's whole job is to be skipped. Both of the ways
-that went wrong were found in one day of real telemetry, and neither was visible from the code:
+**A win offers the card in place** — `GameScene.showDaily` draws it over the results card and a claim
+carries straight on to the next level. ⚠ **It used to route the player home for it**, on the reasoning
+that the reward lived on the home screen and offering NEXT LEVEL meant the feature's whole job was to
+be skipped. The detour is gone and the reasoning survives it: the button still says CLAIM REWARD
+rather than NEXT LEVEL, and `dailyOfferable` still limits it to once a day. What went with the detour
+is four steps (results → Home → card → claim → spent card → PLAY became results → card → claim) and,
+more to the point, a scene change at the exact moment the player's finger is over the middle of the
+screen — the failure the second bullet below is about.
+
+⚠ **A claim closes the card; it does not re-open it in its spent state.** `doClaim` used to destroy
+the card and re-show it 700ms later, so the last thing between the reward and the game was the same
+three columns under the words *See you tomorrow!*. The only thing that rebuild added was the tick
+confirming a magnet nothing else announces, so the tick is now stamped on the claimed day in place
+and the card leaves. Dismissing it **without** claiming does not advance — the results card comes
+back with its button relabelled NEXT LEVEL, because a player who declined the reward has not asked
+to leave the screen.
+
+⚠ **One card, two scenes: `src/scenes/dailyCard.ts`.** It was four private methods on `HomeScene`
+until the board started offering it. `DailyHost` is everything that is a property of the screen it
+stands on — centre, dimmer (a *factory*, because the board's must be `STAGE_W` wide and Home's is its
+own design box), the container it is parented to, and where a claimed coin flies. A second copy in
+`GameScene` would be a second place the prize table is read, which `dailyCell`'s own note already
+calls the worst bug this feature can have.
+
+Both of the ways the old routing went wrong were found in one day of real telemetry, and neither was
+visible from the code — and the second is why the card is never opened on a timer:
 
 - ⚠ **Offering and claiming are two different questions, and two different keys.** The gate was
   `dailyReady()` — "is there something to take" — which stays true all day for anyone who does not
@@ -1463,6 +1489,28 @@ Every other decision in it was wrong:
 - ⚠ **The face is flat.** 20 of their 32 rows are the same three bytes. A gradient down the whole
   face puts its darkest value directly above the wall, so face and wall read as one mass instead
   of a face and an edge. Ours keeps a sheen over the top 45% and nothing below it.
+- ⚠ **And it is flat at `base`'s saturation, not at `light`.** The face is most of the piece, so
+  whatever it is painted with *is* the piece's colour. It was `shade(sw.light, 0.2)` — the swatch's
+  palest tone taken a further step toward white — while a marble is a radial ramp that spends most
+  of its area at `base`, so every tray and box on the board sat two steps paler than the marbles it
+  was sorting. Reported as *"mấy viên bi thì màu khá nét, sao các box và khay màu nhợt nhạt"*, and
+  the measurement above had said so all along: their 20 flat rows are a **saturated** yellow, with
+  the light rim one pixel at the very top.
+- ⚠ **Neither piece tapers its top face, and both of them tried.** Drawing the face as a trapezoid
+  narrower at the far edge is the obvious way to say "seen from above and in front", and it fails the
+  same way on both: the *silhouette* cannot taper with it — trays sit at `CELL_PITCH` and boxes stack
+  at a fixed pitch, so a tapered outline stops them meeting edge to edge — which leaves the wall
+  showing through the two upper corners as wedges with nowhere to go. Reported on the tray as *"bị
+  tràn thừa ra phía sau"* and, once the wall was stepped down in tone so the piece would read as two
+  planes, on the box as *"phần trên sao có cả phần nhô ra"*. The projection is carried by the value
+  step below and by the sockets being ovals rather than circles.
+- ⚠ **What separates the two planes is a value step, never a line and never a lit band.** Fixing the
+  colour by painting both face and wall `base` was worse than the pale version: one tone across both
+  planes leaves the crease hairline as the only mark, and the piece flattens into a slab with a
+  scratch across it. Drawing the seam as a rounded lit rim instead — the obvious alternative, tried
+  three times now in three strengths — comes out as a third stripe and the box reads as two stacked
+  layers. The pair that works is face `shade(base, 0.10)` over wall `shade(base, -0.12)`, ramping to
+  `sw.dark`; two numbers, shared by the tray and the box.
 - ⚠ **The outline is what buys the slimness.** With a hard 1-2px edge the wall reads as an edge;
   without one it reads as mass, and no amount of lightening the ramp fixes that. It is also why
   the heavy version needed a side vignette and a dark seam line to look solid — both were ink
@@ -1594,6 +1642,35 @@ the same three steps in the same order, or it is showing a board nothing plays.
   fooled) and `scheduleLine` finds a fresh one 400ms after the hand stops. ⚠ That debounce is *not*
   behind `Đo độ khó`, unlike the bot check: a line is not a measurement, it is the level's proof it
   can be won.
+- **Trays are moved by dragging them**, on tool 0 (`Chọn / xem`) only. ⚠ Every other tool paints
+  on contact, so a drag there already means "paint a stroke"; giving the same gesture a second
+  meaning would have it destroying the drawing on nine tools out of ten. A short press still
+  selects — the move is decided on `pointerup`, so the tool keeps what it did before.
+  ⚠ **The right half of a linked pair is stored as `floor` and is not an empty cell.** A plain
+  `kind === "floor"` test reads the occupied half of a two-cell piece as free ground; dropping a
+  tray there leaves the anchor still `wide` with a tile in the cell it claims, which `gridDef`
+  then silently degrades. `isEmptyCell` goes through the anchor, the same rule `Game.anchorAt`
+  exists for on the engine side. Found by a drive script, not by looking.
+  ⚠ **A class put on a cell element cannot survive a commit.** `apply()` commits, `commit()`
+  re-renders and `render()` calls `replaceChildren`, so the "lifting" mark stamped at pointerdown
+  was on a node that no longer existed by the time the hand moved. Anything marked across a commit
+  has to be re-derived from the index, which is what `markTrayDrop` does.
+- **`Sắp lại tự động` lays the well out to match the trays**: `TRAY_N / BOX_SLOTS` = 3 boxes of a
+  tray's colour, in tray order, filled into the well **row by row** — so the first three boxes the
+  player meets are the three the first tray needs.
+  ⚠ **Bottom row first, then up.** Not an arbitrary reading direction: the bottom row sits on the
+  mouth of the chute and is the one board edge that counts as an exit, so it is what can be poured
+  first and a block is peeled upward from there. Top-down would order the well against the way the
+  board empties.
+  ⚠ **Row-major into the well, via `wellSlots`**, because every column's open box is live at once.
+  Filling one column top to bottom and then the next puts a tray's three boxes minutes apart.
+  ⚠ It counts exactly what `trayCounts` counts — grid tiles, **both halves of a pair**, hatch
+  queues and the four trays under a chocolate box — and checks the two histograms against each
+  other before pinning. Miss one and the well is short by that many boxfuls: unwinnable by
+  arithmetic, not merely hard.
+  ⚠ **It is not the difficulty search and does not aim at `targetWin`.** That is now its own
+  button, `Máy dò theo độ khó`, which un-pins and puts the board back under `derive`. Folding the
+  two together would have removed the only difficulty-targeting path from the editor.
 - **The well can be arranged by hand** — drag a box to another place in any column. The derivation
   is the right default and it is not a design tool: it builds ~10 candidate layouts, scores each
   with bot games and keeps whichever lands nearest the slot's target, and a designer who wants this
@@ -1738,6 +1815,133 @@ the same three steps in the same order, or it is showing a board nothing plays.
   test — `level.ts` already keeps the second, and this file says what that costs.
   What the editor adds on top is a marker on cells whose `?` does not survive settling, because
   "you drew this face-down and it is not" is invisible in a picture that agrees with the game.
+
+## The sound is measured off the reference too — `src/game/audio.ts`
+
+Everything is still synthesised; the numbers came out of the audio track of
+`Manythings/IMG_6564.MP4`. ⚠ **That track is app audio, not a recording of a room** — its quietest
+300 ms window is digital silence, peak 0.000000 — so it can be measured as if it were the game's
+own output, which it is.
+
+- **There is no music bed.** Whole seconds of true silence mid-play. Every sound is a one-shot,
+  which is what makes the machine read as a machine rather than as a level in a game.
+
+### ⚠ The marble sounds are struck TONES, not filtered noise, and getting this wrong cost a day
+
+Isolate the 36 one-shots that have a clear 250 ms of silence in front of them — so nothing is
+contaminating the analysis window — and they are **near-pure sines at definite pitches**:
+
+| | |
+|---|---|
+| second harmonic (clean family) | **0.06**, and at 431 Hz measured **0.012** |
+| inharmonic residue between partials | **1.1-3.3%** |
+| pitches | repeat exactly: **A3 x8**, D#3 x3, F#3 x3, E4 x3, C5 x2, F#4, A4, C4, F3, D4, G3, B3 |
+| attack | 5-13 ms |
+| decay to -20 dB | 20-55 ms (p50 22) |
+| peak | 0.38 |
+
+Two families, and they are different instruments: **low** (24 of 36, median 210 Hz) with a second
+harmonic at **0.65** — a struck body; and **high** (12 of 36, median 371 Hz) at **0.06** — a clean
+sine. `LOW` and `HIGH` in `audio.ts` are A minor pentatonic drawn from that inventory, picked at
+random per knock: the rhythm already comes from real Matter collisions, and the pitch coming from
+a *set* rather than from a continuous `playbackRate` is what turns a pile of marbles into the
+sound these machines are remembered for.
+
+⚠ **Matching octave bands is the wrong test, and it is what produced a wrong answer with high
+confidence.** The first attempt averaged 452 onsets, got "flat 60-500 Hz then a cliff", and built
+a noise burst through two cascaded lowpasses whose band error was ground from 0.095 down to
+**0.022** — a number that looked like proof. It sounded nothing like the reference, and the player
+said so. Two mistakes compounded:
+
+- **Averaging 452 onsets averaged different sounds together**, most of them overlapping the tail
+  of the one before. The mean of a five-note palette is a shape that is none of them.
+- **Band energy is the *envelope* of a spectrum; what separates these sounds is its *structure*.**
+  A noise burst and a sine at the same pitch can share a band profile exactly. Check the harmonic
+  series and the inharmonic residue.
+
+The lesson generalises past audio: when a metric can be satisfied by something obviously unlike
+the target, driving it to zero is not evidence. Find the measurement that the wrong answer fails.
+
+### ⚠ Which event makes a sound, and how often — the part that decides whether it is pleasant
+
+Count what the reference actually plays: **39 tray pours x 9 marbles = 351 seatings**, 117 box
+clears from those (101 detected in the video), and 39 pours — **507 sounds against 547 onsets
+measured**. Nearly every sound in that game is a marble *landing in a box*. The chute is close to
+silent.
+
+- ⚠ **A marble landing in a box fired *two* sounds**, `sfx.collect` and `sfx.seat`, from two eras
+  of the code: `collect` came in with the scaffolding and `seat` was written later for the same
+  moment without the first being taken out. It surfaced only when the landing sound was switched
+  off on request and the landing was still audible. Both are behind `SEAT_SOUND` now — and it means
+  every density figure below counted a seating once while it was making two sounds.
+- **`seat` carries the tune.** It is the only sound that climbs the ladder. `progress` is no longer
+  read for pitch: a three-note figure restarting on every box is shorter than the runs measured in
+  the reference, which climb four to ten steps across several boxes before a pause drops them back.
+- **The chute must not climb.** Once every marble sound is a note, giving the physics one too has
+  the machine playing chords at itself over the top of its own melody.
+- ⚠ **Density is a design parameter and it was 3x out.** The reference plays **2.97 sounds a
+  second** overall, 7/s at the 90th percentile of one-second windows and 15/s in its busiest single
+  second. Ours allowed 22/s from the chute alone (a 45 ms rate limit) plus 12/s sustained from the
+  belt. Simulated over a minute of continuous pouring the fix lands **4.97/s, p90 7.0** — the p90
+  matches exactly, and the remaining gap in the median is that the simulation never lets the player
+  stop and think, which is where the reference's 2.0 comes from.
+  - `onCollide`'s rate limit is **300 ms**, not 45. It is a musical decision now, not just a
+    defence against Matter reporting a burst of pairs for one pile-up.
+  - `roll` is about half a sound a second on a busy rail. ⚠ The reference has **no belt sound at
+    all** by the accounting above, so this is entirely our addition and it is kept under the tune.
+- ⚠ **Marble notes climb; they are not drawn at random.** Inside a run — consecutive sounds under
+  600 ms apart — the reference goes **up 50% of the time against down 35%**, in steps of 1-3
+  semitones, i.e. one rung of a pentatonic. Random notes off the same five-note set have the same
+  histogram and sound aimless, and *no spectrum will show you this*. It wraps rather than climbing
+  forever, and the reference resets mid-run too (291 -> 215 Hz is in the data).
+
+### What each sound is
+
+- `struck(freq, gain, dur, partials)` — sine partials, 3 ms attack (not `play`'s 12 ms: a third
+  of a 45 ms sound spent arriving is the difference between a knock and a blown note), exponential
+  decay. `play`'s ramp runs to -80 dB over `dur`, so **-20 dB lands at `dur / 4`**.
+- `tick()` — 4 ms of noise under a blip so a marble sounds like it *hit* something. Deliberately
+  tiny: the reference's inharmonic residue is 1-3% of the fundamental.
+- `boxClear`'s bell is the reference's own longest one-shot copied harmonic for harmonic — 220 Hz
+  at 1.00 / 0.68 / 0.21 / 0.10, measured at 94.88s. Ours renders 1.00 / 0.68 / 0.23 / 0.11.
+  ⚠ `CHAIN_STEPS` stays pentatonic for the reason it always was — any run length has to land
+  somewhere consonant — but rooted on **A minor**, which is where every tonal sound in the
+  reference sits.
+- ⚠ **A tray pour is a thump, not a whoosh, and it adds no rattle.** `release` was a 640 -> 280 Hz
+  sweep; measured over the 39 pours in the clip what the tap adds is a lift in the **200-800 Hz**
+  band about 100 ms in and nothing above 1 kHz. And onset density around those pours is *flat* —
+  0.5 per 100 ms before and after — because the marbles are already falling all the time. Four
+  hand-placed knocks would be the one fixed rhythm in a game whose whole sound is that there
+  isn't one.
+- **`sfx.roll` is new**: marbles riding the belt, fired from `onTick`. ⚠ Fed the belt's
+  **occupancy**, not a flag — one knock per tick is a metronome on a clock that never varies, and
+  the offsets are randomised inside the tick. It is the only sound that plays while the player
+  does nothing, so it is texture at a fifth of a knock's level.
+
+### Levels
+
+⚠ **Every `gain` in this file means peak amplitude, and both synths had to be normalised to make
+that true.** `clack`'s came out at 0.356 of a peak, so knocks written with the same number as a
+tone were 2.8x quieter — and this game is mostly knocks. `struck` had it backwards: harmonics add
+coherently at the attack, so the bell peaked at nearly *twice* its nominal gain. One convention
+across the file or the sounds cannot be balanced by reading it.
+
+⚠ **There is one master gain and a limiter** (`out()`), and the limiter is what makes the volume
+raisable at all. Wired straight to `destination`, the only safe level is one where the worst
+pile-up still comes in under 1.0 — a rare event setting the level for the other 99% of the game.
+`MASTER` is 3.0: every single sound peaks at 0.13-0.27 and the worst realistic stack (a box
+clearing at the top of its chain, over a hard knock and a seat) at **0.43**, all under the
+limiter's 0.50 threshold. So nothing is squashed in normal play and the limiter only ever catches
+the rare stack.
+
+⚠ **How to check any of this without ears.** Rebuild the synth in numpy and compare **harmonic
+ratios, inharmonic residue and the decay to -20 dB** against the reference's. Peaks and worst-case
+stacks are arithmetic too. Guessing at a filter and listening on a laptop is what produced the
+click; matching the wrong statistic is what produced it a second time with a number attached.
+
+⚠ The events themselves were found in the **video**, not the audio: tray pours by counting
+saturated pixels in the grid band (a pour drops it by one tile's worth), box clears by the sparkle
+burst over the well. Onset clustering alone cannot tell you which sound is which.
 
 ## What came from the scaffolding (do not re-invent)
 

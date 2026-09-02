@@ -483,6 +483,24 @@
         z-index: 2;
       }
 
+      /* Dragging a tray to an empty cell. The tray being moved fades so the hand can see what it
+         is carrying, and the landing cell is outlined — for a linked pair, both of its cells are,
+         because a pair is one piece and a mark on half of it says the wrong thing about where it
+         is going. */
+      .cell.lifting {
+        opacity: 0.45;
+      }
+      .cell.dropok::after {
+        content: "";
+        position: absolute;
+        inset: 2px;
+        border: 3px dashed #4ad991;
+        border-radius: 14px;
+        background: rgba(74, 217, 145, 0.14);
+        pointer-events: none;
+        z-index: 2;
+      }
+
       /* Legend. Each swatch is the real thing at a smaller size, not a redrawing of it — a key
          that only approximates the board teaches the wrong shape. */
       .key {
