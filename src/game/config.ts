@@ -237,28 +237,57 @@ const HUD_LIFT = WIDE_HUD ? 198 - TRIM_TOP - TRIM_GAPS - BOOST_LIFT - WIDE_MACHI
  * column by physically travelling over it — and the housing has to stay inside the cabinet, which
  * is 26…514. At `hx` 200 the shell reaches 32…508.
  */
-const BELT_R = 32;
+const BELT_R = 30;
 /**
- * Belt half-length, 190 -> 202.
+ * Belt half-length. 190 -> 202 -> **190 again, on instruction** ("cho các ô chứa bi sát nhau hơn
+ * 1 chút... ray sẽ bé hơn trước 1 chút") — but this time with `BELT_R` moved with it, which is the
+ * whole reason 190 works now and did not before.
  *
- * ⚠ Bounded at both ends and the window is narrow. Too short and the bottom straight stops
- * spanning the box row; too long and the housing reaches the cabinet wall. At 204 it touched
- * 26..514 exactly — the rail looked like it was bursting out of the machine — which is why the
- * cabinet widened to 14..526 and this pulled back to 202, leaving 14px of shoulder either side.
+ * ⚠ **`hx` and `r` are one dial, and the relation is exact.** The bottom straight has to carry
+ * **12 slots**, three over each of the four box columns, or the outer columns are served fewer
+ * times a lap than the inner ones and fill visibly slower. Slots on the bottom straight are
+ * `2·hx / spacing` = `60·hx / (4·hx + 2πr)`, and setting that to 12 solves to
+ *
+ *     hx = 2πr
+ *
+ * So shrinking `hx` alone breaks it immediately: measured over 198…162 with `r` left at 32, every
+ * value came back **2,3,3,2** — the outer columns lost a slot each. `hx` must sit just above `2πr`,
+ * and 190 clears `2π·30` = 188.5.
+ *
+ * ⚠ **The other end is the marble gap**, which is `perimeter / BELT_SLOTS - 2·marbleR`. `BELT_SLOTS`
+ * stays 30 — belt capacity is the difficulty budget and must not move — so a smaller loop is a
+ * smaller gap: 5.6px at r 32, **3.6px here**, and 0 at r 27, where the rail becomes a solid bar of
+ * touching marbles. That is the floor, and it is close: do not take `r` below 29 without looking at
+ * a screenshot of a full rail.
+ *
+ * The housing now spans 42..498 inside a cabinet of 14..526, so the old worry at the top of
+ * `BELT_R` — reaching the cabinet wall — has 28px of shoulder either side instead of 14.
  */
-const BELT_HX = 202;
+const BELT_HX = 190;
 const BELT_SHELL = BELT_R + 8;
 /**
- * Ball radius, 14 -> 15.
+ * Ball radius, 14 -> 15 -> 13 -> **14, walked back by eye on a real phone**.
  *
- * ⚠ **Seven percent is the ceiling, and `SLOT_COLUMN` is what sets it.** A bigger ball needs a
- * wider gap on the rail, the gap comes from `perimeter / BELT_SLOTS`, and a wider gap means fewer
- * slots pass over each 100px box column. Swept every combination of ball, cap radius and half-length
- * that fits inside the cabinet: at r 16 the count drops from **3 slots per column to 2**, which is a
- * third fewer chances for a marble to fall into a box on each lap. That is a balance change, not a
- * look — nothing in the tuning has ever measured it — so the ball stops here.
+ * ⚠ **13 overshot.** It was chosen to restore the reference clip's tray/ball ratio of ~2.1
+ * (trays ~44px, balls ~21px on a 344px machine, measured off `IMG_6564.MP4` frames, against our
+ * 48/30 = 1.6) — but on a phone it read as everything having shrunk: "khay và bi đều rất bé. Hãy
+ * cho bé hơn bản cũ 1 chút thôi". So one notch under the old 15, not two: comfort on the small
+ * screen outranks matching the reference's proportions.
+ *
+ * ⚠ **12 is over a physics cliff — do not go there, whatever ratio asks for it.** Measured on the
+ * hot-drop trace under identical settings: r15 rides the bowl at 5.0 px/step and swings to x=395,
+ * r14 4.8/x=372, r13 4.7/x=315 — then r12 collapses to 2.0/x=232: the landing bounce dies outright
+ * (r13 leaves the wall in a 50px arc, r12 splats and crawls), and it stays dead at every fall cap
+ * tried (9.5/8/7) and with a hand-built 24-gon body, so it is not the polygon count Matter fakes
+ * circles with. Some absolute-radius branch in Matter's resolver sits between 13 and 12.
+ *
+ * ⚠ **Shrinking is safe where growing was not.** The old ceiling was real — at r 16 the belt loop
+ * had to grow to keep the rail gap open and `SLOT_COLUMN` dropped from 3 slots per column to 2, a
+ * balance change. Going down touches neither: `BELT_SLOTS` stays 30, the loop stays put, the gaps
+ * simply widen (the reference rail has daylight between its marbles too), and the neck's clear
+ * width grows from 38 to 40.
  */
-const MARBLE_R = 15;
+const MARBLE_R = 14;
 
 /**
  * Clearance the box lids need below the rail, on top of the housing.
@@ -368,14 +397,19 @@ const FUNNEL_CONE_DROP = Math.round(
  * The straight vertical throat under the cone — the part that makes it read as a *neck* rather than
  * as a V that stops.
  *
- * ⚠ **9 is the third cut, each one on request: 43 → 16 with the funnel halving, → 13 ("cổ phễu cho
- * ngắn lại 20%"), → 9 ("30% nữa").** It is pure drawing now: `drainFunnel` takes a marble the
- * moment its centre is inside the neck's clear width, above this pipe, so the length decides
- * nothing but how much chrome the eye crosses between bowl and rail. `FUNNEL_DROP` shrinks with it
- * and the machine gets shorter — a free gain on every desktop frame, where `GAME_H` is clamped to
- * the cabinet.
+ * ⚠ **5 is the fourth cut, each one on request: 43 → 16 with the funnel halving, → 13 ("cổ phễu
+ * cho ngắn lại 20%"), → 9 ("30% nữa"), → 5 ("ngắn lại thêm 1 chút nữa").** It is pure drawing now:
+ * `drainFunnel` takes a marble the moment its centre is inside the neck's clear width, above this
+ * pipe, so the length decides nothing but how much chrome the eye crosses between bowl and rail.
+ * `FUNNEL_DROP` shrinks with it and the machine gets shorter — a free gain on every desktop frame,
+ * where `GAME_H` is clamped to the cabinet.
+ *
+ * ⚠ **On its own it cannot close the gap under a queued marble, and that is worth knowing before
+ * reaching for it again.** `BELT_CY` is built on `FUNNEL_DROP`, so shortening the pipe lifts the
+ * neck floor and the whole rail by the same amount: the picture moves up and the void under the
+ * marble is unchanged to the pixel. `NECK_TO_BELT` is the constant that owns that void.
  */
-const FUNNEL_NECK_LEN = 9;
+const FUNNEL_NECK_LEN = 5;
 
 /**
  * Clear air between the floor of the neck and the top of the belt housing.
@@ -386,11 +420,22 @@ const FUNNEL_NECK_LEN = 9;
  * behind it. Marbles backing up in the chute is the warning the player is meant to read when the
  * belt is congested, and a marble half-swallowed by the machine reads as a glitch instead.
  *
- * ⚠ It has to clear the BLOCK, not the housing: 8px for the block plus 7 for its slate lip, so
- * anything under 15 puts the marble back behind something. 20 leaves a visible sliver of daylight,
- * which is what "resting just above the rail" actually looks like.
+ * ⚠ It has to clear the BLOCK, not the housing: `blockTop` is `cy - shell - 8` and its slate rim is
+ * drawn 7px above that, so the rim's top edge is `neckY + this - 15`. A queued marble rests with
+ * its bottom at `neckY + 1` (the Matter floor is the neck floor, plus contact slop), so **16 is the
+ * exact floor** — below it the marble is drawn behind the rim and reads as half-swallowed.
+ *
+ * ⚠ **17, down from 20, and this is the constant the report was about**: "bi đứng lưng chừng giữa
+ * cổ phễu và 1 đoạn không khí, rồi mới đến ray". Measured on a held-shut throat, the band between a
+ * resting marble and the top of the rail housing was 19px — 0.73 of a marble — and it reads as the
+ * chute and the rail failing to meet. 17 takes it to 16, measured under a full 18-marble pile:
+ * the lowest ball settles 1px into the neck floor's slop and still clears the rim by 1px.
+ *
+ * ⚠ **The remaining 15px is the block's own rim and panel, not air, and it cannot be trimmed from
+ * here.** Closing it further means redrawing the block: its 8px overhang is what makes the rail and
+ * the box well read as one piece, and the 7px slate rim is that piece's edge.
  */
-const NECK_TO_BELT = 20;
+const NECK_TO_BELT = 17;
 const FUNNEL_DROP = FUNNEL_CONE_DROP + FUNNEL_NECK_LEN;
 
 /** Height of the visible stack of boxes in one column. */
@@ -818,8 +863,29 @@ export const L = {
    * ⚠ This breaks the "a 5-row board must stay pixel-identical" rule that stood above it, on
    * instruction. Anything measured against cell 64 — egg sizes, the badge insets, the coach ring —
    * now rides `L.cell`, and the tray sprites bake at 48.
+   *
+   * ⚠ **47 on 2026-09-04.** It dipped to 46 the same day the ball went to 13 and the pair read as
+   * too small on a phone — "khay và bi đều rất bé. Hãy cho bé hơn bản cũ 1 chút thôi" — so both
+   * came back half way: one notch under the 48 that shipped last week, alongside the ball's one
+   * notch under 15. The reference clip's tray/ball ratio of 2.1 is deliberately NOT being chased
+   * any further; phone comfort won.
+   *
+   * ⚠ **58 the same afternoon, and the uniformity doctrine above is deliberately abandoned.** The
+   * early levels are being rebuilt as 2-3 column boards, and at a uniform 47 a 3x2 level 1 drew as
+   * a postage stamp adrift in the cavity — reported three times, finally with a photo: "vẫn rất
+   * bé". Both reference materials do the opposite of uniform: the clip's 7-column board fills the
+   * machine at ~44px trays, the 4-column variant fills it with visibly bigger ones. So the cap
+   * rises and `gridMetrics`' own fit bounds are the sizing rule: a small board fills its cavity at
+   * 58 and wide or tall boards step down. The "one size for the whole game" property this trades
+   * away was worth less than level 1 being legible — the player meets the small boards first and
+   * alone, never side by side with a big one.
+   *
+   * ⚠ **Not 64, and the stop was found in a screenshot, not in the arithmetic.** At 64 a 7-column
+   * board takes `fitW` = 61 and spans 469 of the cavity's 472 — wall to wall — and `drawGridCavity`'s
+   * dilated backing then paints past the cavity onto the cabinet's own rim (level 40, top rows).
+   * 58 holds that board to 448 with real margins and still hands level 1 its +23%.
    */
-  cell: 48,
+  cell: 58,
   gap: 7,
 
   // The chute proper starts well below the grid — above `top` the walls run straight down,
@@ -1154,7 +1220,14 @@ export const FEED_FROM = { x: L.belt.cx, y: L.funnel.neckY - 14 };
  * marbles slid down an invisible line with a band of white between them and the surface they were
  * supposed to be resting on. Whatever shape this returns, the picture and the physics agree.
  */
-export function funnelSide(side: -1 | 1, steps = 16): Array<{ x: number; y: number }> {
+/**
+ * ⚠ `steps` was 16 and the facets were audible in the physics: each chord joint is a tiny impact,
+ * and at restitution well under 1 a marble bleeds its normal component on every one — it knocked
+ * DOWN the curve step by step and arrived at the bottom with nothing left to swing across on. 48
+ * makes each joint three times gentler, which is most of what lets a marble carry its momentum
+ * through the bowl and up the far wall ("lăn bên phễu bên này và văng sang thành phễu bên kia").
+ */
+export function funnelSide(side: -1 | 1, steps = 48): Array<{ x: number; y: number }> {
   const mx = side < 0 ? FUNNEL_WALL_L : FUNNEL_WALL_R;
   const nx = side < 0 ? FUNNEL_NECK_L : FUNNEL_NECK_R;
   const top = FUNNEL_TOP;
@@ -1273,7 +1346,7 @@ export const FUNNEL_RIM_OFF = FUNNEL_RIM_W / 2 + 2.5;
  * ⚠ `side * (dy, -dx)` is the same outward direction `buildWalls` pushes its slabs by. One
  * expression, or the picture and the physics disagree about which way is out.
  */
-export function funnelSideOffset(side: -1 | 1, dist: number, steps = 16): Array<{ x: number; y: number }> {
+export function funnelSideOffset(side: -1 | 1, dist: number, steps = 48): Array<{ x: number; y: number }> {
   const pts = funnelSide(side, steps);
   const segN = pts.slice(0, -1).map((p, i) => {
     const q = pts[i + 1];

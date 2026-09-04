@@ -1730,6 +1730,11 @@ function renderBook() {
     const open = document.createElement("button");
     open.textContent = "Mở";
     open.onclick = () => openLevel(n);
+    // Exports the *saved* copy, unlike the button above it: this row is that copy, and the level
+    // it names is usually not the one open on the board.
+    const out = document.createElement("button");
+    out.textContent = "Xuất";
+    out.onclick = () => showExport(handmadeLine(n, saved), `Đã xuất level ${n} (bản đã lưu).`);
     const del = document.createElement("button");
     del.textContent = "Xoá";
     del.onclick = () => {
@@ -1737,7 +1742,7 @@ function renderBook() {
       renderBook();
     };
 
-    row.append(num, meta, open, del);
+    row.append(num, meta, open, out, del);
     bookEl.appendChild(row);
   }
 }
@@ -1789,16 +1794,60 @@ $("playLvl").onclick = () => {
   renderBadge();
 };
 
+/**
+ * One level, one line, in the shape `HANDMADE` is written in — so any number of them paste
+ * straight into `src/game/handmade.ts`.
+ *
+ * ⚠ One formatter, three buttons. "Xuất tất cả", "Xuất level này" and the per-row button all
+ * produce lines that land in the same table, so they have to agree byte for byte about the shape
+ * of a line; a second copy of this template is a second thing to keep in step with `handmade.ts`.
+ */
+const handmadeLine = (n: number, b: Blueprint) => `  ${n}: ${JSON.stringify(b)},`;
+
+/** Put a block in the JSON box, select it for Ctrl+C, and say what went into it. */
+function showExport(block: string, note: string) {
+  jsonEl.value = block;
+  jsonEl.focus();
+  jsonEl.select();
+  issuesEl.replaceChildren();
+  addIssue("ok", note);
+  addIssue("ok", "Dán khối này vào HANDMADE trong src/game/handmade.ts.");
+  jsonEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
+}
+
 $("exportAll").onclick = () => {
   const book = loadBook();
   const nums = Object.keys(book)
     .map(Number)
     .sort((a, b) => a - b);
-  jsonEl.value = nums.length
-    ? nums.map((n) => `  ${n}: ${JSON.stringify(book[n])},`).join("\n")
-    : "// chưa lưu level nào";
-  jsonEl.select();
-  addIssue("ok", "Dán khối này vào HANDMADE trong src/game/handmade.ts.");
+  if (!nums.length) {
+    jsonEl.value = "// chưa lưu level nào";
+    issuesEl.replaceChildren();
+    addIssue("warn", "Chưa lưu level nào trên máy này.");
+    return;
+  }
+  showExport(nums.map((n) => handmadeLine(n, book[n])).join("\n"), `Đã xuất ${nums.length} level.`);
+};
+
+/**
+ * Export one level on its own.
+ *
+ * ⚠ It exports **the drawing on screen**, not the copy in the book, and that is the whole point of
+ * the button: it is pressed with the board you have just been editing in front of you, and handing
+ * back the last save instead would export a level you cannot see — a difference that is invisible
+ * in the output, because one line of JSON looks exactly like any other. The panel says which level
+ * number the line carries and warns when the two have drifted, so "xuất" never has to mean "lưu"
+ * first.
+ */
+$("exportLvl").onclick = () => {
+  const n = currentLevel();
+  const saved = loadBook()[n];
+  showExport(
+    handmadeLine(n, bp),
+    saved && JSON.stringify(saved) === JSON.stringify(bp)
+      ? `Đã xuất level ${n}.`
+      : `Đã xuất level ${n} — đúng bản vẽ đang mở (chưa lưu vào máy này).`,
+  );
 };
 
 // ── Wiring ───────────────────────────────────────────────────────────────────
@@ -2152,18 +2201,53 @@ try {
 
 colsEl.value = String(bp.cols);
 rowsEl.value = String(bp.rows ?? GRID_ROWS);
+/**
+ * Change the grid, keeping the board.
+ *
+ * The cells are cropped or grown; ⚠ **everything else on the drawing is carried across**, and it
+ * used to be thrown away. `blankBlueprint` produces cols/rows/cells and nothing else, so resizing
+ * silently dropped the pinned box stacks, the reference line, `boxHiddenFrac`, `boxAvoidTop` and
+ * the difficulty badge — a designer nudging the grid from 6 to 7 lost the well they had arranged
+ * and the label they had set, with nothing on screen to say so. Reported as the boxes changing on
+ * their own when only the row/column count was touched.
+ *
+ * ⚠ **The well is judged, not kept blindly.** `pinSig` is left as the signature of the drawing
+ * *before* the resize, so `commit` sees a changed board and runs `patchColumns`: a resize that only
+ * adds empty cells leaves the tray multiset alone and the well comes back byte for byte, while one
+ * that crops trays away has its counts fixed and nothing else moved. Setting `pinSig` to null
+ * instead would mean "just loaded, adopt whatever pin came with it", which is wrong here — the
+ * trays may genuinely have gone.
+ *
+ * ⚠ **`refTaps` is a list of cell indices, and a width change re-indexes every cell.** Carried over
+ * raw it would name completely different trays. Each tap is remapped through its (x, y); if any of
+ * them fell outside the crop the line is dropped, because a line missing a tap is not a line —
+ * `scheduleLine` finds a fresh one once the hand stops.
+ */
 const resize = () => {
   const cols = Number(colsEl.value);
   const rows = Number(rowsEl.value);
-  const next = blankBlueprint(cols, rows);
+  if (cols === bp.cols && rows === bp.rows) return;
+  const was = traySig(bp);
+  const [oldCols, oldRows] = [bp.cols, bp.rows];
+  const next: Blueprint = { ...bp, cols, rows, cells: blankBlueprint(cols, rows).cells };
   // Keep what still fits, so changing either side is a crop rather than a reset.
-  for (let y = 0; y < Math.min(rows, bp.rows); y++) {
-    for (let x = 0; x < Math.min(cols, bp.cols); x++) {
-      next.cells[y * cols + x] = bp.cells[y * bp.cols + x];
+  for (let y = 0; y < Math.min(rows, oldRows); y++) {
+    for (let x = 0; x < Math.min(cols, oldCols); x++) {
+      next.cells[y * cols + x] = bp.cells[y * oldCols + x];
     }
   }
+  if (next.refTaps?.length) {
+    const mapped: number[] = [];
+    for (const i of next.refTaps) {
+      const x = i % oldCols;
+      const y = (i - x) / oldCols;
+      if (x < cols && y < rows) mapped.push(y * cols + x);
+    }
+    if (mapped.length === next.refTaps.length) next.refTaps = mapped;
+    else delete next.refTaps;
+  }
   bp = next;
-  pinSig = null;                       // a new drawing: whatever pin it carries is its own
+  pinSig = bp.columns?.length ? was : null;
   selected = -1;
   commit();
 };

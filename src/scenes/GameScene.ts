@@ -170,7 +170,28 @@ interface Falling {
   body: MatterJS.BodyType;
   sprite: Phaser.GameObjects.Image;
   color: Color;
+  /** When this marble was last seen moving — the anti-stall nudge's clock. See `STALL_MS`. */
+  stillSince?: number;
 }
+
+/**
+ * How long a chute marble may sit essentially motionless before it is nudged toward the throat.
+ *
+ * ⚠ Reported from real play as two marbles side by side parked on the flank "đứng mãi trên thành
+ * rồi mới lăn xuống" — and NOT reproducible in the headless probes: pairs laid on the wall roll
+ * off, a settled queue restarts within 0.6s. The suspect is the static-friction regime on a real
+ * 60fps machine, whose fine, clean steps let a mutually-leaning pair seal where headless's coarse
+ * 13fps stepping jitters it loose — which is exactly the kind of stall no instrument here can
+ * certify away. So the fix is a guarantee rather than a tuning: any marble still for this long
+ * gets `STALL_KICK` of sideways velocity toward the throat's centre. A legitimately queued marble
+ * is pressed against the pile or the neck floor and absorbs the kick invisibly; a wedged pair
+ * has nothing under it but slope, so the seal breaks and gravity does the rest. Well under the
+ * 4s starve backstop, so the gentle fix always gets to act first — the backstop *flies* the
+ * marble out, which is the artefact it exists to avoid ever showing.
+ */
+const STALL_MS = 1100;
+/** The nudge itself, px per 60Hz step — under a quarter of walking pace, invisible in motion. */
+const STALL_KICK = 0.5;
 
 /**
  * How long the throat may go hungry — wanting a marble, finding none over the opening, with
@@ -186,6 +207,12 @@ interface Falling {
  * taken; a genuinely wedged one still is.
  */
 const CHUTE_STARVE_MS = 4000;
+/**
+ * Above this speed (px per 60Hz step) a marble over the throat is passing, not arriving, and the
+ * drain leaves it alone — see the note inside `drainFunnel`. Queued marbles creep at under 1;
+ * a marble swinging across the bowl carries 3-6.
+ */
+const SWALLOW_SPEED = 3;
 
 /**
  * How long the last box's clear is left on screen before the results card goes up.
@@ -202,17 +229,34 @@ const CHUTE_STARVE_MS = 4000;
 const WIN_CARD_DELAY_MS = 500;
 
 /**
+ * Air drag on a marble everywhere above the brake line — the whole fall and the bowl.
+ *
+ * ⚠ **The fall itself is plain gravity from rest, on request, and two mechanisms that changed
+ * that are gone.** A launch velocity out of the tray (`POUR_VY` = 6) and a heavy air-drag zone
+ * above the bowl (`AIR_DRAG`, pinning the drop at terminal speed) were both tried for "quán tính
+ * lăn nhanh hơn" and both rejected as "rơi vẫn nhanh quá — để rơi như trước": the launch made the
+ * first inch of every pour fast, and the terminal pin made every fall the same speed regardless
+ * of height. Gravity-from-rest is also what makes the answer to "khay trên cao rơi xuống, quán
+ * tính có lớn hơn khay dưới không?" a true YES — arrival speed grows with the square root of the
+ * drop, so the top row hits the bowl visibly harder than the bottom row. The rolling inertia
+ * lives in the WALL constants (96-facet `funnelSide`, restitution 0.42, friction 0.012), not in
+ * the fall, which is why the fall could be given back without losing the swing.
+ */
+const FALL_DRAG = 0.0015;
+/**
  * Air drag applied only below L.funnel.brake. Drag alone sets the terminal speed, so no
  * velocity clamping is needed — but it has to leave the marbles genuinely rolling: too much
  * and they stall on the slope instead of reaching the neck and the rail.
  */
-const CONE_DRAG = 0.008;
+const CONE_DRAG = 0.0015;
 /** Chute wall thickness. Never drawn — it is the tunnelling margin. See `buildWalls`. */
 const WALL_T = 40;
 /** Hard ceiling on how far a marble may move in one physics step: half a wall. See `update`. */
 const MAX_STEP = WALL_T / 2;
+/** Terminal fall speed, px per 60Hz step — the landing-quality cap. See the note in `update`. */
+const FALL_MAX = 10.5;
 /** Contact friction down there too, so they slide off the cone walls rather than stick. */
-const CONE_FRICTION = 0.02;
+const CONE_FRICTION = 0.008;
 
 /**
  * The horizontal centre of the design box.
@@ -1284,8 +1328,8 @@ export class GameScene extends Phaser.Scene {
       this.matter.add.rectangle((x1 + x2) / 2 + nx, (y1 + y2) / 2 + ny, len, WALL_T, {
         isStatic: true,
         angle: a,
-        friction: 0.02,
-        frictionStatic: 0.05,
+        friction: 0.008,
+        frictionStatic: 0.02,
       });
     };
     /**
@@ -1646,13 +1690,14 @@ export class GameScene extends Phaser.Scene {
   }
 
   private dropMarble(x: number, y: number, color: Color) {
-    // Barely bouncy, quite draggy: marbles are meant to settle and creep down the cone one
-    // at a time, not ricochet. The gravity that goes with this is set in main.ts.
+    // Lively on purpose — asked for as "quán tính viên bi lăn nhanh hơn, đôi khi... văng sang
+    // thành phễu bên kia": enough bounce and little enough drag that a marble keeps its momentum
+    // through the bowl and can run up the far wall. The gravity that goes with this is in main.ts.
     const body = this.matter.add.circle(x, y, L.marbleR, {
-      restitution: 0.18,
-      friction: 0.02,
-      frictionStatic: 0.05,
-      frictionAir: 0.004,
+      restitution: 0.6,
+      friction: 0.008,
+      frictionStatic: 0.02,
+      frictionAir: FALL_DRAG,
       density: 0.005,
     });
     const sprite = img(this, K.marble(color), x, y);
@@ -1701,10 +1746,32 @@ export class GameScene extends Phaser.Scene {
      */
     const fn = L.funnel;
     let best: Falling | null = null;
+    /**
+     * ⚠ **The throat swallows what settles into it, never what flies over it.** A marble swinging
+     * across the bowl passes straight through the opening at speed, and taking it there kills the
+     * swing mid-flight — traced: a crosser at 3.8 px/step was vacuumed at x=255, halfway over,
+     * every time the rail happened to be free. So above the pipe a marble is only taken once it is
+     * SLOW ("văng sang thành phễu bên kia" was asked for by name; the flyer gets to finish its
+     * arc and is taken a tick or two later). Three ways in:
+     *
+     *  - inside the pipe (below `coneY`, over the opening): committed, any speed;
+     *  - hanging over the clear width, settled: the ordinary queue;
+     *  - leaning on a lip just outside the clear width, settled: without this one a slow marble
+     *    wedges on the fillet ledge — traced resting at (292, 626), 3px outside the box, frozen
+     *    until the starve backstop rescued it four seconds later.
+     */
+    const cxMin = fn.neckL + L.marbleR, cxMax = fn.neckR - L.marbleR;
     for (const f of this.falling) {
-      if (f.body.position.y < fn.coneY - 2 * L.marbleR) continue;
-      if (f.body.position.x < fn.neckL + L.marbleR || f.body.position.x > fn.neckR - L.marbleR) continue;
-      if (!best || f.body.position.y > best.body.position.y) best = f;
+      const p = f.body.position, v = f.body.velocity;
+      const slow = Math.hypot(v.x, v.y) <= SWALLOW_SPEED;
+      const inClear = p.x >= cxMin && p.x <= cxMax;
+      const inMouth = p.x >= fn.neckL && p.x <= fn.neckR;
+      const ok =
+        (p.y >= fn.coneY && inMouth) ||
+        (slow && p.y >= fn.coneY - 2 * L.marbleR && inClear) ||
+        (slow && p.y >= fn.coneY - L.marbleR && inMouth);
+      if (!ok) continue;
+      if (!best || p.y > best.body.position.y) best = f;
     }
     // Backstop: logic is owed marbles but there is not a single body in the chute to supply
     // them. Nothing should get here, but if anything ever does the level would hang forever
@@ -1727,7 +1794,6 @@ export class GameScene extends Phaser.Scene {
      * being blamed for. It is a backstop against a hang, so it still fires; it just no longer picks
      * the worst candidate on the board to fire on.
      */
-    let fromBackstop = false;
     if (!best) {
       // ⚠ An empty chute is idle, not starved. Without this reset the clock accrues the whole
       // time between pours, and the first marbles of the next pour get snatched from the top of
@@ -1745,7 +1811,7 @@ export class GameScene extends Phaser.Scene {
       const cx = (fn.neckL + fn.neckR) / 2;
       for (const f of this.falling) {
         const d = Math.hypot(f.body.position.x - cx, f.body.position.y - fn.coneY);
-        if (d < bestD) { bestD = d; best = f; fromBackstop = true; }
+        if (d < bestD) { bestD = d; best = f; }
       }
     }
     if (!best) return;
@@ -1754,19 +1820,19 @@ export class GameScene extends Phaser.Scene {
     // between the two halves of the drop: the chute is physics and the rail is interpolation, and
     // the player is following one ball across the seam.
     /**
-     * ⚠ **The hand-over starts where the ball actually is — clamped into the throat ONLY on the
-     * backstop path.** The main rule above only takes a marble whose centre is inside the clear
-     * width, so its own position is already a legal feed point; clamping it anyway is what drew the
-     * sideways hop the whole rule exists to prevent. The backstop can pick a marble from anywhere
-     * in the bowl, and *that* one must be pulled into the shaft or the feed line crosses the
-     * funnel's own outline on the way to the rail — the artefact reported as "bi lăn ra ngoài
-     * thành". The y is left alone on both paths: it is already at or below the pickup line, and
-     * everything below the throat is inside the machine.
+     * ⚠ **The hand-over starts where the ball actually is; the clamp reaches only to the mouth.**
+     * Every main-path pick is already within `[neckL, neckR]`, so for those the clamp is identity —
+     * the feed line from anywhere in the mouth to the belt entry (under its centre) stays inside
+     * the machine, so even a marble leaning on a lip starts its slide from its own position.
+     * Clamping harder, to the clear width, moved that one 12px sideways on the frame it was taken;
+     * and the original box accepted marbles still out on the wall and clamped them 30px into the
+     * shaft — the sideways hop reported as "gần cổ phễu nó vẫn nảy". Only the starve backstop can
+     * pick far from the opening, and the mouth-edge clamp is for it: a feed line from out on the
+     * bowl would cross the funnel's own outline ("bi lăn ra ngoài thành"). The y is left alone on
+     * every path: it is already at or below the pickup line, inside the machine.
      */
     this.feedQueue.push({
-      x: fromBackstop
-        ? Phaser.Math.Clamp(best.body.position.x, fn.neckL + L.marbleR, fn.neckR - L.marbleR)
-        : best.body.position.x,
+      x: Phaser.Math.Clamp(best.body.position.x, fn.neckL, fn.neckR),
       y: best.body.position.y,
       rot: best.sprite.rotation,
     });
@@ -2639,8 +2705,20 @@ export class GameScene extends Phaser.Scene {
       // is meant to be watched, and one global gravity cannot do both.
       const tail = f.body.position.y <= topY + 2;
       const slow = f.body.position.y > L.funnel.brake && !tail;
-      f.body.frictionAir = slow ? CONE_DRAG : 0.004;
-      f.body.friction = slow ? CONE_FRICTION : 0.02;
+      f.body.frictionAir = slow ? CONE_DRAG : FALL_DRAG;
+      f.body.friction = slow ? CONE_FRICTION : 0.008;
+      // The anti-stall clock — see `STALL_MS`. Speed is read before the caps below touch it;
+      // 0.2 is far under the slowest genuine creep, so only a truly parked marble accrues.
+      if (Math.hypot(f.body.velocity.x, f.body.velocity.y) < 0.2) {
+        if (f.stillSince === undefined) f.stillSince = this.time.now;
+        else if (this.time.now - f.stillSince > STALL_MS) {
+          const toCentre = Math.sign((L.funnel.neckL + L.funnel.neckR) / 2 - f.body.position.x) || 1;
+          this.matter.body.setVelocity(f.body, { x: STALL_KICK * toCentre, y: f.body.velocity.y });
+          f.stillSince = this.time.now;
+        }
+      } else {
+        f.stillSince = undefined;
+      }
       /**
        * ⚠ **A speed cap, so tunnelling is impossible by construction rather than by margin.**
        * Matter has no continuous collision detection: a body that moves further than a wall is thick
@@ -2663,6 +2741,24 @@ export class GameScene extends Phaser.Scene {
       if (sp > MAX_STEP) {
         const k = MAX_STEP / sp;
         this.matter.body.setVelocity(f.body, { x: v.x * k, y: v.y * k });
+      } else if (v.y > FALL_MAX) {
+        /**
+         * ⚠ **A terminal velocity for the FALL, and it exists for the LANDING.** Matter resolves
+         * a deep-penetration impact as nearly inelastic whatever the restitution: measured on the
+         * bowl wall, an arrival at ~13 px/step (13px deep in one step) came away with 1.5-2.3
+         * where an arrival at 7 (shallow) kept 5 of it — so the fastest marbles arrived with the
+         * LEAST momentum, quietly inverting "khay cao rơi mạnh hơn khay dưới". Raising solver
+         * iterations did not move it (measured 8/6: 1.53, thrice). Capping the fall keeps the
+         * landing inside the range the solver handles cleanly; a top-row marble still arrives
+         * both later-from-higher and faster than a bottom-row one (the cap against ~7), so height
+         * still reads as force. Vertical only — the swing across the bowl is sideways speed and
+         * must never be touched by this.
+         *
+         * ⚠ The cap scales with the ball: it was 9.5 at r15, and at r14 10.5 measured CLEANLY —
+         * flank ride 5.6 px/step twice, three swing reversals — where r12 collapsed even at 7.
+         * If the radius ever moves again, re-run the hot-drop trace before trusting this number.
+         */
+        this.matter.body.setVelocity(f.body, { x: v.x, y: FALL_MAX });
       }
       f.sprite.setPosition(f.body.position.x, f.body.position.y);
       f.sprite.setRotation(f.body.angle);

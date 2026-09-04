@@ -217,6 +217,12 @@ const SEAT = [294, 330, 392, 440, 523, 587, 659];
  * game, not a fix.
  */
 const SEAT_SOUND = false;
+/**
+ * Whether marbles riding the belt make a sound. **Off, temporarily, on instruction** ("tạm thời
+ * tắt tiếng bi lăn") — same convention as `SEAT_SOUND`: one word to put back, not deleted code.
+ * The gain it comes back at is on `roll` itself (0.035-0.06, raised twice before the switch-off).
+ */
+const ROLL_SOUND = false;
 const LADDER_MS = 700;
 let rung = 0;
 let rungAt = 0;
@@ -274,8 +280,19 @@ export const sfx = {
     if (!SEAT_SOUND) return;
     play({ freq: 520 + progress * 420, dur: 0.07, type: "triangle", gain: 0.07 });
   },
+  /**
+   * ⚠ **A plain UI tick, on instruction** — "chỉ cần tiếng Tick đơn giản như các game khác". The
+   * old 380→620 Hz square sweep was a sci-fi bleep on a machine whose every other sound is a
+   * struck object. Every UI button shares this (Home's PLAY, the daily calendar, the pause/skip
+   * buttons), so one definition keeps them one voice.
+   *
+   * The noise tick alone vanishes on a phone speaker, so a very short E5 sine rides under it —
+   * E is in the A-minor pentatonic everything else here plays, and at `dur` 0.06 it is gone in
+   * ~15 ms: a click with a pitch, not a note.
+   */
   pick() {
-    play({ freq: 380, to: 620, dur: 0.1, type: "square", gain: 0.08 });
+    tick(0.1, 1.5);
+    struck(660, 0.045, 0.06, [1, 0.05]);
   },
   deny() {
     play({ freq: 220, to: 150, dur: 0.14, type: "sawtooth", gain: 0.07 });
@@ -308,10 +325,16 @@ export const sfx = {
    * would be the one rhythm in the game that is the same every time.
    */
   release() {
-    // The body of the slab letting go: 102 Hz with a strong 3rd, which is the reference's own
-    // lowest one-shot measured at 30.28s (harmonics 1.00 / 0.43 / 0.77 / 0.45).
-    struck(102, 0.13, 0.5, [1, 0.43, 0.77, 0.45, 0.28]);
-    tick(0.05, 0.7);
+    // ⚠ Reworked on instruction ("thử thay tiếng khi user click vào khay"). The old body was the
+    // 102 Hz slab alone at 0.13 — nearly all of it *below* the 200-800 Hz band the reference's own
+    // pours measure in, so on a phone speaker the tap was mostly rumble and barely read as
+    // feedback. Now the knock leads: a latch tick and a struck A3 — A3 being the reference's most
+    // common pitch, 8 of its 36 clean one-shots — with the old low body kept underneath at half
+    // level for the weight of the slab. Still a thump plus a knock, still no sweep and no rattle;
+    // the two warnings above stand.
+    tick(0.05, 1.1);
+    struck(220, 0.1, 0.22, [1, 0.62, 0.18]);
+    struck(102, 0.05, 0.35, [1, 0.43, 0.77, 0.45]);
     setTimeout(() => struck(RUNG[climb()], 0.08, 0.18, [1, 0.6, 0.2]), 60 + Math.random() * 40);
   },
 
@@ -328,6 +351,7 @@ export const sfx = {
    * reference is never silent while marbles are moving.
    */
   roll(n: number, ms: number) {
+    if (!ROLL_SOUND) return;
     if (n <= 0) return;
     // ⚠ **Roughly one every four ticks on a full belt, not one or two every tick.** The reference
     // plays **2.97 sounds a second** over its whole clip, 7/s at the 90th percentile and 15/s at
@@ -338,7 +362,9 @@ export const sfx = {
     if (Math.random() > n / (BELT_FULL * 8)) return;
     // ⚠ It does **not** advance the ladder. The belt runs the whole level; letting it climb would
     // leave the chute's own runs starting from wherever the rail happened to leave off.
-    const g = 0.022 + Math.random() * 0.016;
+    // Raised twice on instruction ("cho tiếng bi lăn... lớn hơn 1 chút", then "tăng thêm 1 chút"):
+    // 0.022-0.038 → 0.028-0.048 → 0.035-0.06. Still texture, still under tumble's 0.055-0.11.
+    const g = 0.035 + Math.random() * 0.025;
     setTimeout(() => struck(RUNG[0] / 2, g, 0.15, [1, 0.5, 0.15]), Math.random() * ms * 0.8);
   },
 
@@ -355,7 +381,11 @@ export const sfx = {
     // became a note, giving the physics one too made the machine play chords at itself.
     // So: a quiet low body, two fixed rungs, and `seat` owns the tune.
     // ⚠ `dur` 0.18 puts -20 dB at ~44 ms, which is the low family's measured decay.
-    const g = 0.035 + Math.min(0.035, strength * 0.02);
+    // Raised twice on instruction, same requests as `roll`: 0.035-0.07 → 0.045-0.09 → 0.055-0.11.
+    // ⚠ Post-master the hardest knock is now 0.33 — the loudest single sound in the game, above
+    // the halved bell. That is the declared intent (the marbles ARE the game); anything further
+    // should come with the limiter arithmetic re-done.
+    const g = 0.055 + Math.min(0.055, strength * 0.03);
     struck(RUNG[Math.random() < 0.5 ? 0 : 1] / 2, g, 0.18, [1, 0.65, 0.2]);
     tick(g * 0.3, 0.9 + Math.random() * 0.5);
   },
@@ -396,14 +426,16 @@ export const sfx = {
 
     // The pop stays put. It is the sound of the *object* leaving, so it should not move — only
     // the bell over it carries the run, or a long chain ends up sounding like a different box.
-    tick(0.05, 1.35);
-    play({ freq: 520, to: 165, dur: 0.08, type: "sine", gain: 0.05 });
+    // ⚠ All three layers at HALF their measured levels, on instruction ("âm thanh khi clear box,
+    // cho nhỏ đi 1 nửa") — the balance between pop and bell is kept, the whole event steps back.
+    tick(0.025, 1.35);
+    play({ freq: 520, to: 165, dur: 0.08, type: "sine", gain: 0.025 });
 
     // ⚠ **The bell is the reference's own longest one-shot, harmonic for harmonic.** Measured at
     // 94.88s: 221 Hz with the second at **0.68** and the third at 0.21, decaying to -20 dB in
     // 193 ms — a struck body, not the thin sine the short knocks are. That partial structure is
     // the difference between "a box came off" and a notification chime.
-    struck(BELL * step, 0.11, 0.78, [1, 0.68, 0.21, 0.1]);
+    struck(BELL * step, 0.055, 0.78, [1, 0.68, 0.21, 0.1]);
 
     // ⚠ Returns how many boxes this run is up to, 1-based, because the scene throws fireworks on
     // the third and there must be **one** definition of "in a row". A second timer in `GameScene`

@@ -788,7 +788,7 @@ lands on 57 against the usual 64. Sprites are baked at `L.cell` and scaled by `c
 - Everything that positions or sizes something on the grid reads `this.gm` in `GameScene`, never
   `L.cell` or `CELL_PITCH`. Mixing them puts the pieces and the slots 7px apart per cell.
 - The editor has both **Số cột** and **Số hàng**, 4-7 each, and its DOM cells shrink by the same
-  rule. Resizing crops rather than resets.
+  rule. Resizing crops rather than resets, and carries the rest of the drawing with it.
 
 `config.ts` holds every constant *and* the layout, in design units (a 540×1160 box).
 `GameScene` draws into one container scaled to the real canvas, so nothing else has to know
@@ -1744,6 +1744,24 @@ the same three steps in the same order, or it is showing a board nothing plays.
   which is exactly why nothing caught it). The second is that a hand-arranged well survived until
   the next click. Every site that replaces `bp` sets the signature back to null, which means "just
   loaded, adopt whatever pin came with it".
+- ⚠ **Changing the grid size must not change the board**, and it did. `resize` built a
+  `blankBlueprint` and copied the cells into it — so nudging the row or column count threw away the
+  pinned box stacks, the reference line, `boxHiddenFrac`, `boxAvoidTop` and the difficulty badge,
+  because `blankBlueprint` produces cols/rows/cells and nothing else. The well was then re-dealt
+  from scratch by the adoption step at the end of `commit`, which is what got reported: *"tôi thay
+  số hàng cột mà box lại thay đổi luôn"*. Everything but the cells is now carried across.
+  ⚠ **The well is judged, not kept blindly.** `pinSig` is left holding the signature of the drawing
+  *before* the resize, so `commit` sees a changed board and runs `patchColumns`: growing the grid
+  leaves the tray multiset alone and the well comes back byte for byte, while a crop that takes
+  trays away has its counts fixed and nothing else moved. Setting it to null instead means "just
+  loaded, adopt whatever pin came with it" — wrong here, because the trays may genuinely have gone.
+  Measured: 6→5→4 columns over a board whose right-hand columns are empty returns the identical
+  well and the identical line; cropping to 3 removes one tray's three boxes from the well and moves
+  nothing else.
+  ⚠ **`refTaps` is cell indices and a width change re-indexes every cell.** Carried over raw it
+  names different trays. Each tap is remapped through its (x, y), and the line is dropped whole if
+  any tap fell outside the crop — a line missing a tap is not a line, and `scheduleLine` finds a
+  fresh one once the hand stops.
 - Boxes are **derived**, not drawn — the editor only draws the tray grid. Each tray needs
   `TRAY_N / BOX_SLOTS` boxes of its colour, so the multiset is fixed; the **order** is not, and
   the order is what decides whether the level can be won.
@@ -1811,6 +1829,20 @@ the same three steps in the same order, or it is showing a board nothing plays.
 - ⚠ The two "open the game" controls are real `<a target="_blank">`, not `window.open`. A popup
   blocker swallows `window.open` silently: the click does nothing and there is no error anywhere
   to find. The URL is also printed next to the button for a blocked tab.
+- **Levels are exported one at a time**, not only as the whole book. `Xuất level này` writes the
+  drawing on screen as a single `  N: {...},` line for `HANDMADE`, and every row of the saved-level
+  list has its own `Xuất` beside `Mở`/`Xoá`. `Xuất tất cả` is unchanged and is now the odd one out:
+  a level table is edited a level at a time, and pasting all of them to move one means diffing a
+  block to find the line that changed.
+  ⚠ **`Xuất level này` takes the drawing, the row button takes the save**, and the difference has
+  to be said out loud because it is invisible in the output — one line of JSON looks exactly like
+  any other. The button is pressed with the board you are editing in front of you, so handing back
+  the last save would export a level you cannot see; the panel names the level number and says when
+  the two have drifted, so `xuất` never has to mean `lưu` first. The row is the save by definition,
+  and the level it names is usually not the one open.
+  ⚠ **One formatter, three buttons** (`handmadeLine`). All three land in the same table, so they
+  have to agree byte for byte about the shape of a line; a second copy of the template is a second
+  thing to keep in step with `handmade.ts`.
 - ⚠ A level in `HANDMADE` is **off the tuned curve**. `npm run tune` searches LADDER and VARIANTS
   for the generator and a hand-built board ignores both; `npm run sim` is the only thing that
   says whether it belongs where you put it.
