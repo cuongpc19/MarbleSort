@@ -13,7 +13,7 @@
 import { loadGame, bd } from "./bots.mjs";
 
 const M = await loadGame();
-const { levelDefFor, isHandmade, SHEET, SIDEWAYS_FROM, WIN_TOL, targetWin, Game } = M;
+const { levelDefFor, isHandmade, SHEET, SIDEWAYS_FROM, WIN_TOL, targetWin, Game, MAGNET_TUTOR_LEVEL, BOX_SLOTS } = M;
 
 const only = process.argv[2] ? Number(process.argv[2]) : 0;
 const N = Number(process.env.N || 40);
@@ -82,6 +82,49 @@ for (let level = 1; level <= SHEET.length; level++) {
       (fails.length ? `  ⚠ ${fails.join(", ")}` : ""),
   );
   if (fails.length) bad++;
+}
+
+console.log("");
+
+/**
+ * Can the magnet lesson actually run where the ladder says it starts?
+ *
+ * ⚠ **It fails silently, which is why this check exists.** `MagnetTutor.pick` returns -1 and
+ * `GameScene.startMagnetTutor` just returns — no log, no card, nothing on screen to say the lesson
+ * was skipped. Level 6 lost it on 2026-09-01 when the early wells were re-dealt for a different
+ * reason entirely, and it went unnoticed for nine days until it was reported from a phone.
+ *
+ * The lesson needs a colour that **no open box accepts** (pouring it is what creates the jam the
+ * magnet undoes), that has at least two boxes waiting deeper so a plan can form, and that the
+ * player can actually pour. Re-dealing a well or redrawing a board can take any of the three away
+ * without touching a line of code.
+ */
+function magnetTargetOn(level) {
+  const g = new Game(levelDefFor(level));
+  g.settle?.();
+  const open = g.boxes.map((b) => b.stack[0]);
+  const deeper = new Map();
+  for (const b of g.boxes) b.stack.forEach((c, k) => { if (k > 0) deeper.set(c, (deeper.get(c) ?? 0) + 1); });
+  const pourable = new Set();
+  for (let i = 0; i < g.tiles.length; i++) {
+    const t = g.tiles[i];
+    if (t && !t.hidden && !t.wide && g.anchorAt(i) === i && g.canEscape(i)) pourable.add(t.color);
+  }
+  return [...deeper.keys()].filter((c) => !open.includes(c) && deeper.get(c) >= 2 && pourable.has(c));
+}
+const lessonAt = magnetTargetOn(MAGNET_TUTOR_LEVEL);
+if (lessonAt.length) {
+  console.log(`Bai day nam cham chay duoc o level ${MAGNET_TUTOR_LEVEL} (mau ${lessonAt.join(",")}).`);
+} else {
+  // Where does it actually land? `startMagnetTutor` uses >=, and skips every multiple of five.
+  let first = null;
+  for (let n = MAGNET_TUTOR_LEVEL; n <= MAGNET_TUTOR_LEVEL + 15 && first === null; n++)
+    if (n % 5 !== 0 && magnetTargetOn(n).length) first = n;
+  console.log(
+    `⚠ Bai day nam cham KHONG chay duoc o level ${MAGNET_TUTOR_LEVEL} — ` +
+      (first ? `no se roi vao level ${first}.` : "khong tim thay level nao gan do chay duoc."),
+  );
+  bad++;
 }
 
 console.log("");
