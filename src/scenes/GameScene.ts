@@ -61,7 +61,7 @@ import { BOX_FACE_H, HOLE_CY, HOLE_STEP, K, TS, bakeAll, img } from "../game/tex
 import { dismissBootSplash, matchPageToCanvas, pageBackdrop } from "../game/bootsplash";
 import { MagnetTutor } from "./magnetTutor";
 import { teachAll } from "../game/teach";
-import { FREE_MAGNETS, MAGNET_TUTOR_LEVEL } from "../game/config";
+import { CRATE_SCALE, FREE_MAGNETS, MAGNET_TUTOR_LEVEL } from "../game/config";
 
 export { GAME_W, GAME_H };
 
@@ -70,10 +70,20 @@ export { GAME_W, GAME_H };
 /**
  * ⚠ Magnet and revive do the **same thing to the board** and are priced apart on purpose. The
  * revive is only offered when the board is already dead; the magnet is available whenever a plan
- * exists, so it is strictly the more useful of the two and costs 20% more. Pricing them equal would
- * make the revive the dominant way to buy the effect — wait for the jam, pay less.
+ * exists, so it is strictly the more useful of the two.
+ *
+ * ⚠ **The magnet went 60 → 40 on 2026-09-02, which inverts the order they used to sit in**, and the
+ * inversion is the part to understand rather than the number. It used to cost 20% *more* than the
+ * revive on the argument that the more useful booster should cost more; the effect was that the
+ * cheapest way to buy the effect was to do nothing and wait to be rescued. At 40 against 50 the
+ * incentive points the other way — acting before the rail jams is now also the cheaper move, and
+ * the revive's extra 10 reads as what it is, the price of having left it too late.
+ *
+ * ⚠ Read it with the free revive (`save.freeReviveUsed`): the first rescue costs nothing at all, so
+ * this ordering only starts applying on a player's second jam.
  */
-const COST = { magnet: 60, revive: 50 };
+const COST = { magnet: 40, revive: 50 };
+
 /**
  * Coins a win pays, flat — not scaled by stars.
  *
@@ -90,8 +100,24 @@ const COST = { magnet: 60, revive: 50 };
  * ⚠ The three other files that quote this number in prose — `daily.ts`, `save.ts`, `main.ts` —
  * were updated with it. A constant written into four comments drifts the moment one is missed, and
  * a comment that quietly disagrees with the code is worse than no comment.
+ *
+ * ⚠ **10 again since 2026-09-02, with `WIN_COINS_HARD` beside it.** The flat 20 is now split: an
+ * ordinary board pays 10 and a board wearing a difficulty badge pays 20. Read the two together —
+ * total earnings across the ladder barely move, because the badges are sparse; what changes is
+ * *where* the coins come from, so the boards that cost the player a revive are also the ones that
+ * pay for the next one.
  */
-const WIN_COINS = 20;
+const WIN_COINS = 10;
+/**
+ * Coins a win on a **badged** board pays.
+ *
+ * ⚠ **Read off the badge the player was actually shown**, via `GameScene.boardTag` — not off the
+ * level number and not off `def.hard`. Those are two of the three sources the badge resolves from,
+ * and a board can decline its slot's badge with `tag: "none"`; paying double for a promise that was
+ * never made is a reward the player cannot attribute to anything. It follows `SHOW_LEVEL_TAGS` for
+ * the same reason: with badges off there is nothing on screen for the extra coins to be *for*.
+ */
+const WIN_COINS_HARD = 20;
 
 // `SHOW_BOOSTERS` is imported from config: the layout moves with it, so the flag has to be
 // somewhere both this file and `L` can read. What this file adds on top:
@@ -144,16 +170,22 @@ interface Falling {
   body: MatterJS.BodyType;
   sprite: Phaser.GameObjects.Image;
   color: Color;
-  /** when it was dropped — a marble that never reaches the neck has to be rescued */
-  born: number;
 }
 
 /**
- * How long a marble may spend in the chute before it is taken anyway. A neck one marble wide
+ * How long the throat may go hungry — wanting a marble, finding none over the opening, with
+ * bodies still in the chute — before one is taken from wherever it is. A neck one marble wide
  * can arch, and an arched marble that logic still counts as in flight would hang the level
  * forever with no way for the player to tell why.
+ *
+ * ⚠ **A clock on the THROAT, not on the marble.** It used to be each marble's own age, and the
+ * last marbles of a big pour are always past any age limit — they spent it queueing for the rail
+ * — so the moment the shaft happened to be empty the backstop grabbed one straight off the wall,
+ * mid-roll, which is the sideways hop all over again. Starvation only accumulates while the drain
+ * actually looked and came up empty, so a marble two seconds from rolling in on its own is never
+ * taken; a genuinely wedged one still is.
  */
-const CHUTE_TIMEOUT_MS = 6000;
+const CHUTE_STARVE_MS = 4000;
 
 /**
  * How long the last box's clear is left on screen before the results card goes up.
@@ -305,6 +337,8 @@ export class GameScene extends Phaser.Scene {
   private feedQueue: FeedPt[] = [];
   /** The point the marble being placed *this* tick came from. Null falls back to `FEED_FROM`. */
   private feedNow: FeedPt | null = null;
+  /** When the throat last started going hungry — see `CHUTE_STARVE_MS`. Null while it is fed. */
+  private chuteStarvedAt: number | null = null;
   private undoStack: ReturnType<Game["snapshot"]>[] = [];
 
   private lastTickAt = 0;
@@ -499,22 +533,32 @@ export class GameScene extends Phaser.Scene {
    * is a warning about the board in front of you — a player coming back to it a week later needs it
    * more than they did the first time, not less.
    */
+  /**
+   * The badge this board wears, or null.
+   *
+   * ⚠ The editor's scratch board has no place on the ladder, so the number rule cannot speak for
+   * it — only an explicit flag on the drawing can.
+   * ⚠ Order: the board's own label, then the old boolean, then the slot's number rule. A drawing
+   * that says `tag: "none"` is declining a badge its slot would otherwise hand it — which is the
+   * only way to move a board out of a 15th slot without the SUPER HARD promise following it.
+   * ⚠ The switch is read here, after the three sources are resolved rather than inside any one of
+   * them: a drawing carrying `tag: "hard"` would otherwise walk straight past a rule that only
+   * silenced the level number. See `SHOW_LEVEL_TAGS`.
+   *
+   * ⚠ **Extracted because the badge now pays money.** `WIN_COINS_HARD` reads it too, and the
+   * resolution above is four-deep with an override that can *remove* a badge — reimplemented at the
+   * till it would sooner or later hand 20 coins to a board showing nothing, or 10 to a board
+   * promising SUPER HARD. One definition, two readers.
+   */
+  private boardTag() {
+    const own = this.board.def.tag;
+    if (!SHOW_LEVEL_TAGS || own === "none") return null;
+    return own ?? (this.board.def.hard ? "superhard" : this.custom ? null : levelTag(this.level));
+  }
+
   private hardWarning() {
     this.hardWarnUntil = 0;
-    // ⚠ The editor's scratch board has no place on the ladder, so the number rule cannot speak for
-    // it — only an explicit flag on the drawing can.
-    // ⚠ Order: the board's own label, then the old boolean, then the slot's number rule. A drawing
-    // that says `tag: "none"` is declining a badge its slot would otherwise hand it — which is the
-    // only way to move a board out of a 15th slot without the SUPER HARD promise following it.
-    const own = this.board.def.tag;
-    // ⚠ The switch is read here, after the three sources are resolved rather than inside any one
-    // of them: a drawing carrying `tag: "hard"` would otherwise walk straight past a rule that
-    // only silenced the level number. See `SHOW_LEVEL_TAGS`.
-    const tag = !SHOW_LEVEL_TAGS
-      ? null
-      : own === "none"
-        ? null
-        : own ?? (this.board.def.hard ? "superhard" : this.custom ? null : levelTag(this.level));
+    const tag = this.boardTag();
     if (!tag) return;
     const look = TAG_LOOK[tag];
     // Below the board's own lowest row, in the throat of the chute.
@@ -633,6 +677,7 @@ export class GameScene extends Phaser.Scene {
     this.falling = [];
     this.feedQueue = [];
     this.feedNow = null;
+    this.chuteStarvedAt = null;
     this.undoStack = [];
     this.paused = false;
     this.reviveClose = null;
@@ -786,13 +831,12 @@ export class GameScene extends Phaser.Scene {
     // across the middle of the machine and let the marbles spread out as they fall.
     const f = L.funnel;
     /**
-     * ⚠ **Straight, and it was tried curved on 2026-08-19.** The physics wall is a 33° line and
-     * cannot become a curve: any curve between the same two points averages the same slope, so part
-     * of it is shallower than 33° and that is where marbles stop sliding. Drawing a curve over a
-     * straight wall was the compromise — 16px of bow, 8px of deviation at mid-height — and it read
-     * exactly as what it was: the marbles slid down an invisible line with a band of white between
-     * them and the wall they were supposed to be touching. It also did not look like the reference,
-     * which is a shorter funnel, not a curved one.
+     * ⚠ **The drawn wall IS the physics wall — `funnelSide`, one polyline for both.** The chute is
+     * a bowl now (near-vertical mouth easing to ~13° at the throat; see `funnelSide`'s own note),
+     * and the reason the 2026-08-19 attempt at a curve failed is the rule this comment exists to
+     * keep: it drew the curve and left the Matter wall straight, so the marbles slid down an
+     * invisible line with a band of white between them and the wall they were supposed to be
+     * touching. Whatever shape `funnelSide` returns, the picture and the bodies agree.
      */
     // ⚠ Drawn from `funnelSide`, the same polyline `buildWalls` turns into Matter bodies. The last
     // point is dropped and replaced by `neckY + 16` so the throat runs on into the belt housing —
@@ -998,6 +1042,18 @@ export class GameScene extends Phaser.Scene {
     // The shelf the board stands on, spanning the whole cabinet. Drawn first so the cavity's
     // own passes paint over it wherever the board opens through — a line straight across the
     // mouth would wall off the marbles' only way down.
+    /**
+     * Where the funnel's own white begins — the flat top edge of the bowl, `funnelSide`'s first
+     * point, which is a few px **below** `shoulder`.
+     *
+     * ⚠ **This, not the shoulder, is what the cavity has to meet.** Between the shelf and the bowl
+     * the cabinet shows through for a few rows, right across the machine; that band is part of the
+     * funnel's own step everywhere except at the mouth, where it is a line drawn across the
+     * marbles' only way down. Measured on a real frame: shelf 518-522, bare cabinet 523-524, bowl
+     * from 525. Stopping the fill at `shoulder + 3` cut the shelf through and left those two rows —
+     * the same line by a third route.
+     */
+    const funnelTop = funnelSide(-1)[0].y;
     g.fillStyle(UI.panelDeep, 1);
     g.fillRoundedRect(m.x + 8, L.funnel.shoulder - 2, m.w - 16, 5, 3);
 
@@ -1005,21 +1061,54 @@ export class GameScene extends Phaser.Scene {
     // passes — rim then fill. Painting it in fill only (the obvious shortcut, since the point is
     // to open the floor) leaves that stretch with no sides at all: the board's throat runs down
     // to the funnel as bare white with the rim stopping dead at the last row of cells.
-    const drop = (grow: number, extra: number) =>
-      mouth < 0 ? 0 : L.funnel.shoulder + extra - (cellY(mouth * b.cols) - gm.cell / 2 - grow);
+    /**
+     * How tall the mouth row's rect has to be for its **bottom edge to land on `bottom`**.
+     *
+     * ⚠ Takes an absolute y, not an offset from `shoulder`. Both passes are aiming at edges of the
+     * funnel's drawing rather than at the shoulder line, and expressing that as `shoulder + n` hides
+     * which edge each one means — which is how the fill ended up 21px inside the bowl and, once
+     * that was trimmed, 2px short of it.
+     */
+    const drop = (grow: number, bottom: number) =>
+      mouth < 0 ? 0 : bottom - (cellY(mouth * b.cols) - gm.cell / 2 - grow);
 
-    for (const [grow, colour, radius, extra] of [
-      // ⚠ The rim stops AT the shoulder now, not 2px past it. Anything it draws below that line is
-      // slate inside the funnel, and the funnel is where the board stops being a board.
-      [PAD + RIM, UI.panelDeep, R + RIM, 0],
-      // The fill runs deeper than the rim by more than the rim is thick, so the rim's own
-      // bottom edge — and its rounded bottom corners — end up underneath it and the throat
-      // stays open.
-      [PAD, UI.panel, R, 2 + RIM + 8],
+    for (const [grow, colour, radius, bottom] of [
+      /**
+       * ⚠ **The rim stops well short of the bowl**, by more than `MOUTH_R`, so the fill can bury its
+       * bottom edge *and* its two rounded corners. Ending it level with the fill is what drew a
+       * slate line straight across the opening once the board came down onto the funnel — the fill
+       * had nowhere left to bury it. Anything it drew inside the bowl would be worse still: slate
+       * in the funnel, and the funnel is where the board stops being a board.
+       */
+      [PAD + RIM, UI.panelDeep, R + RIM, funnelTop - (MOUTH_R + 4)],
+      /**
+       * ⚠ **The fill ends exactly where the funnel's white begins — flush, never past it.** It used
+       * to run 21px in, which nobody could see while the board floated high (the throat was a long
+       * neck and nobody reads the end of a neck) and became the board's own white panel sitting
+       * inside the bowl the moment `GRID_BIAS` put the mouth on the shoulder: *"bàn k được hạ quá
+       * phễu"*. Flush is the only value that satisfies both halves of that: one pixel further and
+       * the board is in the funnel, one pixel short and the cabinet shows through as a line across
+       * the mouth.
+       */
+      [PAD, UI.panel, R, funnelTop],
     ] as const) {
       g.fillStyle(colour, 1);
       const half = gm.cell / 2 + grow;
-      const tall = Math.max(half * 2, drop(grow, extra));
+      /**
+       * ⚠ **The floor is the cell's own bottom edge, not the dilated rect's.** It was `half * 2`,
+       * which is `cell + 2 * grow` — the full dilated height, i.e. the cell plus a bulge of `grow`
+       * below it. That is fine only while the board floats well above the shoulder, where the drop
+       * is far longer than either. Bottom-aligned (`GRID_BIAS` = 1) the mouth row's bottom edge *is*
+       * the shoulder, so the rim's drop comes to `cell + grow` and the floor overrode it — pushing
+       * the rim `grow` px past the shoulder, to exactly where the fill ends. The fill then no longer
+       * ran deeper than the rim, so the rim's own bottom edge stopped being buried and drew a slate
+       * line straight across the opening: *"giữa phễu và khu vực khay, vẫn có 1 line nhỏ ở giữa"* —
+       * a line across the mouth, which is the one thing the comment above says must never happen.
+       *
+       * `half + gm.cell / 2` is the rect from its dilated top down to the cell's real bottom, which
+       * is the shortest it may ever be drawn. Nothing below that belongs to the cell.
+       */
+      const tall = Math.max(half + gm.cell / 2, drop(grow, bottom));
       for (let i = 0; i < b.cols * b.rows; i++) {
         if (b.wall[i]) continue;
         const onMouth = ((i / b.cols) | 0) === mouth;
@@ -1069,7 +1158,9 @@ export class GameScene extends Phaser.Scene {
       const arrow = img(this, K.arrow, x, y).setVisible(false).setScale(k / TS);
       this.arrowSprites.push(arrow);
       const disp = img(this, K.dispenser, x, y).setVisible(false).setScale(k / TS);
-      const crate = img(this, K.crate, x, y).setVisible(false).setScale(k / TS);
+      // ⚠ `CRATE_SCALE` smaller than a tray, and the cell underneath is still fully occupied —
+      // the shrink is what says "not one of your pieces", not a change to any rule.
+      const crate = img(this, K.crate, x, y).setVisible(false).setScale((k * CRATE_SCALE) / TS);
       this.crateSprites.push(crate);
       // One label per cell, shared by the hatch count and the x2 badge — a cell is never
       // both a hatch and a tray.
@@ -1566,7 +1657,7 @@ export class GameScene extends Phaser.Scene {
     });
     const sprite = img(this, K.marble(color), x, y);
     this.fallLayer.add(sprite);
-    this.falling.push({ body, sprite, color, born: this.time.now });
+    this.falling.push({ body, sprite, color });
   }
 
   /** Lift the lowest settled marble off the neck and hand it to the belt queue. */
@@ -1594,15 +1685,25 @@ export class GameScene extends Phaser.Scene {
      * vertical line is unchanged — `coneY - 2 * marbleR` is the same 586 — so this does not make the
      * chute slower to drain; it only stops it reaching across the bowl for marbles.
      *
+     * ⚠ **Within the CLEAR width — `neckL + r` to `neckR - r` — not merely overlapping it.** The
+     * first version accepted out to `neckR + marbleR`, a marble still resting ON the wall, and then
+     * clamped the hand-over point into the shaft so the feed line could not cross the outline. The
+     * clamp is a teleport: measured over 136 hand-overs, **83 moved the ball sideways**, mean 11px
+     * and worst 30, on the same frame — and on the recording that is a lone marble rolling down the
+     * wall, snapping into mid-air over the opening and hanging there before it drops. Reported as
+     * "gần cổ phễu nó vẫn nảy", and it *is* a hop: same-y sideways over a 14° slope is a ball
+     * lifting off the surface. A marble whose centre is inside the clear width has nothing under it
+     * but shaft, so its own position is a legal feed point and no clamp is ever needed.
+     *
      * ⚠ Written against the neck's own coordinates rather than a constant, so it cannot come loose
-     * from the geometry again the next time the chute changes shape. `CHUTE_TIMEOUT_MS` below is
+     * from the geometry again the next time the chute changes shape. `CHUTE_STARVE_MS` below is
      * still the backstop for a marble that somehow never reaches the opening.
      */
     const fn = L.funnel;
     let best: Falling | null = null;
     for (const f of this.falling) {
       if (f.body.position.y < fn.coneY - 2 * L.marbleR) continue;
-      if (f.body.position.x < fn.neckL - L.marbleR || f.body.position.x > fn.neckR + L.marbleR) continue;
+      if (f.body.position.x < fn.neckL + L.marbleR || f.body.position.x > fn.neckR - L.marbleR) continue;
       if (!best || f.body.position.y > best.body.position.y) best = f;
     }
     // Backstop: logic is owed marbles but there is not a single body in the chute to supply
@@ -1615,44 +1716,57 @@ export class GameScene extends Phaser.Scene {
     }
 
     /**
-     * Nothing has reached the throat. If something has been stuck up there long enough, take one
-     * regardless — see `CHUTE_TIMEOUT_MS`.
+     * Nothing is over the opening. If the throat has been starved long enough — looked, found
+     * nothing, with bodies still in the chute — take the one nearest it regardless. See
+     * `CHUTE_STARVE_MS` for why the clock is on the throat and not on the marble.
      *
-     * ⚠ **The one NEAREST the throat, not the oldest.** This path is the reason tightening the test
-     * above only cut the misplaced pickups from 59 to 38: whatever the main rule refuses, this one
+     * ⚠ **The one NEAREST the throat, not the oldest.** Whatever the main rule refuses, this one
      * takes anyway, and taking the oldest means taking a marble that may be right at the top of the
      * bowl — the furthest possible from where a marble should leave. The marble then flies to the
      * rail from there, across the funnel's own outline, which is the artefact this whole path is
      * being blamed for. It is a backstop against a hang, so it still fires; it just no longer picks
      * the worst candidate on the board to fire on.
      */
+    let fromBackstop = false;
     if (!best) {
+      // ⚠ An empty chute is idle, not starved. Without this reset the clock accrues the whole
+      // time between pours, and the first marbles of the next pour get snatched from the top of
+      // the chute the instant the shaft is slow to fill — the exact grab the clock exists to stop.
+      if (!this.falling.length) {
+        this.chuteStarvedAt = null;
+        return;
+      }
+      if (this.chuteStarvedAt == null) {
+        this.chuteStarvedAt = this.time.now;
+        return;
+      }
+      if (this.time.now - this.chuteStarvedAt < CHUTE_STARVE_MS) return;
       let bestD = Infinity;
       const cx = (fn.neckL + fn.neckR) / 2;
       for (const f of this.falling) {
-        if (this.time.now - f.born < CHUTE_TIMEOUT_MS) continue;
         const d = Math.hypot(f.body.position.x - cx, f.body.position.y - fn.coneY);
-        if (d < bestD) { bestD = d; best = f; }
+        if (d < bestD) { bestD = d; best = f; fromBackstop = true; }
       }
     }
     if (!best) return;
+    this.chuteStarvedAt = null;
     // ⚠ Read the body's real position and spin **before** destroying it. This is the whole join
     // between the two halves of the drop: the chute is physics and the rail is interpolation, and
     // the player is following one ball across the seam.
     /**
-     * ⚠ **The hand-over starts at the throat, never further out than the opening.** The rail feed
-     * animates from this point, in a straight line — so a marble taken from out on the wall was
-     * flown to the rail *through* the funnel's own outline, and what that draws is a ball leaving
-     * the wall sideways and crossing it. That is the artefact reported as "bi lăn ra ngoài thành",
-     * and it is drawn by the hand-over rather than by the physics: measured 31 of 195 pickups still
-     * happen away from the opening even after the rule above was tightened, because the timeout
-     * backstop has to fire on something.
-     *
-     * Clamping x into the neck cannot make the path cross a wall: everything below the throat is
-     * inside the machine. The y is left alone — it is already at or below the pickup line.
+     * ⚠ **The hand-over starts where the ball actually is — clamped into the throat ONLY on the
+     * backstop path.** The main rule above only takes a marble whose centre is inside the clear
+     * width, so its own position is already a legal feed point; clamping it anyway is what drew the
+     * sideways hop the whole rule exists to prevent. The backstop can pick a marble from anywhere
+     * in the bowl, and *that* one must be pulled into the shaft or the feed line crosses the
+     * funnel's own outline on the way to the rail — the artefact reported as "bi lăn ra ngoài
+     * thành". The y is left alone on both paths: it is already at or below the pickup line, and
+     * everything below the throat is inside the machine.
      */
     this.feedQueue.push({
-      x: Phaser.Math.Clamp(best.body.position.x, fn.neckL + L.marbleR, fn.neckR - L.marbleR),
+      x: fromBackstop
+        ? Phaser.Math.Clamp(best.body.position.x, fn.neckL + L.marbleR, fn.neckR - L.marbleR)
+        : best.body.position.x,
       y: best.body.position.y,
       rot: best.sprite.rotation,
     });
@@ -2673,26 +2787,47 @@ export class GameScene extends Phaser.Scene {
     };
     this.reviveClose = close;
 
-    const afford = save.coins >= COST.revive;
+    const cost = this.reviveCost();
+    const afford = save.coins >= cost;
     const btn = this.add.container(CX, midY + 146);
     const face = img(this, K.btn("wide"), 0, 0);
     if (!afford) face.setTint(0x9aa3b8);
+    /**
+     * ⚠ **The free one says FREE and shows no coin**, and the word is centred rather than left of
+     * where the price used to be. A coin icon beside "0" reads as a price of nothing, i.e. as
+     * something that failed to load; and REVIVE pushed to `-30` to make room for a price that is
+     * not there leaves the button visibly lopsided. Two states, two layouts.
+     */
+    const free = cost === 0;
     const label = this.add
-      .text(-30, -3, "REVIVE", { fontFamily: FONT, fontSize: "27px", color: "#ffffff" })
+      .text(free ? -34 : -30, -3, "REVIVE", { fontFamily: FONT, fontSize: "27px", color: "#ffffff" })
       .setOrigin(0.5)
       .setStroke(UI.ink, 6);
-    const coin = img(this, K.coin, 48, 0).setScale(0.9 / TS);
-    const price = this.add
-      .text(68, -2, String(COST.revive), {
-        fontFamily: FONT,
-        fontSize: "24px",
-        color: afford ? "#ffd964" : "#ffb4b4",
-      })
-      .setOrigin(0, 0.5)
-      .setStroke(UI.ink, 5);
+    btn.add(face);
+    btn.add(label);
+    if (free) {
+      btn.add(
+        this.add
+          .text(38, -2, "FREE", { fontFamily: FONT, fontSize: "24px", color: "#9dffab" })
+          .setOrigin(0, 0.5)
+          .setStroke(UI.ink, 5),
+      );
+    } else {
+      btn.add(img(this, K.coin, 48, 0).setScale(0.9 / TS));
+      btn.add(
+        this.add
+          .text(68, -2, String(cost), {
+            fontFamily: FONT,
+            fontSize: "24px",
+            color: afford ? "#ffd964" : "#ffb4b4",
+          })
+          .setOrigin(0, 0.5)
+          .setStroke(UI.ink, 5),
+      );
+    }
     const zone = this.add.rectangle(0, 0, 260, 76, 0xffffff, 0).setInteractive({ useHandCursor: true });
     zone.on("pointerdown", () => this.acceptRevive());
-    btn.add([face, label, coin, price, zone]);
+    btn.add(zone);
     c.add(btn);
     // The one thing on the card that keeps moving, so the offer reads as live rather than as an
     // error dialog with a button on it.
@@ -2817,10 +2952,26 @@ export class GameScene extends Phaser.Scene {
     };
   }
 
+  /**
+   * What a revive costs right now — 0 while the free one is still there.
+   *
+   * ⚠ **One function, and the card and the till both call it.** The pop-up decides what to print,
+   * whether to grey the button out, and whether to refuse the tap; `acceptRevive` decides what to
+   * take. Written out at both sites, the day this rule changes is the day a card says FREE and the
+   * wallet is charged anyway — and the player has no way to tell that from a bug in the wallet.
+   *
+   * ⚠ **Free means free, not discounted.** A first revive that still wanted coins would be worth
+   * nothing to the player it exists for: a jam in the first few levels, where `WIN_COINS` = 10 a
+   * win means they have not yet earned 50. That is the whole point of it.
+   */
+  private reviveCost(): number {
+    return save.freeReviveUsed ? COST.revive : 0;
+  }
+
   private acceptRevive() {
     const close = this.reviveClose;
     if (!close) return;
-    if (save.coins < COST.revive) {
+    if (save.coins < this.reviveCost()) {
       sfx.deny();
       this.toast("Not enough coins");
       return;
@@ -2835,8 +2986,14 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    save.coins = save.coins - COST.revive;
+    // ⚠ The flag is set **after** `useRevive()` has produced a plan, never before. A revive the
+    // engine refuses is a revive that did not happen, and burning the free one on it would take
+    // the player's one rescue away for nothing — the same ordering the coin deduction already has.
+    if (!save.freeReviveUsed) save.freeReviveUsed = true;
+    else save.coins = save.coins - COST.revive;
     // Logged like any other booster, so `PURE=1` keeps a bought level out of the model ranking.
+    // ⚠ A free revive is logged too. It is still help the bots never had, so a level rescued by one
+    // has no place in the model ranking whether it was paid for or not.
     this.boostersUsed.push("revive");
     close();
     sfx.booster();
@@ -3233,10 +3390,14 @@ export class GameScene extends Phaser.Scene {
       // Only ever raises, so replaying a level to look at it cannot take a star back off it.
       save.setStars(this.level, stars);
       save.unlocked = this.level + 1;
-      save.coins = save.coins + WIN_COINS;
+      // ⚠ One expression, read once and handed to both the wallet and the card. Spelling the reward
+      // out twice — once into the till and once into the overlay that announces it — is the one
+      // place a drift is unarguable, which is what the note on `WIN_COINS` has always said.
+      const coins = this.boardTag() ? WIN_COINS_HARD : WIN_COINS;
+      save.coins = save.coins + coins;
       sfx.win();
       // ⚠ Asked for `this.level`, the level just cleared — the bar is the reward for *this* game.
-      this.overlay("LEVEL COMPLETE!", stars, WIN_COINS, featureProgress(this.level));
+      this.overlay("LEVEL COMPLETE!", stars, coins, featureProgress(this.level));
     } else {
       sfx.deny();
       this.overlay("JAMMED!", 0, 0);

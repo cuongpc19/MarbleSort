@@ -317,8 +317,19 @@ async function main() {
     // and precisely the failure mode of a timer that was wired up wrong — it does nothing, and
     // nothing looks the same as not being there.
     if (arg("tutor", false)) {
-      await cdp.eval(`localStorage.removeItem("bf_tutor"); window.__ms.goto(1); return 1;`);
-      await sleep(1600);
+      // ⚠ **Leave level 1 before coming back to it.** The walkthrough is gated on
+      // `save.tutorialDone`, read when the scene is created, and this same run has just written
+      // it — so a `goto(1)` while already standing on level 1 can hand back the spent walkthrough
+      // instead of a new one. The symptom is the driver reporting `done: true` before it has
+      // tapped anything, i.e. probing a finished card and calling it a pass. Bounce off another
+      // level, clear the key, come back.
+      const bootTutor = async () => {
+        await cdp.eval(`window.__ms.goto(2); return 1;`);
+        await sleep(900);
+        await cdp.eval(`localStorage.removeItem("bf_tutor"); window.__ms.goto(1); return 1;`);
+        await sleep(1600);
+      };
+      await bootTutor();
       await snap("10-tutor-step1");
       // ⚠ Read the tutorial object, NOT `coachLayer()` — that method *builds* a fresh container
       // every call, so probing through it returns an empty one and reports the feature missing.
@@ -326,17 +337,42 @@ async function main() {
         const t = window.__ms.scene.tutorial;
         if (!t) return null;
         return { step: t.at, done: t.done, caption: t.label ? t.label.text : null,
-                 hand: !!t.hand, ring: !!t.ring, idleArmed: !!t.idle };`);
+                 hand: !!t.hand, ring: !!t.ring, idleArmed: !!t.idle,
+                 steps: t.steps.length, key: localStorage.getItem("bf_tutor"),
+                 lvl: window.__ms.state().level };`);
       console.log("tutor step 1 → " + JSON.stringify(await marks()));
+      // ⚠ **Both branches after the first pour, because they are opposite behaviours.** Card two
+      // is offered only to a player who *stalls* for `WAIT2_MS`; one who pours again inside it
+      // must never see it. A driver that only tests one of those cannot tell a working gate from
+      // a card that simply never fires.
+      // ⚠ Probe **before** snapping. A screenshot is not instant, so a `sleep(1200); snap(); marks()`
+      // reads the state well past the 1.2s the line claims — which on a 3-second gate is the
+      // difference between "card two has not fired yet" and "card two fired and went".
       await cdp.eval(`window.__ms.tap(window.__ms.hint()); return 1;`);
-      // The four captions run about 7.6s between them; watch the last one clear.
-      await sleep(9500);
-      await snap("11-tutor-done");
-      console.log("after captions → " + JSON.stringify(await marks()));
-      // ...then sit perfectly still for the five seconds the nudge is waiting on.
-      await sleep(5800);
-      await snap("12-tutor-nudge");
-      console.log("after 5s idle → " + JSON.stringify(await marks()));
+      await sleep(1200);
+      console.log("1.2s after 1st pour (hold, nothing on screen) → " + JSON.stringify(await marks()));
+      await snap("11-tutor-hold");
+      await sleep(2600);
+      console.log("stalled past 3s → " + JSON.stringify(await marks()));
+      await snap("12-tutor-step2");
+      await cdp.eval(`window.__ms.tap(window.__ms.hint()); return 1;`);
+      await sleep(1400);
+      console.log("after 2nd pour → " + JSON.stringify(await marks()));
+      await snap("13-tutor-done");
+      // ...then sit perfectly still past the idle clock. Nothing should come back: the cap is two
+      // taps, and a hand that reappears here is the nudge outliving the walkthrough again.
+      await sleep(6200);
+      console.log("after 6s idle → " + JSON.stringify(await marks()));
+      await snap("14-tutor-quiet");
+
+      // The fast path: reset and pour twice inside the hold. Card two must never appear.
+      await bootTutor();
+      await cdp.eval(`window.__ms.tap(window.__ms.hint()); return 1;`);
+      await sleep(900);
+      await cdp.eval(`window.__ms.tap(window.__ms.hint()); return 1;`);
+      await sleep(3400);
+      console.log("poured twice inside 3s → " + JSON.stringify(await marks()));
+      await snap("15-tutor-fastpath");
     }
 
     // The belt tread has to travel with the marbles, and no still frame can show that.

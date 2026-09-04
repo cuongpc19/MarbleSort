@@ -28,8 +28,9 @@ export const DAILY_DAYS = 3;
 /**
  * What each day pays in coins.
  *
- * ⚠ Read against the earn rate, not in isolation: a win pays `WIN_COINS` = 20 and a revive costs 50,
- * so **day 1 alone is worth five levels** and the three-day cycle is worth twenty-five. That is a large
+ * ⚠ Read against the earn rate, not in isolation: a win pays `WIN_COINS` = 10 (20 on a badged
+ * board) and a revive costs 50, so **day 1 alone is worth ten ordinary levels** and the three-day
+ * cycle is worth fifty. That is a large
  * number on purpose — the play log showed players jamming at level 3 with 20 coins to their name,
  * i.e. the revive priced out of exactly the levels that need it most. Paying it here rather than
  * raising `WIN_COINS` keeps the win reward, which is tuned against the ladder, untouched.
@@ -61,8 +62,10 @@ export const DAILY_MAGNETS = [0, 1, 2];
  * 10, and now to 16, by decision.
  *
  * ⚠ **What 16 costs, and it is the thing to watch.** Two measured facts point the same way. The
- * revive is 50 coins against `WIN_COINS` = 20 a win, so a player who jams before their first
- * hundred coins has exactly one outcome — and 16 wins is a long way to make them earn it. And the
+ * revive is 50 coins against `WIN_COINS` = 10 a win, so a player who jams twice before their
+ * first hundred coins has exactly one outcome — the first jam is covered by the free revive every
+ * player now gets (`save.freeReviveUsed`), the second is not, and 16 wins is a long way to make
+ * them earn it. And the
  * funnel is steep early: 11% of players never open level 3 after clearing level 2, and about
  * two-thirds are gone inside the first six levels, so **most of the audience now never reaches the
  * reward at all**. If early-quit numbers move after this, this constant is the first place to look.

@@ -48,6 +48,17 @@ const INK = Phaser.Display.Color.HexStringToColor(UI.ink).color;
 const IDLE_MS = 5000;
 
 /**
+ * How long after the first pour the second card waits before offering itself.
+ *
+ * ⚠ **The second card is not automatic, and that is the whole of its design.** A player who pours
+ * again straight away has already learned the one thing card one had to teach, and putting a hand
+ * on their board at that moment interrupts someone who is playing correctly. It only appears if
+ * they stall — so it is a safety net, not a step, and the common path through level 1 is a single
+ * card.
+ */
+const WAIT2_MS = 3000;
+
+/**
  * The pulsing ring that marks a thing on the board.
  *
  * ⚠ Sized to ring the target, not to sit inside it. `img` already applies 1/TS, so these are
@@ -200,36 +211,64 @@ export class Tutorial {
   start(tray: { x: number; y: number }, nextTray?: () => { x: number; y: number } | null) {
     this.nextTray = nextTray ?? null;
     /**
-     * ⚠ **One step, not four.** It used to walk the machine top to bottom — pour a tray, the
-     * marbles ride the belt, one drops into a box of its colour, fill every box — and the last
-     * three ran on timers totalling 7.6 seconds during which the player had already started
-     * playing. Cut on instruction to the only card that asks for anything: where to tap.
+     * ⚠ **Two pours, and then it is gone.** It used to walk the machine top to bottom — pour a
+     * tray, the marbles ride the belt, one drops into a box of its colour, fill every box — on
+     * timers totalling 7.6 seconds during which the player had already started playing. Cut on
+     * instruction, first to the one card that asks for anything, then to a cap of **two taps**.
      *
-     * The three that went were narration. The belt carries the marbles in front of the player
-     * whether or not a caption says so, and a marble dropping into a box of its own colour is the
-     * single most legible event on the screen. What no picture can say is "this is a button" —
-     * so that is what is left.
+     * The narration went because no caption competes with the screen: the belt carries the
+     * marbles in front of the player whether or not a caption says so, and a marble dropping into
+     * a box of its own colour is the single most legible event on it. What no picture can say is
+     * "this is a button", so that is the first card; the second exists only to show that the
+     * first was not a one-off, which is the whole of what a second demonstration can add.
      *
-     * ⚠ It has no `after`, so it waits for the pour rather than a clock, and `noteTap` ends the
-     * walkthrough from here. That also means `tutorialDone` is now written on the **first tap**
-     * rather than 7.6 seconds later, which is the honest moment: the card taught its one thing.
+     * ⚠ Neither step has an `after`, so neither runs on a clock of its own. Card one waits for a
+     * pour; card two waits for `WAIT2_MS` of *not* pouring, and never appears for a player who
+     * carries straight on. Its position is asked of the scene at that moment rather than captured
+     * here, because the board has already changed — see `showSecond`.
      */
-    this.steps = [{ text: "Tap a tray to pour its marbles", at: tray }];
+    this.steps = [
+      { text: "Tap a tray to pour its marbles", at: tray },
+      { text: "Now one more", at: null },
+    ];
     this.show(0);
   }
 
-  /** The player poured a tray. The first step is waiting on that; afterwards it resets the clock. */
+  /**
+   * The player poured a tray. Each step is waiting on one, and the second pour ends the
+   * walkthrough for good.
+   */
   noteTap() {
+    if (this.done) return;
     if (this.at === 0) {
-      this.show(1);
+      // Card one taught its one thing. Hold for `WAIT2_MS`: pour again inside it and the
+      // walkthrough is over, because they plainly do not need card two.
+      this.clear();
+      this.idle?.remove();
+      this.idle = null;
+      // ⚠ `at` leaves the step range on purpose. It is what makes the *next* pour land in the
+      // `finish` branch below, and it is why `showNudge` refuses to draw while there is no live
+      // step — nothing should be on screen during the hold.
+      this.at = -1;
+      this.timer = this.scene.time.delayedCall(WAIT2_MS, () => this.showSecond());
       return;
     }
-    // ⚠ Only once the captions are finished. A pour during them must not clear the caption the
-    // player is in the middle of reading — the tap they just made is what it was telling them to do.
-    if (this.done) {
-      this.clear();
-      this.armIdle();
-    }
+    this.finish();
+  }
+
+  /**
+   * Three seconds after the first pour with nothing tapped: offer the second card.
+   *
+   * ⚠ The tray is asked of the scene here, never captured at `start()`. By now the board has
+   * moved — the tray this opened on is gone, and a reveal or a hatch may have made a different
+   * cell the obvious next move. Nothing tappable at this instant and the walkthrough simply ends;
+   * an empty ring is worse than no ring.
+   */
+  private showSecond() {
+    const at = this.nextTray?.() ?? null;
+    if (!at) return this.finish();
+    this.steps[1].at = at;
+    this.show(1);
   }
 
   private show(i: number) {
@@ -241,6 +280,9 @@ export class Tutorial {
     if (step.after) {
       this.timer = this.scene.time.delayedCall(step.after, () => this.show(i + 1));
     }
+    // A player who stalls on either card gets the hand back on whatever is tappable now. Armed
+    // per step rather than once at the end, because the walkthrough now ends the nudge with it.
+    this.armIdle();
   }
 
   /**
@@ -298,9 +340,17 @@ export class Tutorial {
     // Nothing to point at — paused, or the level is over, or no tray can move yet. Ask again
     // rather than giving up, since all three of those are temporary.
     if (!at) return this.armIdle();
+    const step = this.steps[this.at];
+    if (!step) return;
+    // ⚠ **Re-points the card that is waiting; it does not replace it.** The nudge used to draw its
+    // own caption and set `at = -1`, which was right when it only ran *after* the walkthrough had
+    // finished. Now that it fires between the two pours, clobbering the index makes the next pour
+    // read as "past the end" and the second card is never shown — the walkthrough silently
+    // becomes one tap again, on exactly the boards where a player needed two.
+    step.at = at;
     this.clear();
-    this.at = -1;
-    this.draw("Tap another tray to keep going", at);
+    this.draw(step.text, at);
+    this.armIdle();
   }
 
   private clear() {
@@ -325,10 +375,13 @@ export class Tutorial {
     // comes back gets the walkthrough again — they are precisely the player it exists for.
     // ⚠ Never while replaying (`?teach=`): looking at the walkthrough must not consume it.
     if (!teachAll()) save.tutorialDone = true;
-    // ⚠ `tutorialDone` is still written **here**, not after the nudges. The caption is the
-    // walkthrough; the nudge is a safety net under a player who has stalled, and it can go on
-    // firing for the rest of the level without that meaning the walkthrough is unfinished.
-    this.armIdle();
+    // ⚠ **The idle nudge stops here too.** It used to re-arm for the rest of the level, on the
+    // reasoning that a player who stalls twice needs the same help the second time. The cap is
+    // two taps, and a hand that keeps coming back on a board the player is already working is
+    // the game not trusting them. It still fires *inside* the two — `armIdle` runs from `show`
+    // — so stalling before either pour still gets the hand back.
+    this.idle?.remove();
+    this.idle = null;
   }
 
   /** Tear-down for a scene shutdown or a level restart mid-walkthrough. */

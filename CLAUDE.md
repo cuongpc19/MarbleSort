@@ -398,34 +398,66 @@ tangles the box stacks), then grid size and hidden fraction.
 
 ## The level-1 walkthrough — `src/scenes/tutorial.ts`
 
-Four coach marks in the order the machine works: pour a tray, the marbles ride the belt, one drops
-into a box of its colour, fill every box. Shown only on level 1 and only while `save.tutorialDone`
-is false (`bf_tutor`).
+**One card, and a second only if they stall.** "Tap a tray to pour its marbles"; then, if
+`WAIT2_MS` = 3s passes with no further pour, "Now one more" on whatever tray is worth tapping now.
+A second pour — from either card — ends it. Shown only on level 1 and only while
+`save.tutorialDone` is false (`bf_tutor`).
 
-- ⚠ **It never blocks input.** Steps advance on something the player did or on a timer; none of
-  them swallows a tap. Gating taps would also gate `window.__ms.tap()` and every `npm run shot`
-  run — the one screen every reviewer sees would be the one nothing can drive. A player tapping
-  past a step has already learned what it was about.
+⚠ **Card two is a safety net, not a step**, and the common path through level 1 never sees it. A
+player who pours again straight away has already learned the one thing card one had to teach, and
+putting a hand on their board at that moment interrupts someone who is playing correctly.
+
+⚠ **It was four cards, then one, and is now two — each cut on instruction.** The original walked
+the machine top to bottom (pour a tray, the marbles ride the belt, one drops into a box of its
+colour, fill every box) on timers totalling 7.6 seconds during which the player had already started
+playing. The three that went were narration: no caption competes with the screen, the belt carries
+the marbles in front of the player whether or not one says so, and a marble dropping into a box of
+its own colour is the single most legible event on it. What no picture can say is "this is a
+button", which is card one; card two exists only to show the first was not a one-off.
+
+- ⚠ **It never blocks input.** Steps advance on something the player did; none of them swallows a
+  tap. Gating taps would also gate `window.__ms.tap()` and every `npm run shot` run — the one
+  screen every reviewer sees would be the one nothing can drive. A player tapping past a step has
+  already learned what it was about.
 - ⚠ **`tutorialDone` is written when it finishes, not when it starts.** A player who bounces off
   the first screen and comes back gets it again; they are exactly who it exists for.
 - ⚠ The tray it points at comes from `hint()`, the engine's own next-best tap — **not** a hardcoded
   cell. Level 1 is generated, so its board changes whenever the ladder is retuned and a fixed index
   would eventually point at an empty cell.
-- **The idle nudge**: `IDLE_MS` = 5s after the last pour with nothing tapped, the hand and ring come
-  back on the next tray `hint()` picks. It re-arms rather than firing once — a player who stalls
-  twice needs the same help the second time.
-  ⚠ **The clock only starts once the four captions are done.** Armed from the first pour it fires
-  in the middle of them (the belt caption alone runs 2.2s, the box caption 2.8s) and the nudge
-  draws on the same plate, so the two take turns overwriting each other while the player watches.
-  ⚠ **`tutorialDone` is still written when the captions finish**, not after the nudges. The
-  walkthrough is the four cards; the nudge is a safety net that may go on firing all level.
+- ⚠ **The second card's position is fetched when it fires, never captured at `start()`.** By then
+  the board has moved: the tray it opened on is gone, and a reveal or a hatch may have made a
+  different cell the obvious next move. If nothing is tappable at that instant the walkthrough
+  simply ends — an empty ring is worse than no ring.
+- ⚠ **`at` leaves the step range during the 3s hold**, on purpose. It is what makes the next pour
+  land in the `finish` branch rather than re-entering the hold, and it is why `showNudge` refuses
+  to draw while there is no live step: nothing should be on screen during the hold.
+- **The idle nudge**: `IDLE_MS` = 5s with nothing tapped and the hand and ring come back on the tray
+  `hint()` picks now.
+  ⚠ **It lives and dies with the walkthrough.** It used to re-arm for the rest of the level, on the
+  reasoning that a player who stalls twice needs the same help the second time; the cap is two taps,
+  and a hand that keeps returning to a board the player is already working is the game not trusting
+  them. It still fires *between* the two pours, which is where a stall actually needs it.
+  ⚠ **It re-points the live card; it does not draw its own.** The nudge used to replace the caption
+  and set `at = -1`, which was correct while it only ran *after* the walkthrough had finished. Now
+  that it can fire between the two pours, clobbering the step index makes the next pour read as
+  "past the end" — the second card never shows and the walkthrough silently collapses back to one
+  tap, on exactly the boards where the player needed two.
   ⚠ The position is asked of the **scene**, fresh, every time (`GameScene.nextTrayMark`) — it
   returns null while the game is paused or over, because a hand bouncing on a tray under the
   dimmed results card is worse than no hand. A position captured at `start()` would also be a tray
   that is long gone by the time the nudge fires.
-  `npm run shot -- --level 1 --tutor` drives it: pours once, waits out the captions, then sits
-  still for the five seconds — which is the one thing a normal `--taps` run never reproduces, and
-  the exact failure mode of a mis-wired timer, since doing nothing looks like not being there.
+  `npm run shot -- --level 1 --tutor` drives **both branches**, because they are opposite
+  behaviours: pour, stall past 3s and check card two appears; pour again and check everything
+  goes; sit still past the idle clock and check nothing comes back; then reset and pour twice
+  *inside* the hold and check card two never appeared at all. A driver that only tests one of
+  those cannot tell a working gate from a card that never fires.
+  ⚠ **Probe before snapping.** `sleep(1200); snap(); marks()` reads the state well past the 1.2s
+  the line claims, because a screenshot is not instant — and on a 3-second gate that is the
+  difference between "card two has not fired yet" and "card two fired and went".
+  ⚠ **Bounce off another level before re-entering level 1.** `goto(1)` while already standing on
+  level 1 handed back the spent walkthrough, so the driver reported `done: true` before it had
+  tapped anything and called it a pass. The probe now also returns `steps`, the raw `bf_tutor`
+  value and the level, which is what turned five confusing runs into one.
 - ⚠ **English.** `public/fonts/LilitaOne.ttf` is a Latin-only subset, so Vietnamese copy here falls
   back to Arial glyph-by-glyph and looks broken — the same constraint as the rest of the UI.
 - The caption sits at `funnel.shoulder + 44`, in the throat of the chute. Above that is the board:
@@ -521,7 +553,7 @@ pure function of the clock and the save.
 ⚠ **`DAILY_FROM` has been 10, then 5, then 10, and is 16 since 2026-09-02, each time on purpose.**
 The note on the constant carries what each move was for; do not read the history as a value to
 restore. What 16 costs is measured and worth restating here: a revive is 50 coins against
-`WIN_COINS` = 20 a win, so a player who jams before their first hundred coins has one outcome — and
+`WIN_COINS` = 10 a win, so a player who jams twice before their first hundred coins has one outcome — and
 the funnel is steep long before 16. 11% of players never open level 3 after clearing level 2 and
 about two-thirds are gone inside six levels, so **most of the audience never reaches the reward**.
 It is the first constant to look at if early-quit numbers move.

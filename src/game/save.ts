@@ -73,6 +73,19 @@ const K_OFFERED = "bf_dailyoffer";
  * gets them too. Defaulting to zero would silently withhold what the tutorial is about to promise.
  */
 const K_MAGNET = "bf_magnet";
+/**
+ * Whether the one free revive has been spent. Absent or false means it is still there.
+ *
+ * ⚠ **A new key**, never a rename — see the note on `K_DAILY`. It also has to default to *unused*,
+ * so a player already partway up the ladder when this ships is handed the free revive too. The
+ * alternative — treating "no key" as "already spent" — silently withholds it from everybody who
+ * has ever played, which is the entire audience on the day it ships.
+ *
+ * ⚠ **Spent, not owned.** It is a boolean rather than a count because there is exactly one and it
+ * cannot be earned back; a counter would invite topping it up, and a revive is meant to be the
+ * thing coins are *for*. See `FREE_MAGNETS` for the other half of what a new player is given.
+ */
+const K_FREE_REVIVE = "bf_freerevive";
 
 /**
  * Every key this game owns.
@@ -95,6 +108,7 @@ export const SAVE_KEYS = [
   K_DAILY,
   K_OFFERED,
   K_MAGNET,
+  K_FREE_REVIVE,
 ] as const;
 
 function read<T>(key: string, fallback: T): T {
@@ -186,12 +200,26 @@ export const save = {
     return Object.values(read<Record<string, number>>(K_STARS, {})).reduce((a, b) => a + b, 0);
   },
 
+  /**
+   * Has the free revive been used? False while it is still available.
+   *
+   * ⚠ Read by the revive pop-up **and** by the code that charges for it. Both go through
+   * `GameScene.reviveCost`, so the price on the card and the price at the till cannot disagree —
+   * the same rule the daily card's prize table has, and for the same reason.
+   */
+  get freeReviveUsed(): boolean {
+    return read<boolean>(K_FREE_REVIVE, false);
+  },
+  set freeReviveUsed(v: boolean) {
+    write(K_FREE_REVIVE, v);
+  },
+
   get coins() {
-    // ⚠ A new player starts on **nothing** and earns their way in — `WIN_COINS` = 20 a level,
-    // against 40 for an undo and 50 for a revive. So the first two levels have no boosters and
-    // the first three have no revive, which means a jam in that stretch has exactly one outcome:
-    // the JAMMED card. That is the decision; the levels down there are the gentle ones and are
-    // meant to be winnable without help.
+    // ⚠ A new player starts on **nothing** and earns their way in — `WIN_COINS` = 10 a level (20 on
+    // a board badged hard), against 40 for a magnet and 50 for a revive. The first jam is covered:
+    // `freeReviveUsed` gives everyone one revive outright, and `FREE_MAGNETS` two magnets. After
+    // that it is four wins for a revive, which is the decision — the levels down there are the
+    // gentle ones and are meant to be winnable without help.
     return read<number>(K_COINS, 0);
   },
   set coins(v: number) {

@@ -222,8 +222,17 @@ export const TAG_BY_NUMBER_UNTIL = 20;
  * have all moved in the last day, several of them from walls to breathers. A promise nothing has
  * re-checked is worse than no promise, and a HARD badge on a board that is now very easy is the
  * ladder lying about itself. Set this back to `true` once the ladder settles.
+ *
+ * ⚠ **Back on since 2026-09-02, and every badge now comes from a drawing, not from the number.**
+ * 11, 15 and 19 carry `tag: "hard"` because they were asked for by name. Turning the switch on also
+ * wakes `levelTag`, whose only remaining catch inside `TAG_BY_NUMBER_UNTIL` is level 20 — so that
+ * board carries `tag: "none"` to decline a badge nobody asked for and nothing re-checked.
+ *
+ * ⚠ **Level 11 measures 95% on (B+D)/2** — the easiest board of its neighbourhood, and the one
+ * case here where the badge is exactly what the warning above describes. It is labelled because it
+ * was requested; the number is recorded so nobody later reads the badge as evidence about the board.
  */
-export const SHOW_LEVEL_TAGS = false;
+export const SHOW_LEVEL_TAGS = true;
 
 export function levelTag(level: number): LevelTag | null {
   if (!Number.isFinite(level) || level < 1) return null;
