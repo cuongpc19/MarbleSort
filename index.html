@@ -12,7 +12,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
-    <title>Ball Flow</title>
+    <title>Ball Sort</title>
     <link rel="preload" as="font" type="font/ttf" href="fonts/LilitaOne.ttf" crossorigin />
     <style>
       @font-face {
@@ -191,8 +191,8 @@
           }
           out.push("storage: " + (function () {
             try {
-              localStorage.setItem("bf_probe", "1");
-              localStorage.removeItem("bf_probe");
+              localStorage.setItem("bs_probe", "1");
+              localStorage.removeItem("bs_probe");
               return "co";
             } catch (err) {
               return "KHONG (" + err.name + ")";
@@ -228,7 +228,7 @@
       <!-- ⚠ The third place the game is named, after <title> and the home screen's cover art.
            It is the *first* one a player sees — the boot poster stands until `platform.init()`
            resolves — so a stale name here is the name they read, whatever the other two say. -->
-      <div class="title">BALL FLOW</div>
+      <div class="title">BALL SORT</div>
       <div class="dots"><span></span><span></span><span></span></div>
       <div class="diag"></div>
     </div>

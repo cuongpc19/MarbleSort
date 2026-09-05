@@ -18,6 +18,7 @@ import {
   SHOW_BOOSTERS,
   TICK_MS,
   TICK_MS_DRAINED,
+  TRAY_N,
   UI,
   BELT_CLEATS,
   BELT_ENTRY_D,
@@ -61,7 +62,7 @@ import { BOX_FACE_H, HOLE_CY, HOLE_STEP, K, TS, bakeAll, img } from "../game/tex
 import { dismissBootSplash, matchPageToCanvas, pageBackdrop } from "../game/bootsplash";
 import { MagnetTutor } from "./magnetTutor";
 import { teachAll } from "../game/teach";
-import { CRATE_SCALE, FREE_MAGNETS, MAGNET_TUTOR_LEVEL } from "../game/config";
+import { CHOC_SCALE, CRATE_SCALE, FREE_MAGNETS, MAGNET_TUTOR_LEVEL } from "../game/config";
 
 export { GAME_W, GAME_H };
 
@@ -368,6 +369,11 @@ export class GameScene extends Phaser.Scene {
   private boxCols: Phaser.GameObjects.Container[] = [];
   private boxImages: Phaser.GameObjects.Image[][] = [];
   private boxFill: Phaser.GameObjects.Image[][] = [];
+  /**
+   * What each cell showed at the last `refreshGrid` — the memory the reveal/wake transitions are
+   * read from. A texture swap is instant; the board's *changes* are what the player has to see.
+   */
+  private cellLook: ({ hidden: boolean; raised: boolean; arrow: boolean; color: Color } | null)[] = [];
 
   private falling: Falling[] = [];
   /**
@@ -901,7 +907,7 @@ export class GameScene extends Phaser.Scene {
      * runs downward.
      */
     const topY = sideL[0].y;
-    g.fillStyle(0xeef3fb, 1);
+    g.fillStyle(UI.funnel, 1);
     g.beginPath();
     g.moveTo(f.mouthL, topY);
     g.lineTo(f.mouthR, topY);
@@ -1180,6 +1186,9 @@ export class GameScene extends Phaser.Scene {
     const { cols, rows } = this.board;
     const gm = this.gm;
     const k = this.gmScale;
+    // Fresh board, fresh memory — the first refreshGrid of a level must never animate: the
+    // engine settles reveals before the first frame, and those are the board's starting state.
+    this.cellLook = [];
     const cellX = (i: number) => gm.x + (i % cols) * gm.pitch + gm.cell / 2;
     const cellY = (i: number) => gm.y + ((i / cols) | 0) * gm.pitch + gm.cell / 2;
 
@@ -1588,7 +1597,9 @@ export class GameScene extends Phaser.Scene {
     this.board.tap(a);
     sfx.release();
     this.spawnTray(this.tileSprites[a].x, this.tileSprites[a].y, drops);
-    this.refreshGrid();
+    // Before `refreshGrid` blanks the cell — the ghost is what covers the swap.
+    this.playTrayVanish(a, tile);
+    this.refreshGrid(true);
     // ⚠ The counter on a chocolate box moves on the **tap**, so it has to be redrawn on the tap.
     // `refreshGrid` only touches the tray sprites; leaving the box to the next tick meant the
     // player poured a tray the box plainly wanted and watched the number sit there.
@@ -1680,16 +1691,48 @@ export class GameScene extends Phaser.Scene {
    * own offset from it, so a linked pair pours out of two cells in two colours rather than out
    * of one cell in one.
    */
+  /**
+   * ⚠ **All nine leave their sockets on the tap frame, tossed — never dribbled.** Measured off
+   * `Manythings/IMG_6669.MP4`: the reference goes from intact tray to a jostling pile of nine
+   * loose marbles in a single 33ms frame, the pile is flung up over the rim, and gravity takes it
+   * from there. The old 55ms-stagger poured a thin thread from the tile's centre, so the tap read
+   * as a tap on a dispenser rather than a tray of marbles coming loose.
+   *
+   * Each marble spawns at **its own socket's position** — the 3x3 the raised texture draws — so
+   * the sockets visibly become the physics bodies. They spawn overlapping (marble r is wider than
+   * a socket pitch) and Matter shoving them apart *is* the jostle; the toss velocities on top are
+   * what lift the pile over the rim the way the clip shows.
+   *
+   * A doubled tray owes `2 * TRAY_N` from one cell: the second nine follow as a second burst a
+   * beat later, so the x2 reads as "the tray poured twice", not as eighteen marbles materialising.
+   */
   private spawnTray(x: number, y: number, drops: { color: Color; dx: number }[]) {
-    drops.forEach((d, i) => {
-      this.time.delayedCall(i * 55, () => {
-        const jx = d.dx + (Math.random() - 0.5) * 26;
-        this.dropMarble(x + jx, y + (Math.random() - 0.5) * 14, d.color);
+    // Group by cell offset so a linked pair bursts as two nine-piles, one per half.
+    const cells = new Map<number, Color[]>();
+    for (const d of drops) {
+      const arr = cells.get(d.dx) ?? [];
+      arr.push(d.color);
+      cells.set(d.dx, arr);
+    }
+    const third = this.gm.cell / 3;
+    cells.forEach((colors, dx) => {
+      colors.forEach((color, k) => {
+        const wave = (k / TRAY_N) | 0;
+        const slot = k % TRAY_N;
+        const px = x + dx + ((slot % 3) - 1) * third + (Math.random() - 0.5) * 3;
+        const py = y + (((slot / 3) | 0) - 1) * third * 0.75 + (Math.random() - 0.5) * 3;
+        const go = () =>
+          this.dropMarble(px, py, color, {
+            x: (Math.random() - 0.5) * 2.6,
+            y: -(1.2 + Math.random() * 1.7),
+          });
+        if (wave) this.time.delayedCall(wave * 150, go);
+        else go();
       });
     });
   }
 
-  private dropMarble(x: number, y: number, color: Color) {
+  private dropMarble(x: number, y: number, color: Color, toss?: { x: number; y: number }) {
     // Lively on purpose — asked for as "quán tính viên bi lăn nhanh hơn, đôi khi... văng sang
     // thành phễu bên kia": enough bounce and little enough drag that a marble keeps its momentum
     // through the bowl and can run up the far wall. The gravity that goes with this is in main.ts.
@@ -1700,9 +1743,43 @@ export class GameScene extends Phaser.Scene {
       frictionAir: FALL_DRAG,
       density: 0.005,
     });
+    // The burst's initial fling — see `spawnTray`. Absent for every other caller.
+    if (toss) this.matter.body.setVelocity(body, toss);
     const sprite = img(this, K.marble(color), x, y);
     this.fallLayer.add(sprite);
     this.falling.push({ body, sprite, color });
+  }
+
+  /**
+   * The emptied tray shrinking away beneath its own spilling marbles — the other half of the
+   * burst. In the reference the bare dish stays put for a few frames as a floor the pile jostles
+   * on, then collapses to nothing over ~200ms *while marbles are still leaving it*; vanishing on
+   * the tap frame reads as the marbles having appeared from nowhere.
+   *
+   * The ghost is the **locked** texture — the tray with its marbles gone — and it lives in
+   * `gridLayer`, under `fallLayer`, so the physics marbles roll over it exactly the way the
+   * clip shows.
+   */
+  private playTrayVanish(a: number, tile: { color: Color; wide?: boolean; mate?: Color }) {
+    const k = this.gmScale;
+    const ghosts = [img(this, K.tray(tile.color, false), this.tileSprites[a].x, this.tileSprites[a].y)];
+    if (tile.wide)
+      ghosts.push(
+        img(this, K.tray(tile.mate ?? tile.color, false), this.tileSprites[a + 1].x, this.tileSprites[a + 1].y),
+      );
+    for (const g of ghosts) {
+      g.setScale(k / TS);
+      this.gridLayer.add(g);
+      this.tweens.add({
+        targets: g,
+        scale: 0,
+        alpha: 0.4,
+        delay: 110,
+        duration: 170,
+        ease: "Sine.easeIn",
+        onComplete: () => g.destroy(),
+      });
+    }
   }
 
   /** Lift the lowest settled marble off the neck and hand it to the belt queue. */
@@ -2013,7 +2090,7 @@ export class GameScene extends Phaser.Scene {
       sfx.collect(m.filled / BOX_SLOTS);
     }
     if (ev.matched.length || ev.emitted.length || ev.revealed.length) this.refreshBoxes();
-    if (ev.emitted.length || ev.revealed.length || ev.unlocked.length) this.refreshGrid();
+    if (ev.emitted.length || ev.revealed.length || ev.unlocked.length) this.refreshGrid(true);
     ev.unlocked.forEach((cell) => this.playUnlock(cell));
     ev.opened.forEach((at) => this.playLidOpen(at));
     ev.emitted.forEach((cell) => this.playEmit(cell));
@@ -2369,16 +2446,21 @@ export class GameScene extends Phaser.Scene {
       this.fixtures.add([bar, label]);
     }
 
+    // ⚠ One scale for the whole piece — slab, ribbon, dial and number together. They are four
+    // sprites drawn on top of each other, so anything scaled on its own slides off the thing it
+    // belongs to: a full-size dial on a shrunk slab overhangs the moulding, a full-size number
+    // outgrows the dial behind it.
+    const chocK = CHOC_SCALE * this.gmScale;
     for (const lid of g.lids) {
       const x = cx(lid.at) + gm.pitch / 2;
       const y = cy(lid.at) + gm.pitch / 2;
-      const plate = img(this, K.lid, x, y);
-      const ribbon = img(this, K.lidRibbon(lid.color), x, y);
-      const dial = img(this, K.lidDial, x, y).setScale(1.05 / TS);
+      const plate = img(this, K.lid, x, y).setScale(chocK / TS);
+      const ribbon = img(this, K.lidRibbon(lid.color), x, y).setScale(chocK / TS);
+      const dial = img(this, K.lidDial, x, y).setScale((1.05 * chocK) / TS);
       const n = this.add
         .text(x, y - 1, String(lid.need), {
           fontFamily: FONT,
-          fontSize: "30px",
+          fontSize: `${Math.round(30 * chocK)}px`,
           color: "#4a2c14",
         })
         .setOrigin(0.5);
@@ -2386,9 +2468,30 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private refreshGrid() {
+  /**
+   * `fx: true` animates the state changes this refresh reveals — a `?` turning over, a locked
+   * tray's eggs coming up — instead of swapping textures in silence. Only the pour path and the
+   * tick pass it: an undo or a revive restores a board, and animating a restoration reads as the
+   * board doing something it is not.
+   */
+  private refreshGrid(fx = false) {
     const g = this.board;
     const gm = this.gm;
+    const fire: { cell: number; kind: "reveal" | "wake"; color: Color }[] = [];
+    const note = (
+      i: number,
+      look: { hidden: boolean; raised: boolean; arrow: boolean; color: Color } | null,
+    ) => {
+      const prev = this.cellLook[i];
+      if (fx && prev && look && !look.hidden) {
+        if (prev.hidden) fire.push({ cell: i, kind: "reveal", color: look.color });
+        else if (!prev.raised && look.raised && !prev.arrow)
+          // Arrow cells are excluded: `playUnlock` already owns that beat (badge + bounce),
+          // and two effects on one tile read as neither.
+          fire.push({ cell: i, kind: "wake", color: look.color });
+      }
+      this.cellLook[i] = look;
+    };
     // The right half of a linked pair has no tile of its own — `anchorAt` makes it answer for the
     // left one — so its sprite has to be driven from here or it renders as an empty cell with a
     // clip floating beside it.
@@ -2434,6 +2537,7 @@ export class GameScene extends Phaser.Scene {
         const ly = dir === "down" ? homeY - 10 : homeY - 1;
         label.setVisible(true).setText(String(disp.queue.length)).setPosition(lx, ly);
         ts.setVisible(false);
+        note(i, null);
         continue;
       }
 
@@ -2444,8 +2548,12 @@ export class GameScene extends Phaser.Scene {
             .setTexture(mate.hidden ? K.trayHidden : K.tray(mate.color, mate.raised))
             .setPosition(homeX, homeY)
             .setData("homeX", homeX);
+          // The mate half transitions with its anchor — one piece, two cells, so a revealing
+          // pair turns both lids over in the same beat.
+          note(i, { hidden: mate.hidden, raised: mate.raised, arrow: false, color: mate.color });
         } else {
           ts.setVisible(false);
+          note(i, null);
         }
         label.setVisible(false);
         continue;
@@ -2465,6 +2573,7 @@ export class GameScene extends Phaser.Scene {
         .setTexture(tile.hidden ? K.trayHidden : K.tray(tile.color, raised))
         .setPosition(homeX, homeY)
         .setData("homeX", homeX);
+      note(i, { hidden: tile.hidden, raised, arrow: !!tile.arrow, color: tile.color });
       label.setVisible(false);
       // The arrow badge, turned to face the cell it is waiting on. Baked pointing up, so up is
       // rotation 0. It is only ever on a tray that is showing its colour: a face-down tray has
@@ -2478,6 +2587,9 @@ export class GameScene extends Phaser.Scene {
         arrow.setVisible(false);
       }
     }
+    // After the walk, so every sprite already shows its settled state and the overlays land on a
+    // finished board.
+    for (const f of fire) this.playWake(f.cell, f.color, f.kind === "reveal");
   }
 
   /**
@@ -2517,6 +2629,78 @@ export class GameScene extends Phaser.Scene {
       });
     }
     sfx.pick();
+  }
+
+  /**
+   * A tray waking up — the ONE animation for both ways it happens, asked for as *"khay ? làm
+   * giống khay thường"* after the `?` had its own four-layer flip (lid tip, grey stage, colour
+   * flood, halo). All of that is gone; what both events share is the part the reference does
+   * best: **the eggs bulge up out of the tile**.
+   *
+   * The old face (the `?` slab, or the bare locked face) stays put while the raised tray grows
+   * over it from the bottom edge — `Back.easeOut`, so it swells past full size and settles, the
+   * "trứng lồi lên" of the clip — and 380ms is deliberately UNHURRIED ("chậm hơn 1 chút cho
+   * giống game gốc"). When the rise lands, the overlays go and the real tile beneath is
+   * identical, so nothing snaps.
+   *
+   * ⚠ Never fired on the level's first draw: the engine settles pre-revealed cells before the
+   * first frame, and `buildGrid` clears `cellLook` so those read as the starting state, not as
+   * changes. Undo and revive skip it the same way — they pass `fx: false`.
+   *
+   * ⚠ **Two gold stars, plain blend, and that is the ceiling.** Three rounds of "vẫn lóa" were
+   * spent dimming a halo and deleting a white flash while nine ADD-blended stars sat untouched —
+   * ADD stacks where arms cross, so the cluster peaked near white however gentle everything
+   * under it was. Plain blending cannot sum past its own pixels; do not put ADD back here.
+   */
+  private playWake(cell: number, color: Color, wasHidden: boolean) {
+    const ts = this.tileSprites[cell];
+    if (!ts?.visible) return;
+    const s = this.gmScale / TS;
+    const half = this.gm.cell / 2;
+    const cover = img(this, wasHidden ? K.trayHidden : K.tray(color, false), ts.x, ts.y).setScale(s);
+    const riser = img(this, K.tray(color, true), ts.x, ts.y + half)
+      .setOrigin(0.5, 1)
+      .setScale(s, s * 0.5);
+    this.gridLayer.add([cover, riser]);
+    this.tweens.add({
+      targets: riser,
+      scaleY: s,
+      scaleX: { from: s * 0.95, to: s },
+      duration: 380,
+      ease: "Back.easeOut",
+      onComplete: () => {
+        riser.destroy();
+        cover.destroy();
+      },
+    });
+    for (let k = 0; k < 2; k++) {
+      const a = Math.random() * Math.PI * 2;
+      const d = half * (0.6 + Math.random() * 0.6);
+      const sp = img(this, K.spark, ts.x + Math.cos(a) * d * 0.5, ts.y + Math.sin(a) * d * 0.5)
+        .setScale(0)
+        .setTint(0xffd75e)
+        .setRotation(Math.random() * Math.PI);
+      this.fxLayer.add(sp);
+      // On the tail of the rise, as the eggs land.
+      const delay = 260 + Math.random() * 200;
+      this.tweens.add({
+        targets: sp,
+        x: ts.x + Math.cos(a) * d,
+        y: ts.y + Math.sin(a) * d - 4,
+        delay,
+        duration: 320,
+        ease: "Quad.easeOut",
+      });
+      this.tweens.add({
+        targets: sp,
+        scale: { from: 0.28 + Math.random() * 0.12, to: 0 },
+        alpha: { from: 0.85, to: 0 },
+        delay,
+        duration: 320,
+        ease: "Cubic.easeIn",
+        onComplete: () => sp.destroy(),
+      });
+    }
   }
 
   /**
@@ -3974,8 +4158,8 @@ export class GameScene extends Phaser.Scene {
         .setOrigin(0.5)
         .setAlpha(0.7),
     );
-    // Wiping it needs its own control, and it must not be `?reset=1`. That wipes every `bf_` key,
-    // which includes `bf_levels` — the editor's saved drawings — so the obvious way to clear a
+    // Wiping it needs its own control, and it must not be `?reset=1`. That wipes every `bs_` key,
+    // which includes `bs_levels` — the editor's saved drawings — so the obvious way to clear a
     // play log would also delete the hand-built levels. Two taps, because there is no undo.
     if (st!.runs > 0) {
       let armed = false;

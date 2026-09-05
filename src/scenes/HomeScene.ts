@@ -15,7 +15,7 @@ import homeCover from "../assets/home-cover.webp";
 const FONT = '"Lilita One", Arial, sans-serif';
 
 /** The cover render's own flat background, sampled from its corner pixels. */
-const COVER_BG = 0x322d58;
+const COVER_BG = 0x1a1b48;
 /**
  * ⚠ Flat, not a gradient, and that is the whole reason the page background is set per scene: Home
  * paints its own two violets and has no halo, so the board's gradient would run light at the foot

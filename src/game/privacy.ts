@@ -3,7 +3,7 @@
 // ⚠ **It has to be reachable from inside the game, not only from the submission form.** The
 // sibling Hop In! project learned this the expensive way round: the host's rules say a game that
 // collects anything beyond their own SDK's events must *display* the notice, and answering the
-// form field is not displaying it. Ball Flow does not currently cross that line — it sends
+// form field is not displaying it. Ball Sort does not currently cross that line — it sends
 // nothing anywhere (see the page itself) — so this ships as the honest version of a notice rather
 // than as a legal obligation. The moment a `fetch` to a server of ours appears, it becomes one.
 //

@@ -12,8 +12,8 @@
 // Runs accumulate in localStorage and Settings copies them out as JSONL, one game per line,
 // ready to be pasted straight into `playlog.jsonl` on the dev machine.
 
-const KEY_RUNS = "bf_runs";
-const KEY_DEVICE = "bf_device";
+const KEY_RUNS = "bs_runs";
+const KEY_DEVICE = "bs_device";
 /** localStorage is ~5MB; a run is small, but there is no reason to keep years of them. */
 const MAX_RUNS = 400;
 

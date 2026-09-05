@@ -1,7 +1,7 @@
 {
-  "name": "ball-flow",
+  "name": "ball-sort",
   "version": "0.1.0",
-  "description": "Ball Flow - tip trays of marbles down a chute onto a looping conveyor and land them in the matching boxes before the belt jams (Phaser 3 + TS + Vite)",
+  "description": "Ball Sort - tip trays of marbles down a chute onto a looping conveyor and land them in the matching boxes before the belt jams (Phaser 3 + TS + Vite)",
   "type": "module",
   "scripts": {
     "dev": "vite",

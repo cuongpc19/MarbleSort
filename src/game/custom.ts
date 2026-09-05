@@ -158,9 +158,9 @@ export interface Blueprint {
 }
 
 /** The drawing currently open in the editor. One slot, overwritten as you draw. */
-export const CUSTOM_KEY = "bf_custom";
+export const CUSTOM_KEY = "bs_custom";
 /** Boards saved against a level number on this device, before they are pasted into handmade.ts. */
-export const LEVELS_KEY = "bf_levels";
+export const LEVELS_KEY = "bs_levels";
 
 export function blankBlueprint(cols = 6, rows = GRID_ROWS): Blueprint {
   return {

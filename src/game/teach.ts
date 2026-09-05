@@ -2,7 +2,7 @@
 //
 // The walkthrough and the coach cards are each shown **once ever** and then marked in storage,
 // which is right for a player and useless for anyone checking they still read well. The only way
-// to see one again was to clear `bf_tutor` / `bf_coach` by hand in a console, per card, per
+// to see one again was to clear `bs_tutor` / `bs_coach` by hand in a console, per card, per
 // change — so in practice they were checked once and never again.
 //
 //   ?teach=1        replay everything on this board, from the first step

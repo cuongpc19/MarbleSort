@@ -65,3 +65,6 @@ scripts/.*.json
 
 # Scratch output from scripts/remap-run.mjs — the block files are pasted, never committed
 scripts/.tmp/
+
+# Local Netlify folder
+.netlify

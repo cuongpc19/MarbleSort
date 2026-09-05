@@ -2056,7 +2056,8 @@ burst over the well. Onset clustering alone cannot tell you which sound is which
   it is punctuation, not an event. No camera shake: shaking the whole machine that often is
   exhausting rather than satisfying. The win screen is where the budget goes.
 - `scripts/build-apk.mjs` · `scripts/setup-android.mjs` — Android packaging; the launcher
-  icon is an SVG, there is no icon file. `capacitor.config.ts` — `com.marblesort.game`.
+  icon is an SVG, there is no icon file. `capacitor.config.ts` — `com.ballsort.game` (it has followed each rename; free to move only
+  because nothing has ever been uploaded to Play — no signing keystore exists).
 
 Conventions kept from the previous project:
 
@@ -2112,7 +2113,11 @@ never learns the very first level began, which is the one level every reviewer p
 ⚠ **Storage keys are frozen from launch.** Automatic Progress Save backs `localStorage` up
 verbatim, so renaming the prefix after launch restores old names into a game that reads new ones
 and every player loses everything. The prefix moved `ms_` → **`bf_`** on 2026-08-13 with the
-rename to **Ball Flow**, which was free only because nobody had played yet. It is not free again.
+rename to **Ball Flow**, which was free only because nobody had played yet, and again `bf_` ->
+**`bs_`** on 2026-09-05 with the rename to **Ball Sort** — that one was *not* free and was taken
+knowingly: 3442 real players held progress under `bf_`, and all of them lose it. It was only the
+right call because the build goes up as a **separate listing** rather than an update, so there is
+nobody to carry across. For an update in place the answer is a one-time migration, never a rename.
 
 ⚠ The **editor is dropped from the crazy build** (`rollupOptions.input`), and `tools/iframe-test.html`
 lives outside `dist/`. A dev tool that reaches a reviewer is the same mistake as a test harness in

@@ -59,7 +59,7 @@ function applyReset() {
     const p = new URLSearchParams(location.search);
     if (!p.get("reset")) return;
     const keys = new Set<string>(SAVE_KEYS);
-    for (const k of Object.keys(localStorage)) if (k.startsWith("bf_")) keys.add(k);
+    for (const k of Object.keys(localStorage)) if (k.startsWith("bs_")) keys.add(k);
     for (const k of keys) {
       localStorage.removeItem(k);
       platform.storage.removeItem(k);
@@ -75,7 +75,7 @@ function applyReset() {
 /**
  * Put the daily reward back on the table: `?daily=1`.
  *
- * Clears the two stamps the streak keeps — `bf_daily` (claimed) and `bf_dailyoffer` (offered) — and
+ * Clears the two stamps the streak keeps — `bs_daily` (claimed) and `bs_dailyoffer` (offered) — and
  * raises `unlocked` past `DAILY_FROM` so the gate is open at all. Combine it with `?level=N`
  * (`?daily=1&level=1`) and one win puts the card on screen: the offer is gated on `save.unlocked`,
  * **not** on the level being 10, so level 1 is the cheapest board to prove it on.
@@ -95,7 +95,7 @@ function applyDailyReset() {
   try {
     const p = new URLSearchParams(location.search);
     if (!p.get("daily")) return;
-    for (const k of ["bf_daily", "bf_dailyoffer"]) {
+    for (const k of ["bs_daily", "bs_dailyoffer"]) {
       localStorage.removeItem(k);
       platform.storage.removeItem(k);
     }
@@ -112,7 +112,7 @@ function applyDailyReset() {
 // the economy unreadable from the machine it is being tuned on: 1000 coins is twenty revives, while
 // a real new player starts on **nothing** and earns `WIN_COINS` = 10 a level. To exercise a booster
 // now, grant the coins deliberately in the console —
-// `localStorage.setItem('bf_coins','200'); location.reload()` — so the grant is visible instead of
+// `localStorage.setItem('bs_coins','200'); location.reload()` — so the grant is visible instead of
 // standing silently behind every dev session.
 //
 // ⚠ **Nothing reads progress before `platform.init()` resolves.** The host preloads the player's

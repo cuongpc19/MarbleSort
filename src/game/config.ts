@@ -681,15 +681,39 @@ export interface Swatch {
   dark: number;
 }
 
+/**
+ * ⚠ **The bases are CANDY-BRIGHT on purpose, and green is the one to check first.** Side-by-side
+ * phone screenshots against the reference were read as *"màu sắc của game gốc vẫn đẹp hơn hẳn (ít
+ * nhất là của khay) và box"*, and the measurement agreed: their box faces sit at V97-100 for every
+ * hue (S72-89 — bright AND saturated), while our green box measured V75 — because no recipe can
+ * draw a V99 box from a V73 base (`#23bb45`), and `shade()` toward white buys V by spending S.
+ * So the cool-half bases were lifted at the source: green V73→87, blue V91→98, purple V94→97,
+ * teal V61→70, magenta V85→90. Red was measured BRIGHTER than the reference's crimson already and
+ * is untouched, as are the hues that were at ceiling (yellow, orange, cyan, pink, lime).
+ */
+/**
+ * ⚠ **The `light` swatches are SATURATED brights, not pastels — "tươi" lives or dies here.**
+ * They sat at S27-61 (white mixed in) while every bright area on every piece routes through them:
+ * the sheen band on a face, the crown of every egg, the top of every marble. The reference's own
+ * bright tones measure S70-88 — its yellow brightens into lemon (#fad920, S87), never into cream —
+ * so a palette whose lights are pastel makes the whole game go chalky exactly where the eye reads
+ * "fresh". Each light is now the base pushed brighter with most of its saturation kept; if one is
+ * ever retuned, check S stays within ~20 points of its base.
+ */
 export const PALETTE: Swatch[] = [
-  { name: "blue", base: 0x2b5ce8, light: 0x6d92ff, dark: 0x1a3a9e },
-  { name: "green", base: 0x23bb45, light: 0x62e37c, dark: 0x137a2b },
-  { name: "orange", base: 0xff8a14, light: 0xffb862, dark: 0xc25c00 },
-  { name: "yellow", base: 0xffd020, light: 0xffe883, dark: 0xc99a00 },
-  { name: "cyan", base: 0x55d9f5, light: 0xa6efff, dark: 0x1f9cba },
-  { name: "purple", base: 0xa341f0, light: 0xc989ff, dark: 0x6d1cab },
-  { name: "pink", base: 0xff86c4, light: 0xffbadd, dark: 0xc94a8d },
-  { name: "red", base: 0xec3d3d, light: 0xff8080, dark: 0xa71c1c },
+  { name: "blue", base: 0x3a6ffa, light: 0x66a0ff, dark: 0x1d43b4 },
+  { name: "green", base: 0x24dd55, light: 0x45f26d, dark: 0x108a31 },
+  { name: "orange", base: 0xff8a14, light: 0xffa53d, dark: 0xc25c00 },
+  // ⚠ Yellow's `dark` is AMBER-ORANGE (H37), not mustard — it was 0xc99a00, a browned yellow, and
+  // every deep tone on a yellow piece is mixed from it (dish, creases, walls, outline), which is
+  // exactly what read as "màu vàng hơi xỉn xỉn". The reference's own deep yellows measure
+  // #cd7701/#af7106: yellow rolling into amber, hue moving, never dirtying — the same rule the box
+  // wall ramp has always had.
+  { name: "yellow", base: 0xffd020, light: 0xfde238, dark: 0xd08505 },
+  { name: "cyan", base: 0x55d9f5, light: 0x74e6ff, dark: 0x1f9cba },
+  { name: "purple", base: 0xae55f7, light: 0xc06fff, dark: 0x7a27bd },
+  { name: "pink", base: 0xff86c4, light: 0xffa3d3, dark: 0xc94a8d },
+  { name: "red", base: 0xec3d3d, light: 0xff6161, dark: 0xa71c1c },
   // ⚠ **Three added after the first eight, and the choice is constrained by what is already here.**
   // A marble is 15px and a tray face is a flat square of one colour, so two swatches that read as
   // the same colour at that size are not two pieces — they are one piece the player will mis-sort.
@@ -701,9 +725,9 @@ export const PALETTE: Swatch[] = [
   // ⚠ **Adding entries does not change a single generated level.** `paramsFromD` caps colours at a
   // literal 8, not at `PALETTE.length`, and every level in `SHEET` names its own count. Only a
   // hand-built board can reach these, which is the intent: they are for the editor.
-  { name: "teal", base: 0x109c8d, light: 0x4fd8c6, dark: 0x0a6459 },
-  { name: "lime", base: 0x9ad514, light: 0xc6f25c, dark: 0x638c00 },
-  { name: "magenta", base: 0xd81b9c, light: 0xff62c8, dark: 0x8f0a66 },
+  { name: "teal", base: 0x14b39f, light: 0x3fe0c9, dark: 0x0c7568 },
+  { name: "lime", base: 0x9ad514, light: 0xc0ef4a, dark: 0x638c00 },
+  { name: "magenta", base: 0xe524a8, light: 0xff5cc4, dark: 0x9c0e70 },
   /**
    * ⚠ **Brown and grey each collide with a piece that is not a tray, and both were added anyway.**
    * Requested twice; the risk is written down here rather than argued about.
@@ -726,15 +750,53 @@ export const PALETTE: Swatch[] = [
 
 // ── Chrome ───────────────────────────────────────────────────────────────────
 export const UI = {
-  // ⚠ **Teal, not violet, from 2026-08-28** — matched to the reference machine rather than chosen.
-  // `HomeScene` is deliberately NOT affected: it paints `COVER_BG` and `HOME_FOOT`, both sampled
-  // from the cover render's own corner pixels, so changing these would leave the home screen's
-  // letterbox disagreeing with the art it sits behind. If Home is ever meant to follow, the render
-  // has to be re-made first and the two constants re-sampled from it.
-  bg: 0xa9dedb,
-  bgTop: 0xc2e9e4,
-  bgBottom: 0x8ecfcf,
-  glow: 0xe4f7f3,
+  // Teal from 2026-08-28, **violet again from 2026-09-05** — and this time it is not a taste
+  // change, it is the store art. The three covers were re-rendered for the "Ball Sort" name on a
+  // violet ground, and a player who taps a violet thumbnail should not land on a teal game.
+  //
+  // ⚠ **Sampled, not chosen.** Averaged down the new square cover
+  // (`Manythings/image/1ajh081ajh081ajh-clean.png`), counting only its background pixels — violet
+  // hue, mid lightness — so the boxes and the white-outlined title do not drag the mean. Rows at
+  // 2% and 98% of the height gave #3b276c and #753ea8; `bg` is the midpoint and `glow` a step
+  // lighter than the foot, which is what a halo behind the cabinet has to be to read as a halo.
+  //
+  // ⚠ **This inverts the page/cabinet lightness, and that was a stated preference.** The teal pass
+  // put the *page* lighter than the cabinet — reported as *"trong đậm ngoài nhạt chứ"* — and the
+  // cover's ground is dark, so the page is now the darker of the two. Kept because matching the
+  // store art is what was asked for; if the machine is ever re-toned violet to put the old
+  // relationship back, this is the note that says the two are linked.
+  //
+  // ⚠ `HomeScene` does not read these at all — it is a picture, not a colour. It draws
+  // `src/assets/home-cover.webp` on its own `COVER_BG`, which is **sampled from that render's own
+  // corner**, so the two must be replaced together: swap the art and re-sample the constant, or the
+  // letterbox stops matching the picture it is holding. Both were done on 2026-09-05 when the
+  // render was redone for "Ball Sort" (`COVER_BG` 0x322d58 -> 0x1a1b48). The old note here also
+  // named a `HOME_FOOT`; there is no such constant any more.
+  /**
+   * ⚠ **Violet ground, white machine — the split was specified and the teal build had it
+   * backwards.** Asked for on 2026-09-05 against phone side-by-sides with the reference: *"phần
+   * phễu và bottom box gần 1 màu, có thể là màu trắng. Còn bên ngoài khung, thì 1 màu khác...
+   * liền khối, và màu k bị nhợt nhạt"*. The teal pass had painted the cabinet a mid teal, which
+   * cut the machine face into three colours (teal cabinet, white funnel, white well) and left the
+   * violet page clashing with a teal game — visibly two games in one screen.
+   *
+   * The structure now is the reference's own: the ENTIRE machine face — cabinet, cavity floor,
+   * funnel, belt surround, box well — is one near-white lavender family, so funnel and well read
+   * as one surface; and everything outside the machine is one solid block (`bgTop` → `bgBottom`,
+   * page sampled from the canvas by `matchPageToCanvas`, so it follows by itself).
+   *
+   * ⚠ **Sky blue, chosen over violet by name.** The first pass of this block was violet, to match
+   * the store art the way the note below argues for — and it was replaced the same day on an
+   * explicit pick: the reference's own ground family (measured #b7dde9 page / #9acad7 cabinet),
+   * one step deeper so it is not "nhợt nhạt". The store-art argument lost to the side-by-side;
+   * if the covers ever get re-rendered, render them toward the game, not the game toward them.
+   * The machine's lavender-whites stay — the reference runs the same pairing (its cavity floor
+   * is #eaeafc, H240, on a blue page) and it is what keeps the white face from going grey.
+   */
+  bg: 0x82bdd6,
+  bgTop: 0x8fc6dd,
+  bgBottom: 0x74b3cf,
+  glow: 0xc2e4f0,
   // ⚠ Three tones, not two, and only the middle one is solid slate.
   //
   //   machine   — the cabinet interior, white. It is the *ground* the board sits on.
@@ -752,15 +814,44 @@ export const UI = {
   // ⚠ **The page is the lightest thing on screen and the cabinet sits darker inside it** — the way
   // the reference machine reads, and the opposite of the first teal pass, which kept the white
   // cabinet and put a dark teal page around it. Reported as *"trong đậm ngoài nhạt chứ"*.
-  machine: 0x62b4b8,
-  machineEdge: 0x3f9095,
-  panel: 0xeaf7f6,
-  panelDeep: 0x9ed0d2,
-  cell: 0xd6eeed,
+  // ⚠ **Violet from 2026-09-05, and the transform is the point: hue and saturation moved, every
+  // lightness was kept to the digit.** The cabinet was left teal when the page went violet for the
+  // new store art, and it read as two different games in one screen. Repainting by eye would have
+  // meant re-tuning every piece against it, because the trays, boxes and marbles were all measured
+  // against these exact values — the box holes at 0.55x rising to 0.70x of their face, the tray's
+  // sheen over its top 45%, the crate at 70%. Holding L fixed means none of that had to move.
+  //
+  // The hue is the page's own (0.734, the mean of `bgTop` and `bgBottom`), not a violet chosen
+  // separately, so the cabinet belongs to the same family as the ground it stands on.
+  //
+  // ⚠ The three tones survive intact, which is the rule that matters here: `panel` and `cell` stay
+  // the near-white ground the pieces sit on (L 0.94 / 0.89), `panelDeep` stays the one solid
+  // mid-tone rim (0.72), `machine` the body (0.55). Collapsing any two is what the note below
+  // forbids, and equal-lightness recolouring cannot do it by construction.
+  // ⚠ The three tones are back to the doctrine at the top of this note: `machine` is WHITE-ish
+  // again (it is also the panel of every card — pause, results — so the ink text gains contrast
+  // with it), `panelDeep` the one mid-tone rim, `panel` the cavity floor a half-step lighter than
+  // the cabinet so the recess still reads. Collapsing any two is what the older note forbids.
+  machine: 0xe9e8f7,
+  machineEdge: 0xc6c2e2,
+  panel: 0xf4f3fd,
+  panelDeep: 0xb6b1d8,
+  cell: 0xe2e0f4,
   belt: 0x6f7686,
   beltDeep: 0x565d6b,
   beltLight: 0x8b93a3,
-  chrome: 0xeff9f9,
+  chrome: 0xf0effb,
+  /**
+   * The chute's own fill. ⚠ **It was a bare `0xeef3fb` inside `GameScene`, and that is exactly how
+   * it got left behind**: the nine tokens above were dimmed together on 2026-09-05 and this one was
+   * not, so the funnel stayed a near-white V glaring out of a palette that had moved without it.
+   * A literal cannot be swept with its family. It lives here now.
+   *
+   * ⚠ Still **not** `UI.panel`, and deliberately: the note on the carved fillet in `GameScene`
+   * records that the two whites differ, and anything drawn in the chute has to stay inside the
+   * chute's own paint. Same lightness as `panel`, a touch bluer.
+   */
+  funnel: 0xe4e6fa,
   ink: "#2b3550",
   /**
    * The level pill and the coin, and now the mount under the booster too.
@@ -771,8 +862,11 @@ export const UI = {
    * did. Anything that has to match the pills — the booster's mount does, on a phone — would have
    * been a fourth copy.
    */
-  pill: 0x7f6ada,
-  pillEdge: 0x6a56c4,
+  // ⚠ DARKER than the ground now, not lighter — the contrast flipped with the sky-blue block.
+  // On the violet ground the pills stood a step lighter; on a light ground they melt unless they
+  // go deep, which is the reference's own answer: dark slate pills, white text, pale page.
+  pill: 0x497092,
+  pillEdge: 0x365a7a,
   gold: 0xffc21e,
   green: 0x4bc84b,
   greenEdge: 0x2f8f2f,
@@ -999,6 +1093,26 @@ export const CELL_PITCH = L.cell + L.gap;
  * brace at their absolute widths, so the wood would come out coarser than the trays beside it.
  */
 export const CRATE_SCALE = 0.7;
+
+/**
+ * How big the chocolate box is drawn, as a fraction of the 2x2 footprint it occupies.
+ *
+ * ⚠ **Presentation only**, exactly like `CRATE_SCALE` — the four cells underneath stay as solid as
+ * they were and the counter is unchanged. What moves is how heavy the piece looks.
+ *
+ * ⚠ **The slab was geometrically right and still read as too big.** It is baked at
+ * `L.cell + CELL_PITCH`, which covers its two cells *and the `L.gap` between them* precisely — but
+ * every tray is drawn inset in its own cell, so a tray block of the same footprint shows floor
+ * between and around its pieces while the box showed none. Four trays' worth of area in one
+ * unbroken mass with no margin is what "too big" was: not a scale error, an absence of the gap
+ * that separates everything else on the board. Reported from real play.
+ *
+ * ⚠ **The number is `L.gap` of floor on each side**, so the box is framed by the same width of
+ * cavity that stands between two neighbouring trays — `1 - 2 * L.gap / (L.cell + CELL_PITCH)`,
+ * rounded. Do not pick it by eye: it is the grid's own spacing, and the piece is legible as
+ * something standing *in* four cells only while the margin matches what the board uses everywhere.
+ */
+export const CHOC_SCALE = 0.89;
 
 /** Centre x of box column `j` — the conveyor's bottom run passes right over these. */
 export function boxColX(j: number): number {

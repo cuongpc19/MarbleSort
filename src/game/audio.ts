@@ -223,6 +223,18 @@ const SEAT_SOUND = false;
  * The gain it comes back at is on `roll` itself (0.035-0.06, raised twice before the switch-off).
  */
 const ROLL_SOUND = false;
+/**
+ * Whether marbles knocking each other on the way down the chute make a sound. **Off, on
+ * instruction** ("bỏ tiếng va chạm giữa các bi") — same convention as the two flags above: one
+ * word to put back, not deleted code. The level it comes back at is on `tumble` itself.
+ *
+ * ⚠ **With this off the machine is close to silent while marbles are falling**, and that is a
+ * bigger change than it looks. `SEAT_SOUND` and `ROLL_SOUND` are already off, so `tumble` was the
+ * last sound the *physics* made — what is left is only what the player does: the tap, the box
+ * clearing, and the UI ticks. The reference machine's own accounting says almost every sound in it
+ * is a marble landing in a box, so this build is now a long way from that on purpose.
+ */
+const TUMBLE_SOUND = false;
 const LADDER_MS = 700;
 let rung = 0;
 let rungAt = 0;
@@ -374,6 +386,7 @@ export const sfx = {
    * same rhythm twice, so it must not be a loop.
    */
   tumble(strength: number) {
+    if (!TUMBLE_SOUND) return;
     // ⚠ **The chute does not carry the melody, and it must not climb.** Count what the reference
     // actually plays: 39 tray pours x 9 marbles = 351 seatings, 117 box clears (101 detected) and
     // 39 pours — **507 sounds against the 547 onsets measured**. Almost every sound in that game

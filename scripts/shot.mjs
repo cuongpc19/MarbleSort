@@ -326,7 +326,7 @@ async function main() {
       const bootTutor = async () => {
         await cdp.eval(`window.__ms.goto(2); return 1;`);
         await sleep(900);
-        await cdp.eval(`localStorage.removeItem("bf_tutor"); window.__ms.goto(1); return 1;`);
+        await cdp.eval(`localStorage.removeItem("bs_tutor"); window.__ms.goto(1); return 1;`);
         await sleep(1600);
       };
       await bootTutor();
@@ -338,7 +338,7 @@ async function main() {
         if (!t) return null;
         return { step: t.at, done: t.done, caption: t.label ? t.label.text : null,
                  hand: !!t.hand, ring: !!t.ring, idleArmed: !!t.idle,
-                 steps: t.steps.length, key: localStorage.getItem("bf_tutor"),
+                 steps: t.steps.length, key: localStorage.getItem("bs_tutor"),
                  lvl: window.__ms.state().level };`);
       console.log("tutor step 1 → " + JSON.stringify(await marks()));
       // ⚠ **Both branches after the first pour, because they are opposite behaviours.** Card two

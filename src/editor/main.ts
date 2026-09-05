@@ -1582,7 +1582,7 @@ let origin: "saved" | "shipped" | "generated" | "blank" | "scratch" = "saved";
  * The badge then says "Level 1" about a board that has nothing to do with level 1, and comparing
  * it against the game reads as the two disagreeing. Reported exactly that way.
  */
-const LEVEL_KEY = "bf_editor_level";
+const LEVEL_KEY = "bs_editor_level";
 
 function setLastLevel(n: number) {
   lastLevel = n;
@@ -2165,7 +2165,7 @@ window.addEventListener("keydown", (e) => {
 // Off by default: while a level is being drawn, a winrate is a distraction, and the structural
 // checks below it are the ones that catch a board that cannot be played at all.
 try {
-  measureEl.checked = !!localStorage.getItem("bf_editor_measure");
+  measureEl.checked = !!localStorage.getItem("bs_editor_measure");
 } catch {
   /* storage unavailable */
 }
@@ -2326,7 +2326,7 @@ $("check").onclick = () => {
 
 measureEl.onchange = () => {
   try {
-    localStorage.setItem("bf_editor_measure", measureEl.checked ? "1" : "");
+    localStorage.setItem("bs_editor_measure", measureEl.checked ? "1" : "");
   } catch {
     /* storage unavailable */
   }

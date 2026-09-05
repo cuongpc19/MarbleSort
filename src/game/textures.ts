@@ -342,8 +342,8 @@ export function bakeAll(scene: Phaser.Scene) {
        * step**, not a hue and not a line: face `shade(base, 0.10)` over wall `shade(base, -0.12)`.
        */
       const wall = ctx.createLinearGradient(0, faceH - 2, 0, h - OUT);
-      wall.addColorStop(0, shade(sw.base, -0.12));
-      wall.addColorStop(0.45, shade(sw.base, -0.18));
+      wall.addColorStop(0, shade(sw.base, -0.07));
+      wall.addColorStop(0.45, shade(sw.base, -0.13));
       wall.addColorStop(1, hex(sw.dark));
       ctx.fillStyle = wall;
       rr(ctx, OUT, 1 + OUT, w - OUT * 2, h - 1 - OUT * 2, 13);
@@ -372,9 +372,21 @@ export function bakeAll(scene: Phaser.Scene) {
        * absence of the eggs**, never shading. Shading has to be compared against a neighbour to be
        * read, and it does not survive every colour in the palette.
        */
+      /**
+       * ⚠ **0.28 → 0.08, not 0.42 → 0.2 — the flat tone sits a hair above `base`, no further.**
+       * Reported as *"màu sắc của họ sắc nét vậy mà của tôi hơi nhợt nhạt"*, and measured before
+       * believed: a pixel column down the reference's yellow well box is 22 rows of `#faf137`-class
+       * colour at **S78-80 V98-100** — its "light" is the hue rolled toward lemon, never white mixed
+       * in — while ours at 0.2 read S52-70. `shade` toward white always desaturates, so the only
+       * place it may spend real area is the sheen band, and even that stops at 0.28.
+       */
+      // ⚠ `mix` toward the (saturated) light, NOT `shade` toward white — this is where "màu sắc
+      // vẫn k được tươi lắm" was hiding after every V-only pass: shade() buys brightness by
+      // selling saturation, so the flat faces went chalky exactly in proportion to how lit they
+      // were. With the lights resaturated (see PALETTE's note) the same brightening keeps its S.
       const g = ctx.createLinearGradient(0, 0, 0, faceH * 0.45);
-      g.addColorStop(0, shade(sw.base, 0.42));
-      g.addColorStop(1, shade(sw.base, 0.2));
+      g.addColorStop(0, mix(sw.base, sw.light, 0.55));
+      g.addColorStop(1, mix(sw.base, sw.light, 0.16));
       ctx.fillStyle = g;
       face();
       ctx.fill();
@@ -398,43 +410,155 @@ export function bakeAll(scene: Phaser.Scene) {
 
       const eggCols = EGG_COLS * cells;
       const rows = Math.ceil(EGGS / EGG_COLS);
-      // ⚠ Measured from `faceH`, not from the sprite: the eggs belong on the face and the wall is
-      // not part of it. Off the sprite they straddle the seam and the bottom row sits on the wall.
-      // ⚠ **An even grid, no foreshortening.** The rows were crowded toward the back for a while,
-      // on the reasoning that a surface tilted away compresses — true, and it reads as a bent tile
-      // at this size. The reference does not do it either: its dots are evenly spaced on a face
-      // that is plainly seen from above and in front, because 54px of face cannot carry a
-      // perspective strong enough to be right without being obvious.
-      const spanX = (w - 12) / eggCols;
-      const spanY = (faceH - 8) / rows;
+      /**
+       * A raised tray is **a dish full of marbles**, not a slab with nine dots printed on it —
+       * redrawn against `Manythings/IMG_6669.MP4` frame by frame, because the first build's beads
+       * (r = 0.132 · cell with 6px margins and white-hot cores) read as decoration and washed the
+       * board out. What the reference actually draws, measured down its yellow tray one pixel
+       * column at a time:
+       *
+       * - **The marbles fill the tile edge to edge and touch** — pitch is a third of the face,
+       *   diameter is the pitch. Three rows do not fit that height, so the rows **overlap** and are
+       *   drawn back to front; the front row lapping the one behind is most of the depth.
+       * - **The gaps are the darkest, most saturated pixels on the piece** — `#cd7701` against a
+       *   `#fbc11d` body, S100 at V80 — because what shows between marbles is the dish, not the
+       *   face. Grey contact shadows are exactly the "nhợt nhạt" this replaces.
+       * - **A ball's own ramp runs bright top to deep amber foot** (V95 → V80 with saturation
+       *   *rising* to 100), i.e. base → dark along the swatch's own axis — `mix`, never `shade`,
+       *   for the same reason the box sockets already use it.
+       * - **The pale core is small.** Their sheen is a fraction of the crown; ours was 35% of the
+       *   radius wide and mostly white, which is where the tile's colour went.
+       *
+       * These are the same spheres `K.marble` pours into the chute — same lighting, same specular —
+       * so the burst can swap sockets for physics bodies without the marbles changing character.
+       */
       if (raised) {
-        for (let i = 0; i < EGGS * cells; i++) {
-          const cx = 6 + spanX * ((i % eggCols) + 0.5);
-          const cy = top + 2 + spanY * (((i / eggCols) | 0) + 0.5);
-          // An egg on a surface tilted away projects shorter than it is wide — the same reason the
-          // box's sockets are ovals rather than circles. That is the whole of the projection here.
-          // ⚠ Sized against `faceH`. The bottom row must clear the crease — an egg straddling the
-          // seam is the one mark that unpicks the two planes — so this rises and falls with
-          // `TRAY_LIP`, and 7.4 is what the 52px face left by a 12px body will take: three rows of 13.3
-          // in spans of 14.7, and 2.5px of daylight between columns.
-          const rx = L.cell * 0.132;
-          const ry = rx * 0.9;
-          // Cast down-right, then light up-left: the pair is what sells the bulge.
-          ctx.globalAlpha = 0.5;
-          ctx.fillStyle = hex(sw.dark);
-          ctx.beginPath();
-          ctx.ellipse(cx + 0.5, cy + 1.7, rx, ry, 0, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.globalAlpha = 1;
-          const bg = ctx.createRadialGradient(cx - rx * 0.45, cy - ry * 0.5, 1, cx, cy, rx * 1.15);
-          bg.addColorStop(0, "#ffffff");
-          bg.addColorStop(0.35, hex(sw.light));
-          bg.addColorStop(1, hex(sw.base));
-          ctx.fillStyle = bg;
-          ctx.beginPath();
-          ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
-          ctx.fill();
+        /**
+         * ⚠ **The darks live in the crevices; the bodies stay bright.** The first pass at this
+         * chased the reference's 50↔95 value swing by widening every dark — ball ramps from 78% of
+         * the radius, heavy rings, a dark dish — and the board came back muddier than the pale
+         * version it replaced: *"cảm giác bản gốc của họ vẫn đẹp hơn... màu sắc bi và khay"*.
+         * Re-measured, the reference's ball bodies hold V80-98 over nearly their whole area and the
+         * V47-57 darks are **slivers** — the pinch where two balls meet, the seam against the lip —
+         * so contrast comes from *narrow* darks against *large* brights, never from darkening the
+         * mass.
+         */
+        // The dish rim — a real wall on all four sides, lit at the back edge the way the
+        // reference's is (#e4a61c across the top of its yellow tray). This frame, not the wall
+        // band below, is what makes the piece read as a dish rather than a card of balls.
+        const rimW = 2.4;
+        const rim = ctx.createLinearGradient(0, top, 0, top + faceH);
+        rim.addColorStop(0, hex(sw.base));
+        rim.addColorStop(0.3, mix(sw.dark, sw.base, 0.75));
+        rim.addColorStop(1, mix(sw.dark, sw.base, 0.8));
+        ctx.fillStyle = rim;
+        face();
+        ctx.fill();
+        // The dish interior, showing between and around the marbles — warm mid-family, not a
+        // dark hole. Lighter toward the foot: light bounces out of a recess, the socket lesson.
+        // ⚠ 0.5/0.68, up from 0.3/0.5 — every dark on the piece was lifted together with the
+        // candy palette (see the note on PALETTE): the reference's crevices sit at 0.6-0.8 of
+        // the body's own V, and ours measured 15-20 points muddier per phone side-by-side.
+        const dish = ctx.createLinearGradient(0, top, 0, top + faceH);
+        dish.addColorStop(0, mix(sw.dark, sw.base, 0.55));
+        dish.addColorStop(1, mix(sw.dark, sw.base, 0.73));
+        ctx.fillStyle = dish;
+        rr(ctx, OUT + rimW, top + rimW, w - OUT * 2 - rimW * 2, faceH - OUT - rimW, 10);
+        ctx.fill();
+
+        const pitchX = (w - OUT * 2 - rimW * 2) / eggCols;
+        const r = pitchX / 2 - 0.35;
+        // The top row pokes just over the back rim; the bottom row's feet dip 2px behind the lip
+        // drawn after — the balls sit IN the dish, which is the whole difference between "a tray
+        // of marbles" and "marbles printed on a tile".
+        // ⚠ 2px, not 3.5 — measured on the reference the lip hides ~11% of the bottom row's
+        // height, and the first cut here took 22%, reported as *"cái thân khay đang che hàng bi
+        // dưới cùng"*: past that the bottom row stops reading as balls behind a lip and starts
+        // reading as balls cut off by it.
+        const yTop = top + rimW + r - 1.0;
+        const yBot = faceH - r;
+        for (let row = 0; row < rows; row++) {
+          const cy = rows === 1 ? (yTop + yBot) / 2 : yTop + ((yBot - yTop) * row) / (rows - 1);
+          for (let col = 0; col < eggCols; col++) {
+            const cx = OUT + rimW + pitchX * (col + 0.5);
+            /**
+             * ⚠ The pinch — the one place the tone may fall below `sw.dark`, and it is a *ring*,
+             * not a shadow. It puts the reference's dark crevice at every tangent and under every
+             * lap of one row over the next; anywhere no ball overlaps it, the next ball's body
+             * paints it straight back out. Width and alpha are the dials that turned "sắc nét"
+             * into mud once already — keep it narrow.
+             */
+            // ⚠ `sw.dark` at 0.4, no longer a below-dark black — with the lifted palette the
+            // crevice already lands at the reference's 0.6-0.8 of the body's V; darker than that
+            // is the mud the phone side-by-side caught.
+            ctx.globalAlpha = 0.4;
+            ctx.fillStyle = hex(sw.dark);
+            ctx.beginPath();
+            ctx.arc(cx + 0.3, cy + 0.5, r + 0.9, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.globalAlpha = 1;
+            const bg = ctx.createRadialGradient(
+              cx - r * 0.38,
+              cy - r * 0.42,
+              r * 0.13,
+              cx,
+              cy,
+              r * 1.02,
+            );
+            // ⚠ The crown is `base` pulled toward `light`, never `light` itself — the reference's
+            // crown keeps its saturation (#fad920 on a #fbc11d body, S86 on S88) where our `light`
+            // swatches sit near S50. The cream covers more of the ball than feels right in the
+            // code (0.55 of the way to light, out to half the radius) because the reference's
+            // p90 brightness on a tray is 95 and ours measured 75: the highlight is AREA, not a
+            // dot. The shaded edge stays a rim — mix 0.55 falling to 0.3, never near `dark`.
+            bg.addColorStop(0, mix(sw.base, sw.light, 0.6));
+            bg.addColorStop(0.5, shade(sw.base, 0.05));
+            bg.addColorStop(0.88, mix(sw.dark, sw.base, 0.6));
+            bg.addColorStop(1, mix(sw.dark, sw.base, 0.35));
+            ctx.fillStyle = bg;
+            ctx.beginPath();
+            ctx.arc(cx, cy, r, 0, Math.PI * 2);
+            ctx.fill();
+            // The same specular the loose marble carries, scaled down and softened — nine hard
+            // white dots per tile were reported as "chói quá": a glint, not a lamp.
+            ctx.globalAlpha = 0.6;
+            ctx.fillStyle = "#ffffff";
+            ctx.beginPath();
+            ctx.ellipse(cx - r * 0.4, cy - r * 0.45, r * 0.24, r * 0.16, -0.6, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.globalAlpha = 1;
+          }
         }
+        /**
+         * The front lip, drawn OVER the bottom row so their feet disappear behind it. Measured
+         * down the reference's yellow tray the lip is **bright** — #f99c1b at V94-98, the deep
+         * family lit up — with the dark saved for the outline under it. A dark band here was most
+         * of what "nhợt nhạt"'s first fix got wrong: it weighed the piece down without separating
+         * anything. Clipped to the band and filled as the full tile silhouette, so its corners
+         * follow the outline instead of poking through it.
+         */
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(0, faceH - 2, w, h - faceH + 2);
+        ctx.clip();
+        const lip = ctx.createLinearGradient(0, faceH - 2, 0, h - OUT);
+        lip.addColorStop(0, mix(sw.dark, sw.base, 0.9));
+        lip.addColorStop(0.55, mix(sw.dark, sw.base, 0.7));
+        lip.addColorStop(1, hex(sw.dark));
+        ctx.fillStyle = lip;
+        rr(ctx, OUT, 1 + OUT, w - OUT * 2, h - 1 - OUT * 2, 13);
+        ctx.fill();
+        ctx.restore();
+        // The seam where the balls meet the lip — a hairline, same weight as the box's crease.
+        ctx.save();
+        ctx.globalAlpha = 0.28;
+        ctx.strokeStyle = outlineOf(sw.dark);
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.moveTo(OUT + 6, faceH - 1.5);
+        ctx.lineTo(w - OUT - 6, faceH - 1.5);
+        ctx.stroke();
+        ctx.restore();
       }
       /**
        * ⚠ **A locked tray is a bare face and nothing else.** It carried a soft inner shadow, to
@@ -488,8 +612,8 @@ export function bakeAll(scene: Phaser.Scene) {
       rr(ctx, 0, 0, bw, bh, 11);
       ctx.fill();
       const wall = ctx.createLinearGradient(0, lidBottom - 2, 0, bh - OUT);
-      wall.addColorStop(0, shade(sw.base, -0.12));
-      wall.addColorStop(0.45, shade(sw.base, -0.18));
+      wall.addColorStop(0, shade(sw.base, -0.07));
+      wall.addColorStop(0.45, shade(sw.base, -0.13));
       wall.addColorStop(1, hex(sw.dark));
       ctx.fillStyle = wall;
       rr(ctx, OUT, OUT, bw - OUT * 2, bh - OUT * 2, 10);
@@ -535,9 +659,12 @@ export function bakeAll(scene: Phaser.Scene) {
      * ovals rather than circles, which is what the tray does too. One recipe, both pieces.
      */
     const topFace = (ctx: CanvasRenderingContext2D) => {
+      // ⚠ Same stops as the tray face, moved together — see the note there: the reference's box
+      // face is 22 rows of flat S78-80 colour, and `shade` toward white is where saturation goes
+      // to die. `mix` toward the saturated light, 0.55 → 0.16, the sheen band only.
       const lit = ctx.createLinearGradient(0, OUT, 0, OUT + BOX_MOUTH_H * 0.45);
-      lit.addColorStop(0, shade(sw.base, 0.42));
-      lit.addColorStop(1, shade(sw.base, 0.2));
+      lit.addColorStop(0, mix(sw.base, sw.light, 0.55));
+      lit.addColorStop(1, mix(sw.base, sw.light, 0.16));
       ctx.fillStyle = lit;
       rr(ctx, OUT, OUT, bw - OUT * 2, BOX_FACE_H - OUT, 9);
       ctx.fill();
@@ -1121,8 +1248,11 @@ function bakeChrome(scene: Phaser.Scene) {
   // ⚠ The middle stop comes from `UI.pill`, not from a literal beside the other two. The booster's
   // mount is drawn in that same token on a phone, and two hexes that have to stay equal are two
   // hexes that will not.
+  // ⚠ Still keyed "purple" — the key is an address, not a colour, and renaming it touches every
+  // call site. The ramp is the slate-blue pill family now (sky-blue ground, dark pills), with the
+  // top and foot derived from `UI.pill` by the same steps the violet ramp used.
   bake(scene, K.btn("purple"), 120, 46, (ctx, w, h) =>
-    face(ctx, w, h, "#a596f2", hex(UI.pill), "#5b48ab", 20),
+    face(ctx, w, h, "#7da3c4", hex(UI.pill), "#35536e", 20),
   );
   // The booster's face on a phone, where it stands in a row of purple pills rather than out on the
   // violet. It has to read as bright as the level pill beside it, and these three stops are what
@@ -1139,7 +1269,7 @@ function bakeChrome(scene: Phaser.Scene) {
   // note on the locked alpha in `refreshHud`. Dimming is how "not yet" and "locked" are said out on
   // the violet; in a bright row a dimmed square reads as the one control that failed to draw.
   bake(scene, K.btn("purpleSq"), S, S, (ctx, w, h) =>
-    face(ctx, w, h, "#b7a9f8", "#9280e6", "#6d59c2", 17),
+    face(ctx, w, h, "#94b3d0", "#6284a1", "#48657f", 17),
   );
   bake(scene, K.btn("gold"), 46, 46, (ctx, w, h) =>
     face(ctx, w, h, "#ffd964", "#f5a91a", "#c67a06", 14),

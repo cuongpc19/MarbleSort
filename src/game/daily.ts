@@ -15,7 +15,7 @@ import { save } from "./save";
 /**
  * Master switch. **On** since 2026-08-19, when the seven-day card was replaced by the three-day one.
  *
- * ⚠ `bf_daily` was deliberately never wiped while this was off, so a player who banked days under
+ * ⚠ `bs_daily` was deliberately never wiped while this was off, so a player who banked days under
  * the old seven-day cycle still has that streak in storage. `dailyState` clamps it — see the note
  * there. Do not "clean up" the key on a future change either: it is the player's progress, and the
  * cheapest way to lose it is to assume nobody has any.
@@ -112,7 +112,7 @@ export interface DailyState {
 export function dailyState(now = Date.now()): DailyState {
   const { streak, last } = save.daily;
   const today = dayKey(now);
-  // ⚠ Clamped. `bf_daily` outlived the seven-day cycle, so a returning player can hand us a streak
+  // ⚠ Clamped. `bs_daily` outlived the seven-day cycle, so a returning player can hand us a streak
   // of 4..7 for a card that now has three columns — and an unclamped `day` of 6 lights nothing,
   // ticks nothing, and reads to them as the reward having vanished. The rollover below needs no
   // clamp because `% DAILY_DAYS` already lands inside the range.

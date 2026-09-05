@@ -77,7 +77,7 @@ if (!existsSync(built)) {
   console.error(`\nGradle finished but ${built} is missing.`);
   process.exit(1);
 }
-const out = `${root}BallFlow-v${stamp}-${release ? "release" : "debug"}.apk`;
+const out = `${root}BallSort-v${stamp}-${release ? "release" : "debug"}.apk`;
 mkdirSync(root, { recursive: true });
 copyFileSync(built, out);
 console.log(`\nAPK ready: ${out}`);
