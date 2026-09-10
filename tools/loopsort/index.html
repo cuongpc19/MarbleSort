@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Loop Sort</title>
+<style>
+  :root{
+    --ink:#ece8ff; --dim:#a49cd4; --line:#4a3f86;
+    --card:#2b2360; --card2:#221b4f; --accent:#7c5cff; --accent2:#a78bff;
+    --gold:#f6c12b; --good:#5fe0a0; --bad:#ff7ba3;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+  html,body{height:100%}
+  body{margin:0;background:#100c26;color:var(--ink);overflow:hidden;
+       font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+       display:flex;align-items:center;justify-content:center}
+  #frame{position:relative;width:min(100vw,480px);height:100%;max-height:100vh;
+         overflow:hidden;background:#1b1644}
+  #stage{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:manipulation}
+  .layer{position:absolute;inset:0;display:flex;flex-direction:column}
+  .hide{display:none !important}
+
+  /* ---------- Home ---------- */
+  .scrim{position:absolute;inset:0;
+    background:linear-gradient(180deg,rgba(16,12,38,.97) 0%,rgba(16,12,38,.72) 26%,
+               rgba(16,12,38,.5) 46%,rgba(16,12,38,.8) 74%,rgba(16,12,38,.98) 100%)}
+  .home-in{position:relative;flex:1;display:flex;flex-direction:column;
+           align-items:center;justify-content:space-between;padding:34px 22px 30px}
+  .logo{margin:0;font-size:clamp(38px,13vw,58px);font-weight:900;letter-spacing:1px;
+        line-height:.94;text-align:center;color:#fff;
+        text-shadow:0 4px 0 #4a2fa8,0 9px 26px rgba(0,0,0,.55)}
+  .logo span{display:block;color:var(--gold);text-shadow:0 4px 0 #9a6b06,0 9px 26px rgba(0,0,0,.55)}
+  .tag{margin:10px 0 0;color:var(--dim);font-size:13px;letter-spacing:.4px}
+  .home-bot{display:flex;flex-direction:column;align-items:center;gap:16px;width:100%}
+  .big{width:min(320px,86%);padding:17px 20px;border:0;border-radius:20px;cursor:pointer;
+       background:linear-gradient(180deg,#8d6bff,#6a45e0);color:#fff;
+       font:900 25px/1 system-ui;letter-spacing:1.5px;
+       box-shadow:0 6px 0 #4a2fa8,0 14px 30px rgba(0,0,0,.45)}
+  .big:active{transform:translateY(3px);box-shadow:0 3px 0 #4a2fa8}
+  .big small{display:block;margin-top:7px;font:700 13px/1 system-ui;
+             letter-spacing:.6px;opacity:.82}
+
+  /* ---------- coin ---------- */
+  .coin{display:inline-flex;align-items:center;gap:7px;padding:6px 14px 6px 7px;
+        border-radius:999px;background:rgba(30,23,72,.92);border:1px solid var(--line);
+        font-weight:800;font-size:15px}
+  .coin::before{content:"";width:21px;height:21px;border-radius:50%;
+        background:radial-gradient(circle at 34% 30%,#ffe89a,var(--gold) 62%,#b98708);
+        box-shadow:inset 0 -2px 3px rgba(0,0,0,.3)}
+
+  /* ---------- chrome khi choi ---------- */
+  .topright{position:absolute;top:12px;right:12px}
+  .bottom{position:absolute;left:0;right:0;bottom:0;display:flex;gap:10px;
+          align-items:center;justify-content:center;padding:12px 14px 16px}
+  .ico{width:50px;height:50px;border-radius:16px;border:1px solid var(--line);
+       background:rgba(38,30,90,.92);color:var(--ink);font-size:21px;cursor:pointer}
+  .ico:active{transform:translateY(2px)}
+  .boosters{display:flex;gap:8px}
+  .bst{position:relative;width:56px;height:56px;border-radius:17px;cursor:pointer;
+       border:1px solid var(--line);background:rgba(38,30,90,.92);color:var(--ink);
+       display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px}
+  .bst .g{font-size:19px;line-height:1}
+  .bst .l{font-size:9px;letter-spacing:.3px;color:var(--dim)}
+  .bst .n{position:absolute;right:-5px;top:-5px;min-width:20px;height:20px;border-radius:10px;
+       background:#2fbf5f;color:#06280f;font:800 11px/20px system-ui;text-align:center;
+       border:2px solid #16123a}
+  .bst .n.buy{background:var(--gold);color:#3d2500}
+  .bst.on{background:linear-gradient(180deg,#8d6bff,#6a45e0);border-color:#a78bff}
+  .bst:disabled{opacity:.4;cursor:default}
+  .hint{position:absolute;left:0;right:0;bottom:86px;text-align:center;font-size:13px;
+        color:var(--accent2);pointer-events:none}
+  .hint span{background:rgba(30,23,72,.94);border:1px solid var(--line);
+        padding:7px 14px;border-radius:999px}
+
+  /* ---------- the ---------- */
+  #cards{align-items:center;justify-content:center;background:rgba(10,7,28,.72);
+         backdrop-filter:blur(2px)}
+  .card{width:min(370px,88%);background:linear-gradient(180deg,var(--card),var(--card2));
+        border:1px solid var(--line);border-radius:26px;padding:24px 22px 20px;
+        text-align:center;box-shadow:0 22px 60px rgba(0,0,0,.6);
+        animation:pop .26s cubic-bezier(.2,1.4,.5,1)}
+  @keyframes pop{from{transform:scale(.84);opacity:0}to{transform:scale(1);opacity:1}}
+  .card h2{margin:0 0 4px;font-size:25px;font-weight:900;letter-spacing:.6px}
+  .card .sub{color:var(--dim);font-size:13px;margin-bottom:14px}
+  .stars{display:flex;justify-content:center;gap:12px;margin:6px 0 16px;font-size:40px}
+  .stars i{font-style:normal;color:#3a3170;transform:scale(.7);opacity:.5;
+           transition:.3s cubic-bezier(.2,1.5,.5,1)}
+  .stars i.on{color:var(--gold);transform:scale(1);opacity:1;
+              text-shadow:0 0 18px rgba(246,193,43,.6)}
+  .reward{display:flex;align-items:center;justify-content:center;gap:9px;
+          margin:0 0 18px;font-size:22px;font-weight:900;color:var(--gold)}
+  .reward .coin{font-size:20px;background:none;border:0;padding:0}
+  .stat{display:flex;justify-content:space-between;font-size:13px;color:var(--dim);
+        padding:5px 4px;border-top:1px solid rgba(255,255,255,.07)}
+  .stat b{color:var(--ink);font-weight:700}
+  .btn{width:100%;margin-top:12px;padding:14px;border:0;border-radius:16px;cursor:pointer;
+       font:900 17px/1 system-ui;letter-spacing:.8px;
+       background:linear-gradient(180deg,#8d6bff,#6a45e0);color:#fff;
+       box-shadow:0 5px 0 #4a2fa8}
+  .btn:active{transform:translateY(2px);box-shadow:0 3px 0 #4a2fa8}
+  .btn.ghost{background:none;border:1px solid var(--line);color:var(--dim);
+             box-shadow:none;font-size:14px;padding:11px}
+  .btn.gold{background:linear-gradient(180deg,#ffd45e,#e9a209);color:#3d2500;
+            box-shadow:0 5px 0 #9a6b06}
+  .btn:disabled{opacity:.45;cursor:default;box-shadow:none;transform:none}
+  .row2{display:flex;gap:10px}
+  .row2 .btn{margin-top:10px}
+  .banner{margin:-6px 0 14px;padding:8px 12px;border-radius:12px;font-size:13px;
+          background:rgba(124,92,255,.18);border:1px solid var(--line);color:var(--accent2)}
+
+  /* ---------- dev ---------- */
+  #devBtn{position:fixed;left:8px;bottom:8px;z-index:9;opacity:.35;font-size:11px;
+          background:#2b2360;color:#cfc7f5;border:1px solid #4a3f86;border-radius:8px;
+          padding:3px 8px;cursor:pointer}
+  #dev{position:fixed;left:8px;bottom:38px;width:330px;max-height:64vh;overflow:auto;
+       z-index:9;background:#1d1746;border:1px solid #4a3f86;border-radius:12px;
+       padding:12px;font-size:12px;color:#cfc7f5}
+  #dev h3{margin:0 0 8px;font-size:11px;letter-spacing:.7px;color:#8f86c6;text-transform:uppercase}
+  #dev code{display:block;background:#150f38;padding:6px;border-radius:6px;
+            word-break:break-all;margin:4px 0 10px;font-size:11px}
+  .kv{display:grid;grid-template-columns:auto 1fr;gap:2px 10px}
+  .kv b{color:#8f86c6;font-weight:500}
+</style>
+</head>
+<body>
+<div id="frame">
+  <canvas id="stage"></canvas>
+
+  <div id="home" class="layer">
+    <div class="scrim"></div>
+    <div class="home-in">
+      <div>
+        <h1 class="logo">LOOP<span>SORT</span></h1>
+        <p class="tag" id="homeArea"></p>
+      </div>
+      <div class="home-bot">
+        <button id="btnPlay" class="big">PLAY<small id="homeLv"></small></button>
+        <div class="coin" id="homeCoins">0</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="chrome" class="layer hide">
+    <div class="topright"><div class="coin" id="gameCoins">0</div></div>
+    <div id="hint" class="hint hide"></div>
+    <div class="bottom">
+      <button id="btnHome" class="ico" title="Về nhà">⌂</button>
+      <div id="boosters" class="boosters"></div>
+      <button id="btnRetry" class="ico" title="Chơi lại">↻</button>
+    </div>
+  </div>
+
+  <div id="cards" class="layer hide"></div>
+</div>
+
+<button id="devBtn">dev</button>
+<aside id="dev" class="hide"></aside>
+
+<script type="module" src="./app.js"></script>
+</body>
+</html>
