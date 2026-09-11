@@ -28,6 +28,21 @@ const DEMO_TAP_MS = 2100;
 
 const $ = (id) => document.getElementById(id);
 
+// ⚠ Khong de loi nao im lang. Man Home nam san trong HTML nen no hien ra ngay ca khi
+// script chet - va luc do bam PLAY khong co gi xay ra, nhin y het "nut hong". Moi loi
+// phai noi thanh loi tren man hinh.
+function fatal(e) {
+  console.error(e);
+  const box = document.createElement("div");
+  box.style.cssText = "position:fixed;left:12px;right:12px;bottom:12px;z-index:99;" +
+    "background:#4a1030;border:1px solid #ff7ba3;color:#ffd6e2;padding:12px 14px;" +
+    "border-radius:12px;font:12px/1.5 system-ui;white-space:pre-wrap";
+  box.textContent = "Lỗi: " + (e && e.message ? e.message : e);
+  document.body.appendChild(box);
+}
+addEventListener("error", (e) => fatal(e.error || e.message));
+addEventListener("unhandledrejection", (e) => fatal(e.reason));
+
 // ---------------------------------------------------------------- luu tien do
 // ⚠ Tien to "ls_" rieng cho ban nay. Ball Sort da tra gia cho bai hoc nay: hai game
 // dung chung tien to la dung chung o luu, va doi ten tien to sau khi phat hanh la
@@ -337,6 +352,10 @@ cv.addEventListener("pointerdown", (e) => {
   else E.getGame().tap(t);
 });
 
+// ⚠ Chi doi nhan ben trong <small id="homeLv">, khong ghi de innerHTML cua nut:
+// lam the la xoa luon chinh cai <small> do, va goHome() sau nay se ném lỗi vì null.
+$("btnPlay").disabled = true;
+$("homeLv").textContent = "đang tải dữ liệu…";
 $("btnPlay").onclick = () => startLevel(save.level);
 $("btnHome").onclick = goHome;
 $("btnRetry").onclick = () => startLevel(E.getGame().id);
@@ -357,6 +376,7 @@ window.__ls = {
   eager: (v) => { E.setEager(v); const el = $("eager"); if (el) el.checked = v; },
   booster: (id) => onBooster(id),
   arm: () => armed,
+  pick: (x, y) => E.pick(x, y),
   bst: (id) => save.bst(id),
   tapLane: (lane) => {
     const g = E.getGame();
@@ -384,8 +404,14 @@ window.__ls = {
   },
 };
 
-await E.loadData();
+try {
+  await E.loadData();
+} catch (e) {
+  fatal(new Error("không tải được dữ liệu level (" + (e.message || e) + ")"));
+  throw e;
+}
 buildDemoPool();
+$("btnPlay").disabled = false;
 E.setEager(save.eager);
 const q = new URLSearchParams(location.search);
 if (q.get("dev")) $("dev").classList.remove("hide");

@@ -15,10 +15,20 @@
   body{margin:0;background:#100c26;color:var(--ink);overflow:hidden;
        font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
        display:flex;align-items:center;justify-content:center}
-  #frame{position:relative;width:min(100vw,480px);height:100%;max-height:100vh;
+  /* ⚠ Ghim 480px la bo phi man hinh rong. Do tren level 3: ban co dung 92% be RONG
+     nhung chi 61% chieu CAO, tuc be rong la cai chan - layout() fit theo
+     min(w/bw, h/bh) nen noi rong khung la ban co to len ngay. Buoc theo vh chu khong
+     phai mot so co dinh: tren dien thoai min() van lay 100vw nen khong doi mot pixel,
+     con man ngan thi max(480px, ...) giu nguyen nhu cu. */
+  #frame{position:relative;width:min(100vw,max(480px,72vh));height:100%;max-height:100vh;
          overflow:hidden;background:#1b1644}
   #stage{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:manipulation}
-  .layer{position:absolute;inset:0;display:flex;flex-direction:column}
+  /* ⚠ Lop phu trum kin khung hinh, nen phai cho chuot xuyen qua - neu khong #chrome
+     se nuot moi cu bam truoc khi toi canvas va khong cham duoc vao ben nao ca.
+     Chi nhung phan tu that su bam duoc moi nhan lai su kien. */
+  .layer{position:absolute;inset:0;display:flex;flex-direction:column;pointer-events:none}
+  #home,#cards{pointer-events:auto}
+  .topright,.bottom{pointer-events:auto}
   .hide{display:none !important}
 
   /* ---------- Home ---------- */

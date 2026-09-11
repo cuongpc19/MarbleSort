@@ -326,7 +326,14 @@ export class Game {
   }
 
   loose() { return this.cubes.length + this.pending.length; }
-  counter() { return Math.ceil(this.loose() / this.perBlock); }
+  // ⚠ Phai cong ca t.fill cua moi ben: hat da bi hut do dang nam trong ben nhung chua
+  // thanh mot khoi, van la sand dang luu thong. Thieu no thi o dem thap hon thuc te.
+  // Tru 1e-9 de 2.0000001 khong bi ceil thanh 3.
+  counter() {
+    let grains = this.loose();
+    for (const t of this.trucks) grains += t.fill;
+    return Math.ceil(grains / this.perBlock - 1e-9);
+  }
 
   tap(t) {
     if (this.state !== "play" || t.gone || !t.blocks.length || t.drain >= 0) return false;
@@ -502,6 +509,13 @@ export class Game {
       t.confetti = t.confetti.filter((p) => p.life < 1.3);
     }
     this.flying = this.flying.filter((f) => now - f.at < f.ms);
+    // ⚠ Tran phai duoc kiem tra MOI KHUNG HINH khi dang choi: o dem co the vuot giua
+    // chung luc sand dang chay chu khong chi ngay luc cham. peak cung theo tung khung.
+    if (this.state === "play") {
+      const n = this.counter();
+      this.peak = Math.max(this.peak, n);
+      if (n > this.slotCount) this.state = "lose";
+    }
     if (this.state !== "play") return;
 
     // nha cube dang cho ra khoi mieng ben. Khong can cho ray trong: cube ra la roi
@@ -536,10 +550,17 @@ export class Game {
   }
 
   absorb(now) {
+    // ⚠ Bo vung hut ra bang BAN KINH r*2.6: hat chay SPEED 19 nen chi nam trong tam
+    // voi vai phan tram giay, va truoc day chi mot hat moi ben moi khung hinh duoc hut
+    // (break), cong them chan nhip EAT_MS 30ms chi cho ~33 hat/giay - phan lon hat luot
+    // qua mieng roi troi tiep. Nay hat nao trong vung va duoc nhan thi vao ngay.
     const R = this.r * 2.6, R2 = R * R;
     for (const t of this.trucks) {
-      if (t.gone || now - t.ate < EAT_MS) continue;
-      for (let i = 0; i < this.cubes.length; i++) {
+      if (t.gone) continue;   // ben da giao xong thi khong con nhan (accepts cung chan)
+      // ⚠ Duyet nguoc + KHONG break: splice khong bo sot hat phia sau, va mot ben phai
+      // hut HET moi hat du dieu kien dang nam trong vung trong CUNG mot khung hinh.
+      // accepts() da tu chan khi ben day (blocks >= cap) hoac gone, nen vong lap an toan.
+      for (let i = this.cubes.length - 1; i >= 0; i--) {
         const c = this.cubes[i];
         if (!this.accepts(t, c.color)) continue;
         const dx = c.x - t.px, dy = c.y - t.py;
@@ -560,7 +581,6 @@ export class Game {
           t.claim = null;
           this.deliver(t);
         }
-        break;
       }
     }
   }
@@ -719,11 +739,18 @@ export function layout() {
   if (!game) return;
   const b = game.bounds;
   const head = CHROME ? Math.round(cv.height * 0.092) : 0;
-  const sc = Math.min(cv.width / (b.x1 - b.x0), (cv.height - head) / (b.y1 - b.y0));
+  // ⚠ Phai chua cho CA hang nut duoi, khong chi thanh HUD tren. Truoc day khung ghim
+  // 480px nen ban co luon bi be RONG chan lai va khong bao gio voi toi hang nut; tu khi
+  // khung noi rong theo vh thi chieu CAO moi la cai chan, va thieu `foot` la ban co
+  // chay thang xuong duoi gam cac nut. Hang nut cao 56px + padding 12/16 = 84px tren
+  // khung ~980px, tuc 8.6% - lay 0.088.
+  const foot = CHROME ? Math.round(cv.height * 0.088) : 0;
+  const sc = Math.min(cv.width / (b.x1 - b.x0),
+                      (cv.height - head - foot) / (b.y1 - b.y0));
   view = {
     sc, head,
     ox: (cv.width - (b.x1 - b.x0) * sc) / 2 - b.x0 * sc,
-    oy: head + (cv.height - head - (b.y1 - b.y0) * sc) / 2 - b.y0 * sc,
+    oy: head + (cv.height - head - foot - (b.y1 - b.y0) * sc) / 2 - b.y0 * sc,
   };
 }
 
@@ -749,6 +776,72 @@ export function shade(hex, k) {
   return "rgb(" + f((n >> 16) & 255) + "," + f((n >> 8) & 255) + "," + f(n & 255) + ")";
 }
 
+// Ty le chieu cao cac vung cua khoi, doi tuoc mot cot pixel tren anh game goc:
+// mat tren phang den 80%, lip sang den 91%, phan con lai 9% la mep toi mong.
+const FACE_H = 0.80;
+const LIP_H = 0.91;
+
+// Hinh chu nhat bo tron HAI GOC TREN, hai goc duoi vuong. Dung cho mat tren: mat phai
+// phang, va cho giap voi thanh khoi phai la mot duong thang de con doc ra BUOC GIA TRI.
+function topRoundRect(x, y, w, h, r) {
+  r = Math.max(0, Math.min(r, Math.abs(w) / 2, Math.abs(h)));
+  ctx.beginPath();
+  ctx.moveTo(x, y + h);
+  ctx.lineTo(x, y + r);
+  ctx.arcTo(x, y, x + r, y, r);
+  ctx.lineTo(x + w - r, y);
+  ctx.arcTo(x + w, y, x + w, y + r, r);
+  ctx.lineTo(x + w, y + h);
+  ctx.closePath();
+}
+
+// Cong thuc khoi dung CHUNG cho cube tren ray lan khoi hang trong o - hai thu nam canh
+// nhau tren man hinh nen phai doc ra cung mot chat lieu.
+// Cong so sau day la DO DAC tu anh chup game goc: doc mot cot pixel xuyen doc qua khoi,
+// tren ba khoi khac mau (xanh la, hai khoi xanh duong o hai xe khac nhau), ca ba ra cung
+// mot so do. Khoi xanh duong cao 24px: 20px mat phang 54,146,233 gan nhu khong doi mot
+// don vi, 3px lip sang 54,146,233 -> 79,172,239, roi 2px mep toi 21,49,88 -> 29,0,25.
+// Khoi xanh la cao 28px: 22px phang 68,255,32 (kenh luc ghim dung 255 suot), 3px sang len
+// 92,255,56 -> 105,255,72, roi mep toi. Day la so do, khong phai so uoc chung.
+// ⚠ KHONG CO thanh khoi toi: ban goc khong he co dai toi 22% duoi chan nhu spec cu - phan
+// toi cua ca khoi chi la mot MEP mong 9% sat day, con 11% ngay tren no la LIP SANG. Dai
+// toi duoi chan van lam moi khoi mang mot cai bong do va ca man hinh trong "nang ne".
+// ⚠ Lip o DAY KHOI SANG LEN chu khong toi di: do duoc 54,146,233 -> 79,172,239, tuc keo
+// ve trang khoang 11%. Do la anh doi tu san hoc hat len - cung ly le voi cac hoc lom
+// da co trong file.
+// ⚠ Mat tren to PHANG bang dung `col`: mau bao hoa nguyen ven, khong shade, khong
+// gradient, khong vet loe trang - kenh luc do duoc ghim 255 suot ca 22px. Vet loe la
+// phan pha dau them vao nen bo di.
+// ⚠ Khong ve hinh thang cho mat tren: cac o xep theo buoc co dinh, hinh thang lam hai goc
+// tren ho ra mot cai nem trong nhu loi ve.
+// ⚠ Chuyen tiep giua ba vung la CANH THANG: ban goc doi mau trong vong ~1px. Khong lam
+// mo, khong gradient bac cau.
+function drawBlock3D(x, y, w, h, r, col, lw) {
+  r = Math.max(0, Math.min(r, Math.abs(w) / 2, Math.abs(h) / 2));
+  const fh = h * FACE_H;
+  const lh = h * LIP_H;
+  // nen la mep toi mong: phan toi duy nhat cua khoi, chi 9% sat day
+  roundRect(x, y, w, h, r);
+  ctx.fillStyle = shade(col, -0.55);
+  ctx.fill();
+  // lip sang: dai mong ngay tren mep, cat theo net bo de khong tran ra ngoai goc
+  ctx.save();
+  roundRect(x, y, w, h, r);
+  ctx.clip();
+  ctx.fillStyle = shade(col, 0.12);
+  ctx.fillRect(x, y + fh, w, lh - fh);
+  ctx.restore();
+  // mat tren: mau nguyen ven, hai goc tren bo tron, day thang de giap lip la mot buoc gia tri
+  topRoundRect(x, y, w, fh, r);
+  ctx.fillStyle = col;
+  ctx.fill();
+  // vien ngoai mong: co vien thi thanh khoi doc ra mot CANH, khong co thi la KHOI LUONG
+  roundRect(x, y, w, h, r);
+  ctx.strokeStyle = "rgba(12,8,28,.55)";
+  ctx.lineWidth = lw;
+  ctx.stroke();
+}
+
 // Cube: mat tren sang, canh duoi toi - de doc ra mot khoi dac chu khong phai o mau.
 // Xoay tu do, vi trong ban goc chung la manh vun khong deu.
 function drawCube(wx, wy, color, rot, sz) {
@@ -757,15 +850,7 @@ function drawCube(wx, wy, color, rot, sz) {
   ctx.save();
   ctx.translate(SX(wx), SY(wy));
   ctx.rotate(rot);
-  ctx.fillStyle = shade(color, -0.3);
-  roundRect(-d / 2, -d / 2, d, d, d * 0.24);
-  ctx.fill();
-  ctx.fillStyle = color;
-  roundRect(-d / 2, -d / 2, d, d * 0.76, d * 0.24);
-  ctx.fill();
-  ctx.fillStyle = "rgba(255,255,255,.3)";
-  roundRect(-d / 2 + d * 0.15, -d / 2 + d * 0.1, d * 0.7, d * 0.25, d * 0.12);
-  ctx.fill();
+  drawBlock3D(-d / 2, -d / 2, d, d, d * 0.24, color, Math.max(1, d * 0.055));
   ctx.restore();
 }
 
@@ -778,7 +863,17 @@ function ringPath() {
 }
 
 function strokeRing(w, style) {
-  ctx.strokeStyle = style;
+  // style la mot chuoi mau, hoac {top, mid, bot} de tao gradient DOC: go noi sang o phia
+  // tren va toi o phia duoi, nen no doc ra mot thanh ray NOI CAO chu khong phai mot net ve.
+  if (typeof style === "string") {
+    ctx.strokeStyle = style;
+  } else {
+    const g = ctx.createLinearGradient(0, 0, 0, cv.height);
+    g.addColorStop(0, style.top);
+    g.addColorStop(0.5, style.mid);
+    g.addColorStop(1, style.bot);
+    ctx.strokeStyle = g;
+  }
   ctx.lineWidth = w * view.sc;
   ringPath();
   ctx.stroke();
@@ -830,15 +925,18 @@ export function draw(now) {
   ctx.lineJoin = "round";
   // san ben trong vong ray
   if (game.closed) { ctx.fillStyle = UI.inner; ringPath(); ctx.fill(); }
-  // go noi: bong do -> vien sang -> than go -> mat go sang hon -> mep ranh -> long ranh
+  // go noi: bong do -> vien sang -> than go -> mat go sang hon -> mep ranh -> long ranh.
+  // ⚠ Vien ngoai va than go dung GRADIENT doc, khong to mot mau phang: go NOI phai sang o
+  // phia tren, toi o phia duoi, neu khong no chi la mot net ve dan tren nen.
   ctx.save();
   ctx.translate(0, 0.22 * view.sc);
   strokeRing(W + 0.5, "rgba(9,5,26,.42)");
   ctx.restore();
-  strokeRing(W + 0.2, UI.rimEdge);
-  strokeRing(W, UI.rim);
-  strokeRing(W - 0.55, UI.rimLit);
-  strokeRing(GW + 0.34, UI.grooveEdge);
+  strokeRing(W + 0.18, { top: UI.rimEdge, mid: shade(UI.rim, 0.1), bot: "#372c68" });
+  strokeRing(W, { top: UI.rimLit, mid: UI.rim, bot: shade(UI.rim, -0.45) });
+  strokeRing(W - 0.5, { top: "rgba(220,212,246,.9)", mid: "rgba(150,132,204,.25)",
+                        bot: "rgba(20,12,42,.4)" });
+  strokeRing(GW + 0.34, { top: UI.grooveEdge, mid: UI.groove, bot: "rgba(210,200,240,.28)" });
   strokeRing(GW, UI.groove);
   drawMarks();
 
@@ -933,24 +1031,41 @@ function drawBay(t, now) {
   ctx.translate(SX(t.x), SY(t.y));
   ctx.rotate(ang);
 
-  // than xe
+  // than xe: mep tren sang hon than, mep duoi toi han lai, nen doc ra mot khoi co be day
   const grd = ctx.createLinearGradient(0, -w / 2, 0, w / 2);
-  grd.addColorStop(0, done ? UI.bayDone : shade(UI.bay, 0.14));
-  grd.addColorStop(1, done ? UI.bayDoneDark : UI.bayDark);
+  grd.addColorStop(0, done ? shade(UI.bayDone, 0.16) : shade(UI.bay, 0.16));
+  grd.addColorStop(1, done ? shade(UI.bayDoneDark, -0.24) : shade(UI.bayDark, -0.24));
   roundRect(-0.35 * S, -w / 2, bodyL * S + 0.5 * S, w, 0.5 * S);
   ctx.fillStyle = grd;
   ctx.fill();
-  ctx.strokeStyle = done ? "#241f45" : "#2a2158";
-  ctx.lineWidth = Math.max(1, 0.12 * S);
+  // vien ngoai mong, dam: thieu no thi than xe doc ra mot mieng giay
+  ctx.strokeStyle = done ? "rgba(10,6,26,.5)" : "rgba(14,8,34,.5)";
+  ctx.lineWidth = Math.max(1, 0.1 * S);
   ctx.stroke();
+  // vet loe mong sat mep tren - noi ro thanh xe la mot go noi cao
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(-0.35 * S, -w / 2, bodyL * S + 0.5 * S, w * 0.32);
+  ctx.clip();
+  const liftG = ctx.createLinearGradient(0, -w / 2, 0, -w / 2 + w * 0.32);
+  liftG.addColorStop(0, "rgba(255,255,255,.18)");
+  liftG.addColorStop(1, "rgba(255,255,255,0)");
+  ctx.fillStyle = liftG;
+  ctx.fillRect(-0.35 * S, -w / 2, bodyL * S + 0.5 * S, w * 0.32);
+  ctx.restore();
 
-  // o hang rong: hoc lom
+  // o hang rong: hoc LOM xuong - toi o phia TREN (bong do vao trong hoc) va sang dan ve
+  // phia DAY hoc (anh doi vao roi bat ra). Mot vet mau dam phang se doc ra cai dan.
   if (!done) {
-    ctx.fillStyle = UI.baySocket;
     for (let i = 0; i < t.cap; i++) {
       const far = bodyL - (i + 1) * SLOT_LEN;
-      roundRect(far * S + 0.08 * S, -w / 2 + 0.16 * S,
-                SLOT_LEN * S - 0.16 * S, w - 0.32 * S, 0.26 * S);
+      const sx = far * S + 0.08 * S, sw = SLOT_LEN * S - 0.16 * S;
+      const sy = -w / 2 + 0.16 * S, sh = w - 0.32 * S;
+      const sg = ctx.createLinearGradient(0, sy, 0, sy + sh);
+      sg.addColorStop(0, shade(UI.baySocket, -0.4));
+      sg.addColorStop(1, shade(UI.baySocket, 0.12));
+      roundRect(sx, sy, sw, sh, 0.26 * S);
+      ctx.fillStyle = sg;
       ctx.fill();
     }
   }
@@ -967,16 +1082,12 @@ function drawBay(t, now) {
       const show = b.seen || !b.hidden;
       const col = show ? PALETTE[b.color] || "#888" : HIDDEN_FILL;
       const y0 = -w / 2 + 0.16 * S, h = w - 0.32 * S;
-      ctx.fillStyle = shade(col, -0.28);
-      roundRect(x, y0, len, h, 0.26 * S);
-      ctx.fill();
-      ctx.fillStyle = col;
-      roundRect(x, y0, len, h * 0.76, 0.26 * S);
-      ctx.fill();
+      // cung cong thuc khoi voi cube tren ray, de hai thu doc ra cung mot chat lieu
+      drawBlock3D(x, y0, len, h, 0.26 * S, col, Math.max(1, 0.1 * S));
       // khoi o mieng co vien dam - no la khoi se roi ra neu cham
       if (i === t.blocks.length - 1 && !t.gone) {
-        ctx.strokeStyle = "rgba(0,0,0,.4)";
-        ctx.lineWidth = Math.max(1, 0.1 * S);
+        ctx.strokeStyle = "rgba(10,6,26,.62)";
+        ctx.lineWidth = Math.max(1, 0.12 * S);
         roundRect(x, y0, len, h, 0.26 * S);
         ctx.stroke();
       }
@@ -1007,10 +1118,9 @@ function drawBay(t, now) {
     const frac = t.fill / game.perBlock;
     const col = PALETTE[t.claim] || "#888";
     const y0 = -w / 2 + 0.16 * S, h = w - 0.32 * S;
-    ctx.fillStyle = shade(col, -0.2);
-    roundRect(far * S + SLOT_LEN * S * (1 - frac) + 0.08 * S, y0,
-              SLOT_LEN * S * frac - 0.16 * S, h, 0.22 * S);
-    ctx.fill();
+    const fx = far * S + SLOT_LEN * S * (1 - frac) + 0.08 * S;
+    const fw = SLOT_LEN * S * frac - 0.16 * S;
+    if (fw > 2) drawBlock3D(fx, y0, fw, h, 0.22 * S, col, Math.max(1, 0.1 * S));
   }
 
   // ⚠ Hai kieu "rong" phai nhin ra duoc ngay: ben DA GIAO XONG thi tro vinh vien, ben
