@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Loop Sort</title>
+<style>
+  /* Giao dien dung theo Game/UI_UX_RULES.md - so trong ngoac la so hieu luat, va cho nao
+     lam khac luat thi ly do ghi ngay tai cho. */
+  :root{
+    --ink:#fff8e8; --dim:#bfd5c7; --line:#729f8d;
+    --card:#345e50; --card2:#24473d; --accent:#42ad88; --accent2:#96dfba;
+    --gold:#f6c12b; --good:#2fbf5f; --bad:#ff7ba3; --warn:#ff9d3c;
+    --glass:rgba(48,65,130,.96);
+    /* (2.7) safe-area cong vao CA hai thanh, khong phai mot. */
+    --pt:calc(env(safe-area-inset-top) + 10px);
+    --pb:calc(env(safe-area-inset-bottom) + 12px);
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+  html,body{height:100%}
+  body{margin:0;background:#dce7de;color:var(--ink);overflow:hidden;
+       font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+       display:flex;align-items:center;justify-content:center}
+  /* ⚠ Ghim 480px la bo phi man hinh rong. Do tren level 3: ban co dung 92% be RONG
+     nhung chi 61% chieu CAO, tuc be rong la cai chan - layout() fit theo
+     min(w/bw, h/bh) nen noi rong khung la ban co to len ngay. Buoc theo vh chu khong
+     phai mot so co dinh: tren dien thoai min() van lay 100vw nen khong doi mot pixel,
+     con man ngan thi max(480px, ...) giu nguyen nhu cu. */
+  #frame{position:relative;width:min(100vw,max(480px,72vh));height:100%;max-height:100vh;
+         overflow:hidden;background:#1b1644}
+  #stage{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:manipulation}
+  /* ⚠ Lop phu trum kin khung hinh, nen phai cho chuot xuyen qua - neu khong #chrome
+     se nuot moi cu bam truoc khi toi canvas va khong cham duoc vao ben nao ca.
+     Chi nhung phan tu that su bam duoc moi nhan lai su kien. */
+  .layer{position:absolute;inset:0;display:flex;flex-direction:column;pointer-events:none}
+  #home,#cards{pointer-events:auto}
+  #topbar,.tools{pointer-events:auto}
+  .hide{display:none !important}
+  /* ⚠ (2.4) display:flex/grid de bep [hidden] mac dinh cua trinh duyet. Thieu dong nay
+     thi nut "an" van hien - bay im lang, khong bao loi gi ca. */
+  .tool[hidden],.ic[hidden],.hint[hidden],#levelPill em[hidden]{display:none}
+
+  /* ---------------------------------------------------------------- Home ---- */
+  .scrim{position:absolute;inset:0;
+    background:linear-gradient(180deg,rgba(16,12,38,.97) 0%,rgba(16,12,38,.66) 28%,
+               rgba(16,12,38,.42) 48%,rgba(16,12,38,.78) 74%,rgba(16,12,38,.98) 100%)}
+  .home-in{position:relative;flex:1;display:flex;flex-direction:column;
+           align-items:center;justify-content:space-between;
+           padding:calc(var(--pt) + 24px) 22px calc(var(--pb) + 18px)}
+  /* ⚠ (1.3) Khong co dong mo ta the loai duoi logo. Nguoi da mo game roi thi khong can
+     ai noi cho biet dang choi game gi; cho do de cho logo tho. */
+  .logo{margin:0;font-size:clamp(38px,13vw,58px);font-weight:900;letter-spacing:1px;
+        line-height:.94;text-align:center;color:#fff;
+        text-shadow:0 4px 0 #4a2fa8,0 9px 26px rgba(0,0,0,.55)}
+  .logo span{display:block;color:var(--gold);text-shadow:0 4px 0 #9a6b06,0 9px 26px rgba(0,0,0,.55)}
+  .home-bot{display:flex;flex-direction:column;align-items:center;gap:14px;width:100%}
+  /* ⚠ (1.1) Dung MOT nut to, khong nut nao khac cung co. (1.2) Nut mang so level chu
+     khong phai chu PLAY: "PLAY" la loi moi bat dau, "LEVEL 37" la loi moi TIEP TUC va
+     no tra loi luon cau "minh dang o dau roi" truoc khi nguoi choi kip hoi. */
+  .big{width:min(320px,86%);padding:19px 20px;border:0;border-radius:20px;cursor:pointer;
+       background:linear-gradient(180deg,#8d6bff,#6a45e0);color:#fff;
+       font:900 24px/1 system-ui;letter-spacing:1.4px;
+       box-shadow:0 6px 0 #4a2fa8,0 14px 30px rgba(0,0,0,.45)}
+  .big:active{transform:translateY(3px);box-shadow:0 3px 0 #4a2fa8}
+  .big small{display:block;margin-top:8px;font:700 12px/1 system-ui;
+             letter-spacing:1.2px;opacity:.8;text-transform:uppercase}
+  .big:disabled{opacity:.55;cursor:default}
+  /* (1.7) Vi nam DUOI nut chinh: tren Home tien la thong tin, khong phai cong cu.
+     (1.4) Khong co nut nao xoa tien do tren man nay - no nam trong bang dev. */
+
+  /* ---------------------------------------------------------------- xu ------ */
+  .coin{display:inline-flex;align-items:center;gap:7px;padding:6px 13px 6px 7px;
+        border-radius:999px;background:var(--glass);border:1px solid var(--line);
+        font-weight:800;font-size:15px}
+  .coin::before{content:"";width:21px;height:21px;border-radius:50%;flex:none;
+        background:radial-gradient(circle at 34% 30%,#ffe89a,var(--gold) 62%,#b98708);
+        box-shadow:inset 0 -2px 3px rgba(0,0,0,.3)}
+  .coin.sm{font-size:14px;padding:5px 11px 5px 6px}
+  .coin.sm::before{width:18px;height:18px}
+
+  /* ------------------------------------------------------------- HUD -------- */
+  /* ⚠ (2.1) Toi da 4 vat the: ve nha · choi lai · the level · vi. Them cai thu nam thi
+     phai bo mot cai. O dem cube tren ray khong tinh vao day - no ve trong canvas, dinh
+     vao ban co chu khong vao thanh nay (drawHud trong loopsort.js). */
+  #topbar{position:relative;display:flex;align-items:center;justify-content:space-between;
+          padding:var(--pt) 12px 8px}
+  .grp{display:flex;align-items:center;gap:7px}
+  /* (2.6) Vung cham >= 44px. Duoi nguong do la cham truot tren dien thoai. */
+  .ic{width:46px;height:46px;flex:none;border-radius:15px;border:1px solid var(--line);
+      background:var(--glass);color:var(--ink);display:grid;place-items:center;cursor:pointer}
+  .ic svg{width:22px;height:22px;display:block}
+  .ic:active{transform:translateY(2px)}
+  /* ⚠ (2.2) Ghim giua bang absolute chu khong phai hai spacer flex: hai nhom trai/phai
+     luon khac be ngang nen spacer se lam the level lech, va lech khac nhau o moi may. */
+  .mid{position:absolute;left:50%;top:calc(var(--pt) + 23px);transform:translate(-50%,-50%)}
+  #levelPill{display:flex;align-items:center;gap:6px;height:34px;padding:0 12px;
+             border-radius:17px;background:var(--glass);border:1px solid var(--line);
+             font-weight:800;font-size:15px;white-space:nowrap}
+  #levelPill .lbl{color:var(--dim);font-size:13px;font-weight:700}
+  /* ⚠ (2.8) Nhan do kho chi bat o level kho that - nhan dan len moi man thi khong con la
+     thong tin. Va khi bat thi no THAY CHO chu "Level" chu khong chen them be ngang: o
+     360px thanh tren khong con cho de chen. */
+  #levelPill.tagged .lbl{display:none}
+  #levelPill em{font-style:normal;font-size:10px;font-weight:900;letter-spacing:.5px;
+                padding:3px 7px;border-radius:8px;background:var(--warn);color:#3a1c00}
+  #levelPill.sh em{background:var(--bad);color:#4a0418}
+  /* ⚠ O dem gop LUON vao the level tren dai HUD, khong con dung rieng mot dong duoi. Mot dong
+     rieng an gan 60px chieu cao, ma chieu cao chinh la thu camera dung de phong to ban co -
+     tuc no tra gia bang kich thuoc cua vali va khay, dung cho vua bi bao la nho qua. */
+  #levelPill .sep{width:1px;height:17px;background:#ffffff3d;margin:0 3px}
+  #levelPill .bagIcon{position:relative;width:16px;height:13px;flex:none;border:2px solid #ffcf25;
+                      border-radius:4px;background:#ffcf25}
+  #levelPill .bagIcon::before{content:"";position:absolute;left:3px;top:-6px;width:7px;height:4px;
+                      border:2px solid #ffcf25;border-bottom:0;border-radius:4px 4px 0 0}
+  #levelPill #hudBags{font-variant-numeric:tabular-nums}
+  #levelPill.full{background:#8d183f;border-color:#ff7ba3}
+  #levelPill.warning #hudBags{color:#ffd6e2}
+  #beltGauge[hidden]{display:none}
+
+  /* ------------------------------------------------------------ booster ----- */
+  /* ⚠ (2.3) Thu bac kich thuoc = thu bac y dinh: booster 58px o thanh duoi, duong thoat
+     (ve nha / choi lai) 46px o thanh tren. Duong thoat khong phai mot nuoc di, nen no
+     phai nho hon mot co de khong bao gio trong nhu thu dang voi tay toi truoc. */
+  .tools{position:absolute;left:0;right:0;bottom:0;display:flex;gap:9px;
+         align-items:center;justify-content:center;padding:10px 12px var(--pb)}
+  .tool{position:relative;width:58px;height:58px;border-radius:18px;cursor:pointer;
+        border:1px solid var(--line);background:var(--glass);color:var(--ink);
+        display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px}
+  .tool svg{width:23px;height:23px;display:block}
+  .tool.on{background:linear-gradient(180deg,#8d6bff,#6a45e0);border-color:#a78bff}
+  .tool.on .l{color:#efe9ff}
+  /* ⚠ (3.5) Khong dung duoc thi mo di, dung de bam roi bao loi. Bao loi sau khi cham la
+     trung phat nguoi choi vi mot chuyen minh da biet truoc. */
+  /* ⚠ Mo icon va nhan, KHONG mo ca nut: cai badge gia phai con doc duoc o day (2.5), vi
+     no chinh la ly do nut nay dang mo. Mo ca cum thi nguoi choi thay mot nut chet khong
+     ly do, va se cham thu lai. */
+  .tool:disabled{cursor:default;border-color:rgba(74,63,134,.45);background:rgba(30,24,72,.7)}
+  .tool:disabled svg{opacity:.28}
+  .tool:not(:disabled):active{transform:translateY(2px)}
+  .tool .n{position:absolute;right:-5px;top:-5px;min-width:21px;height:21px;border-radius:11px;
+           background:var(--good);color:#06280f;font:800 11px/21px system-ui;text-align:center;
+           padding:0 5px;border:2px solid #16123a}
+  /* ⚠ (2.5) Het luot thi badge doi thanh GIA, hien san tren icon - khong bat nguoi choi
+     bam roi moi biet minh khong du tien. Cham vang + dau xu de khong doc nham gia thanh
+     "con 800 luot". */
+  .tool .n.buy{background:var(--gold);color:#3d2500;display:inline-flex;align-items:center;
+               gap:3px;padding:0 6px 0 4px;font-size:10px}
+  .tool .n.buy::before{content:"";width:11px;height:11px;border-radius:50%;flex:none;
+               background:radial-gradient(circle at 34% 30%,#fff3c4,#e9a209 70%)}
+  .hint{position:absolute;left:0;right:0;bottom:calc(var(--pb) + 80px);text-align:center;
+        font-size:13px;color:var(--accent2);pointer-events:none}
+  .hint span{background:rgba(30,23,72,.94);border:1px solid var(--line);
+        padding:7px 14px;border-radius:999px}
+
+  /* --------------------------------------------------------------- the ------ */
+  #cards{align-items:center;justify-content:center;background:rgba(10,7,28,.72);
+         backdrop-filter:blur(2px)}
+  /* ⚠ (3.10) Be ngang theo noi dung: 370 cho bang ket qua, 430 cho canh bao can doc ngay
+     (.warn), va hep hon nua cho cau hoi mot dong (.ask). */
+  .card{width:min(370px,88%);background:linear-gradient(180deg,var(--card),var(--card2));
+        border:1px solid var(--line);border-radius:26px;padding:24px 22px 20px;
+        text-align:center;box-shadow:0 22px 60px rgba(0,0,0,.6);
+        animation:pop .26s cubic-bezier(.2,1.4,.5,1)}
+  .card.warn{width:min(430px,92%);border-color:#7a3560;
+             animation:pop .26s cubic-bezier(.2,1.4,.5,1),jolt .62s .22s}
+  .card.warn h2{color:var(--bad)}
+  .card.ask{width:min(330px,86%)}
+  /* ⚠ `pop` chi dong TRANSFORM, khong dong opacity. Mot the dang hien ma mo trong suot o
+     khung hinh dau tien thi khi trinh duyet nghen (WebGL bien dich shader dung luc the bat
+     ra, may yeu, hoac tab vua duoc hien lai) no dung yen o 0% - tuc mot the VO HINH nam
+     chan het man hinh. Do la dung cai loi da bat gap khi chup man hinh: the co that, dung
+     cho, computed opacity 0, animation "running" sau 600ms cua mot hoat hinh dai 260ms.
+     Phong to len thi neu hoat hinh khong chay duoc, the van hien - chi la khong nay. */
+  @keyframes pop{from{transform:scale(.84)}to{transform:scale(1)}}
+  /* ⚠ (3.6) Canh bao duoc phep giat mot cai roi dung yen; panel thuong thi khong. */
+  @keyframes jolt{0%,100%{transform:translateX(0)}
+    12%{transform:translateX(-7px)}28%{transform:translateX(6px)}
+    44%{transform:translateX(-4px)}62%{transform:translateX(3px)}80%{transform:translateX(-1px)}}
+  @media (prefers-reduced-motion:reduce){
+    .card,.card.warn{animation:none}
+    .stars i{transition:none}
+  }
+  .card h2{margin:0 0 4px;font-size:25px;font-weight:900;letter-spacing:.6px}
+  .card .sub{color:var(--dim);font-size:13px;margin-bottom:14px}
+  .stars{display:flex;justify-content:center;gap:12px;margin:6px 0 16px;font-size:40px}
+  .stars i{font-style:normal;color:#3a3170;transform:scale(.7);opacity:.5;
+           transition:.3s cubic-bezier(.2,1.5,.5,1)}
+  .stars i.on{color:var(--gold);transform:scale(1);opacity:1;
+              text-shadow:0 0 18px rgba(246,193,43,.6)}
+  .reward{display:flex;align-items:center;justify-content:center;gap:9px;
+          margin:0 0 6px;font-size:22px;font-weight:900;color:var(--gold)}
+  .reward .coin{font-size:20px;background:none;border:0;padding:0}
+  /* (3.9) Phan thuong noi o ca hai dau: nhan KHO tren the level luc choi, va lai o day
+     dung cho tra tien. */
+  .rwhy{margin:0 0 16px;font-size:11px;font-weight:800;letter-spacing:.6px;color:var(--warn)}
+  .rwhy.sh{color:var(--bad)}
+  .stat{display:flex;justify-content:space-between;font-size:13px;color:var(--dim);
+        padding:5px 4px;border-top:1px solid rgba(255,255,255,.07)}
+  .stat b{color:var(--ink);font-weight:700}
+  /* ⚠ (3.3 + 3.4) Goi y bang icon CUA CHINH THU DO, va icon ay phai bam duoc lam luon
+     viec no noi. Mot panel chi tro duong roi bat tu di tim nut la panel thua - nen day
+     dung dung artwork cua thanh booster, tro vao nhung nut nguoi choi da quen. */
+  .ways{display:flex;gap:8px;justify-content:center;margin:12px 0 2px}
+  .way{position:relative;width:70px;padding:9px 4px 7px;border-radius:16px;cursor:pointer;
+       border:1px solid var(--line);background:rgba(22,17,58,.9);color:var(--ink);
+       display:flex;flex-direction:column;align-items:center;gap:5px}
+  .way svg{width:22px;height:22px;display:block}
+  .way .l{font-size:9px;color:var(--dim);line-height:1.1;text-align:center}
+  .way:disabled{cursor:default;border-color:rgba(74,63,134,.45);background:rgba(18,14,48,.7)}
+  .way:disabled svg,.way:disabled .l{opacity:.28}
+  .way:not(:disabled):active{transform:translateY(2px)}
+  .way .n{position:absolute;right:-4px;top:-6px;min-width:19px;height:19px;border-radius:10px;
+          background:var(--good);color:#06280f;font:800 10px/19px system-ui;text-align:center;
+          padding:0 4px;border:2px solid #241d53}
+  .way .n.buy{background:var(--gold);color:#3d2500}
+  .waysLbl{margin:16px 0 0;font-size:11px;letter-spacing:1px;color:var(--dim);
+           text-transform:uppercase;font-weight:800}
+  .btn{width:100%;margin-top:12px;padding:14px;border:0;border-radius:16px;cursor:pointer;
+       font:900 17px/1 system-ui;letter-spacing:.8px;
+       background:linear-gradient(180deg,#8d6bff,#6a45e0);color:#fff;
+       box-shadow:0 5px 0 #4a2fa8}
+  .btn:not(:disabled):active{transform:translateY(2px);box-shadow:0 3px 0 #4a2fa8}
+  /* ⚠ (3.8) Duong tu choi mien phi phai NGANG HANG: cung be ngang, cung co chu, chi khac
+     mau. Lam nut tu choi be di la thu doan, va nguoi choi nhan ra. (3.11) Mot panel mot
+     hanh dong chinh - moi nut con lai la ghost. */
+  .btn.ghost{background:none;border:1px solid var(--line);color:var(--dim);box-shadow:none}
+  .btn.gold{background:linear-gradient(180deg,#ffd45e,#e9a209);color:#3d2500;
+            box-shadow:0 5px 0 #9a6b06}
+  .btn:disabled{opacity:.3;cursor:default;box-shadow:none;transform:none}
+  .row2{display:flex;gap:10px}
+  .row2 .btn{margin-top:10px}
+  .banner{margin:2px 0 14px;padding:8px 12px;border-radius:12px;font-size:13px;
+          background:rgba(124,92,255,.18);border:1px solid var(--line);color:var(--accent2)}
+  .price{display:inline-flex;align-items:center;gap:6px}
+  .price::before{content:"";width:17px;height:17px;border-radius:50%;flex:none;
+        background:radial-gradient(circle at 34% 30%,#fff3c4,#e9a209 70%);
+        box-shadow:inset 0 -1px 2px rgba(0,0,0,.35)}
+
+  /* --------------------------------------------------------------- dev ------ */
+  #devBtn{position:fixed;left:8px;bottom:8px;z-index:9;opacity:.35;font-size:11px;
+          background:#2b2360;color:#cfc7f5;border:1px solid #4a3f86;border-radius:8px;
+          padding:3px 8px;cursor:pointer}
+  #dev{position:fixed;left:8px;bottom:38px;width:330px;max-height:64vh;overflow:auto;
+       z-index:9;background:#1d1746;border:1px solid #4a3f86;border-radius:12px;
+       padding:12px;font-size:12px;color:#cfc7f5}
+  #dev h3{margin:0 0 8px;font-size:11px;letter-spacing:.7px;color:#8f86c6;text-transform:uppercase}
+  #dev code{display:block;background:#150f38;padding:6px;border-radius:6px;
+            word-break:break-all;margin:4px 0 10px;font-size:11px}
+  .kv{display:grid;grid-template-columns:auto 1fr;gap:2px 10px}
+  .kv b{color:#8f86c6;font-weight:500}
+  /* Keep keyboard focus visible and respect reduced-motion preferences. */
+  button:focus-visible{outline:3px solid #e9ad3e;outline-offset:4px}
+  @media(prefers-reduced-motion:reduce){.card.warn{animation:none}}
+
+  /* Saturated toy-puzzle palette: deep indigo stage, electric violet and sunny gold. */
+  :root{--ink:#fff9e8;--dim:#d1c5ff;--line:#a987ff;--card:#3b2a85;--card2:#30216e;--accent:#ffcb2f;--accent2:#b89aff;--glass:#352476;--bad:#ff4167}
+  body,#frame{background:linear-gradient(145deg,#21194f,#30216e 58%,#191542)}
+  #frame:has(#home:not(.hide)) canvas{visibility:hidden}
+  .scrim{background:radial-gradient(ellipse at 50% 32%,#7049bf66,transparent 54%),radial-gradient(circle at 16% 24%,#bba0ff55 0 4px,transparent 6px),radial-gradient(circle at 84% 38%,#f6d65c66 0 5px,transparent 7px),radial-gradient(circle at 76% 76%,#8f72ff55 0 4px,transparent 6px),linear-gradient(180deg,#21194f 0%,#30216e 65%,#191542 100%)}
+  .home-in{justify-content:center;gap:clamp(52px,10vh,96px);padding-top:calc(var(--pt) + 18px);padding-bottom:calc(var(--pb) + 22px)}
+  .home-in>div:first-child{display:flex;flex-direction:column;align-items:center}
+  .logo{font-family:"Trebuchet MS",system-ui;font-size:clamp(44px,12vw,62px);letter-spacing:-2px;color:#fff;text-shadow:0 4px 0 #5933a2,0 7px 0 #16103d;transform:rotate(-3deg)}
+  .logo span{color:#ffdc38;text-shadow:0 4px 0 #bd741c,0 7px 0 #16103d}
+  .home-suitcase{display:block;position:relative;width:112px;height:84px;margin:30px auto 0;transform:rotate(5deg);border:5px solid #f5cc49;border-radius:27px;background:linear-gradient(90deg,#ff3f4e 0 18%,#ff782d 18% 85%,#e92878 85%);box-shadow:0 8px 0 #94306f,0 14px 24px #100b3855,inset 0 -7px 0 #b72d52}
+  .home-suitcase .wheel{position:absolute;bottom:-19px;width:18px;height:19px;border:3px solid #f7d44d;border-radius:7px;background:#6842c2;box-shadow:0 3px 0 #31206d}
+  .home-suitcase .wheel.left{left:13px}.home-suitcase .wheel.right{right:13px}
+  .home-suitcase::before{content:"";position:absolute;width:40px;height:24px;left:31px;top:-31px;border:8px solid #f5cc49;border-bottom:0;border-radius:14px 14px 0 0;filter:drop-shadow(0 3px 0 #94306f)}
+  .home-suitcase::after{content:"✦";position:absolute;right:12px;top:20px;display:grid;place-items:center;width:34px;height:34px;border-radius:12px;background:#ffdc38;color:#8e32a5;font-size:25px;box-shadow:0 3px 0 #bd741c}
+  .home-bot{margin:0}
+  .big,.btn:not(.ghost):not(.gold){background:linear-gradient(#ffe34f,#ffb91f);color:#513071;border:2px solid #fff1a6;box-shadow:0 6px 0 #a85827,0 10px 20px #09062666}
+  .ic{color:#fff;background:#5132a5;border:2px solid #b89aff;box-shadow:0 4px 0 #28185e}
+  .coin{color:#573477;background:#ffdf45;border:2px solid #fff3a6;box-shadow:0 3px 0 #a85827}
+  #beltGauge{background:#352476;color:#fff;border:3px solid #a987ff;box-shadow:0 5px 0 #1c144d,0 8px 18px #09062666;border-radius:21px}
+  #topbar{min-height:104px;align-items:flex-start}
+  #beltGauge{position:absolute;top:calc(var(--pt) + 54px);left:50%;transform:translateX(-50%);display:flex;align-items:center;justify-content:center;gap:9px;min-width:112px;height:48px;padding:5px 11px;white-space:nowrap;font-size:25px;font-weight:900}
+  #beltGauge i{background:#ffcf25;box-shadow:inset 0 3px #fff18a,inset 0 -3px #d66a28}
+  #beltGauge i{position:relative;width:21px;height:17px;border:2px solid #fff;border-radius:5px}
+  #beltGauge i::before{content:"";position:absolute;width:8px;height:5px;left:4px;top:-7px;border:2px solid #fff;border-bottom:0;border-radius:5px 5px 0 0}
+  #beltGauge.warning{background:#ef2852;color:#fff;border-color:#ffc2d1;box-shadow:0 5px 0 #8d183f}
+  #levelPill.mid{background:#4b32a0;color:white;border:2px solid #ad91ff;box-shadow:0 3px 0 #251756}#levelPill .lbl{color:#eee6ff}
+  #levelPill.mid{top:calc(var(--pt) + 22px);height:29px;font-size:14px}
+  #topbar .grp{gap:4px}.ic{width:44px;height:44px}
+  .tools{gap:12px;background:linear-gradient(transparent,#16103d88 82%)}
+  .tool{width:72px;height:72px;padding:0;border:2px solid #ffffffbd;border-radius:20px;color:#fff;gap:5px;box-shadow:0 4px 0 #24184f,inset 0 2px 0 #ffffff55}
+  .tool[data-b="Undo"]{background:linear-gradient(155deg,#ff718e,#df315f);box-shadow:0 4px 0 #922244,inset 0 2px 0 #ffffff55}
+  .tool[data-b="Shuffle"]{background:linear-gradient(155deg,#36e3d1,#078cae);box-shadow:0 4px 0 #075675,inset 0 2px 0 #ffffff55}
+  .tool[data-b="ConveyorCapacity"]{background:linear-gradient(155deg,#51c8ff,#485be8);box-shadow:0 4px 0 #293293,inset 0 2px 0 #ffffff55}
+  .tool[data-b="Capacity"]{background:linear-gradient(155deg,#ffc247,#ef6d35);box-shadow:0 4px 0 #9e3d28,inset 0 2px 0 #ffffff55}
+  .tool svg{width:48px;height:48px;padding:0;border-radius:0;background:none;color:#fff;
+            filter:drop-shadow(0 2px 0 rgba(20,12,48,.35))}
+  .tool .n,.way .n{background:#32d85a;color:#fff;border:2px solid #eaffb0;min-width:23px;height:23px;line-height:19px;top:-7px;right:-7px;box-shadow:none}
+  .tool:disabled{filter:saturate(.48) brightness(.78);border-color:#ffffff80}.tool:disabled svg{opacity:.72}
+  .tool.on{border-color:#fff073;outline:2px solid #ffd53d;outline-offset:2px;filter:brightness(1.08)}
+  /* ⚠ Hang "cach go" tren the RAY TAC thi GIU chu duoi icon: o do icon dung mot minh,
+     ngoai thanh booster ma nguoi choi da quen, va panel do ton tai de giai thich. */
+  .way{background:#087eae;border-color:#ffcf2e}.way .l{color:#fff}
+  .card{border:3px solid #a987ff;box-shadow:0 12px 0 #100b3855,0 20px 50px #09062699}
+  .hint span{background:#ffdf45;color:#513071;border:2px solid #fff3a6}
+  .big{border-radius:24px}.coin{border-radius:999px}
+  .tool:active,.big:active{filter:brightness(1.08)}
+  @media(max-width:380px){.tools{gap:8px;padding-left:8px;padding-right:8px}.tool{width:64px;height:64px}.tool svg{width:43px;height:43px}}
+  .sound-toggle{position:absolute;z-index:8;right:12px;top:calc(var(--pt) + 52px);width:44px;height:44px;
+    padding:0;display:grid;place-items:center;border-radius:15px;cursor:pointer;
+    color:#fff;background:#5132a5;border:2px solid #b89aff;box-shadow:0 4px 0 #28185e}
+  .sound-toggle svg{width:22px;height:22px}
+  /* ---------------------------------------------------------- the RAY TAC --- */
+  /* ⚠ (3.7) Cho XEM cai tac chu dung ta no: dai nay mang dung mau dang nam tren ray, don
+     ve phia mot cai chan va bi don lai. Hoat hinh la mot vong: ca dai bi day toi, cham
+     chan, khoi dau bi nen lai roi song do doi nguoc ve cuoi hang (moi khoi lech pha bang
+     animation-delay AM, dat inline theo vi tri). Do la hinh anh cua mot cai tac - khong
+     phai mot cai gi do nhap nhay de gay chu y. */
+  .jamRail{position:relative;display:flex;align-items:center;height:54px;overflow:hidden;
+           margin:14px 0 2px;padding:8px 24px 8px 10px;border-radius:14px;
+           background:#1b1442;border:2px solid #3a2d7a}
+  .jamRun{display:flex;gap:4px;animation:jamShove 1.5s cubic-bezier(.3,0,.2,1) infinite}
+  .jamRun i{width:30px;height:30px;flex:none;border-radius:8px;
+            box-shadow:inset 0 -3px rgba(0,0,0,.28),inset 0 3px rgba(255,255,255,.3);
+            animation:jamBump 1.5s cubic-bezier(.3,0,.2,1) infinite}
+  .jamStop{position:absolute;right:9px;top:7px;bottom:7px;width:8px;border-radius:5px;
+           background:#ff7ba3;animation:jamHit 1.5s ease-out infinite}
+  @keyframes jamShove{0%{transform:translateX(-16px)}
+    38%,100%{transform:translateX(0)}44%{transform:translateX(-4px)}52%{transform:translateX(0)}}
+  @keyframes jamBump{0%,32%{transform:scaleX(1)}40%{transform:scaleX(.88)}48%,100%{transform:scaleX(1)}}
+  @keyframes jamHit{0%,36%{box-shadow:0 0 0 0 rgba(255,123,163,.55)}
+    48%{box-shadow:0 0 0 8px rgba(255,123,163,0)}100%{box-shadow:0 0 0 0 rgba(255,123,163,0)}}
+  /* (checklist) prefers-reduced-motion cho moi hoat hinh lap: dong hang van doc ra la bi
+     don chat, chi khong nhuc nhich. */
+  @media (prefers-reduced-motion:reduce){
+    .jamRun,.jamRun i,.jamStop{animation:none}
+  }
+</style>
+  <script type="module" crossorigin src="../../assets/loopsort-D7hWKHRB.js"></script>
+  <link rel="modulepreload" crossorigin href="../../assets/modulepreload-polyfill-B5Qt9EMX.js">
+</head>
+<body>
+<div id="frame">
+  <canvas id="stage"></canvas>
+
+  <div id="home" class="layer">
+    <div class="scrim"></div>
+    <div class="home-in">
+      <div><h1 class="logo">LOOP<span>SORT</span></h1><div class="home-suitcase" aria-hidden="true"><i class="wheel left"></i><i class="wheel right"></i></div></div>
+      <div class="home-bot">
+        <button id="btnPlay" class="big">LEVEL <b id="homeLv">1</b><small id="homeArea"></small></button>
+        <div class="coin" id="homeCoins">0</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="chrome" class="layer hide">
+    <div id="topbar">
+      <div class="grp">
+        <button id="btnHome" class="ic" title="Về nhà" aria-label="Về nhà"></button>
+        <button id="btnRetry" class="ic" title="Chơi lại" aria-label="Chơi lại"></button>
+      </div>
+      <div id="levelPill" class="mid"><span class="lbl">Level</span><em hidden></em><b id="hudLv">1</b><span class="sep"></span><i class="bagIcon" aria-hidden="true"></i><b id="hudBags">0 / 8</b></div>
+      <div class="coin sm" id="gameCoins">0</div>
+    </div>
+    <div id="beltGauge" hidden aria-hidden="true"><i></i><b>0 / 7</b></div>
+    <div id="hint" class="hint" hidden></div>
+    <div id="tools" class="tools"></div>
+  </div>
+
+  <div id="cards" class="layer hide"></div>
+  <button id="btnSound" class="sound-toggle" type="button" aria-label="Tắt âm thanh" aria-pressed="true"></button>
+</div>
+
+<button id="devBtn">dev</button>
+<aside id="dev" class="hide"></aside>
+
+</body>
+</html>
