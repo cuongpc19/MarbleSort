@@ -322,12 +322,14 @@ const TIGHTEN = TRIM_RIM + TRIM_PANEL;
 // pitch 71) or a wider neck (breaks the single-file queue). Every other rearrangement — one
 // segment, two, a shoulder and a cone — comes out at exactly the same number.
 //
-// ⚠ **A chute this shallow only drains because the walls are near-frictionless.** At Matter's
-// stock friction the sliding floor was real — measured: at 22.5° marbles strung out along the
-// slope and never reached the neck, which is why this file used to insist on 33°. The walls and
-// marbles now run friction 0.02 / frictionStatic 0.05 (`GameScene`), which is what lets the ~13°
-// bottom of the bowl keep feeding; the price is that the last stretch is slow, and
-// `CHUTE_STARVE_MS` over there is the backstop for a marble that parks anyway.
+// ⚠ **A chute this shallow only drains because the walls are FRICTIONLESS.** At Matter's stock
+// friction the sliding floor was real — measured: at 22.5° marbles strung out along the slope and
+// never reached the neck, which is why this file used to insist on 33°. "Near-frictionless"
+// (0.008 / 0.02) was not enough either: Matter accumulates the friction impulse on a slow contact
+// step after step until it balances gravity, so a marble on the ~17° bottom crept at 1-2 px/step
+// and took 1.7 s to reach the throat — the note on `GameScene.dropMarble` has the trace. The walls
+// and marbles run friction 0 now; `CHUTE_STARVE_MS` over there is still the backstop for a marble
+// that parks anyway.
 /**
  * Chord slope of the chute walls, from horizontal. The bowl curves through it — ~83° at the mouth
  * easing to ~13° at the throat with the current `CB` — so no single stretch of wall sits at this
@@ -1365,13 +1367,18 @@ export function funnelSide(side: -1 | 1, steps = 48): Array<{ x: number; y: numb
    * segment angles of the polyline itself, and mind the *length* of the shallow stretch, not just
    * its minimum.
    *
-   * At 24° with this pair the profile runs **82.8° at the mouth down to 13.2°** at the throat,
+   * At 24° the shipped pair, 0.02 / 0.49, ran **82.8° at the mouth down to 13.2°** at the throat,
    * peaking 18px off the chord, with no flat spot and no ledge — the 0.32/0.95 defect above put a
-   * 6° shelf over the drain line, and that shelf is what rafted. The shallow bottom is livable now
-   * for the reason the `FUNNEL_ANGLE` banner gives: the walls are near-frictionless, so marbles
-   * crawl across it instead of parking, and `CHUTE_STARVE_MS` catches the one that parks anyway.
+   * 6° shelf over the drain line, and that shelf is what rafted.
+   *
+   * ⚠ **0.30 since 2026-09-07, for "bi lăn xuống từ thành phễu xuống cổ phễu vẫn chậm quá".** The
+   * bottom of that bowl was 117px of wall under 20° and 51px under 15°, and gravity along a 13°
+   * slope is 0.07 px/step² (Matter's gravity is 0.29 px/step², not 1.05). This pair runs **77.5°
+   * at the mouth to 17.7° at the throat**, 91px under 20° and nothing under 15°, sag 10.7px — less
+   * bowl, still a bowl, and the steep mouth the swing depends on is kept. It went in together with
+   * the friction going to zero, which is the larger of the two; see `GameScene.dropMarble`.
    */
-  const CB = { a: 0.02, b: 0.49 };
+  const CB = { a: 0.02, b: 0.3 };
   const out: Array<{ x: number; y: number }> = [{ x: mx, y: top }];
   for (let i = 1; i <= steps; i++) {
     const t = i / steps, u = 1 - t;

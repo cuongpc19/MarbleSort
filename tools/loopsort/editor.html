@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Loop Sort — editor level</title>
+<style>
+/* Cong cu ban lam viec tren man hinh to, nen KHONG bam luat portrait cua game. Day la ly do
+   no la mot trang rieng chu khong phai mot che do cua index.html: hai thu khac han ve bo cuc,
+   va nhet ca hai vao mot trang thi moi luat layout cua game deu phai co them mot nhanh "khi
+   dang sua". */
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;font:13px/1.45 system-ui,Segoe UI,Roboto,sans-serif;
+  background:#191633;color:#e9e6ff}
+#ed{display:grid;grid-template-columns:1fr 360px;height:100%}
+#plan{position:relative;background:#13112a}
+#plan canvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#side{display:flex;flex-direction:column;border-left:1px solid #322c63;min-height:0}
+.pane{padding:10px 12px;border-bottom:1px solid #322c63}
+.pane h3{margin:0 0 8px;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#9d95d8}
+/* ⚠ Bang khay phai la thu DUOC UU TIEN chieu cao, vi no la thu duy nhat dai ra theo level:
+   mot bàn 12 khay cao gap bon lan bàn 3 khay. De no chung mot the "pane" voi cac o co dinh thi
+   no bi ep xuong con mot dong va nguoi sua phai cuon trong mot khe 90px. */
+#lanes{overflow:auto;flex:1 1 auto;min-height:240px}
+label{display:inline-flex;align-items:center;gap:6px;margin-right:10px}
+input[type=number]{width:66px}
+input,select,button{font:inherit;background:#241f4d;color:#e9e6ff;border:1px solid #3d3676;
+  border-radius:7px;padding:5px 8px}
+button{cursor:pointer}
+button:hover{background:#2f2963}
+button.primary{background:#4b39b8;border-color:#6a55e0}
+button.warn{background:#7a2b46;border-color:#a8395e}
+button:disabled{opacity:.45;cursor:default}
+.row{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:7px}
+.lane{border:1px solid #322c63;border-radius:9px;padding:6px 7px;margin-bottom:6px}
+.lane.sel{border-color:#8b79ff;background:#221d4a}
+.lane .hd{display:flex;align-items:center;gap:6px;margin-bottom:5px}
+.lane .hd b{font-size:14px;width:16px}
+.chips{display:flex;gap:4px;flex-wrap:wrap}
+.chip{width:26px;height:26px;border-radius:7px;border:2px solid #0003;cursor:pointer;
+  position:relative}
+.chip.hid::after{content:"?";position:absolute;inset:0;display:grid;place-items:center;
+  color:#fff;font-weight:700;text-shadow:0 1px 2px #0008}
+.chip.add{background:#241f4d;border:1px dashed #5b52a8;color:#9d95d8;display:grid;
+  place-items:center;font-size:16px}
+.sw{width:22px;height:22px;border-radius:6px;border:2px solid #0003;cursor:pointer}
+.sw.on{outline:2px solid #fff}
+#msgs div{padding:3px 0;border-top:1px solid #2a2550}
+#msgs div:first-child{border-top:0}
+.bad{color:#ff9aa8}.ok{color:#8ee6a8}.warn2{color:#ffd68a}
+#frame{position:relative;height:230px;flex:0 0 230px;background:#0d0b1e;overflow:hidden}
+.pane{flex:0 0 auto}
+#chrome{display:none}
+#tip{position:absolute;left:10px;bottom:8px;color:#7b73b4;font-size:11px;pointer-events:none}
+</style>
+</head>
+<body>
+<div id="ed">
+  <div id="plan">
+    <canvas id="cv"></canvas>
+    <div id="tip">Kéo để di chuyển · nhấp nền (chế độ Ray) để chèn đỉnh · Delete để xoá</div>
+  </div>
+
+  <div id="side">
+    <div class="pane">
+      <h3>Level</h3>
+      <div class="row">
+        <label>Số <input type="number" id="lvNum" min="1" value="1"></label>
+        <button id="open">Mở</button>
+        <button id="play">Chơi thử</button>
+      </div>
+      <div class="row">
+        <label>Chỗ trên ray <input type="number" id="slot" min="1" max="40"></label>
+        <label><input type="checkbox" id="closed"> Ray kín</label>
+      </div>
+      <div class="row">
+        <label>Chế độ
+          <select id="tool">
+            <option value="dock">Khay / bến</option>
+            <option value="rail">Đường ray</option>
+          </select>
+        </label>
+        <button id="fit">Vừa khung</button>
+      </div>
+    </div>
+
+    <div class="pane" id="lanes"><h3>Khay và màu</h3><div id="laneList"></div>
+      <div class="row"><button id="addLane">+ Thêm khay</button></div>
+    </div>
+
+    <div class="pane">
+      <h3>Kiểm tra</h3>
+      <div id="msgs"></div>
+    </div>
+
+    <div class="pane">
+      <div class="row">
+        <button class="primary" id="save">Lưu vào bộ level</button>
+        <button id="export">Xuất JSON</button>
+        <button class="warn" id="revert">Bỏ sửa</button>
+      </div>
+      <div class="row" id="saveInfo" style="color:#9d95d8"></div>
+    </div>
+
+    <!-- ⚠ fitCamera cua three3d doc #chrome/#topbar/#tools. Trang nay khong co HUD, nen
+         #chrome mang san class `hide` de no tinh vung an toan la ca khung xem truoc. -->
+    <div id="frame"><div id="chrome" class="hide"></div></div>
+  </div>
+</div>
+<script type="module" src="./editor.js"></script>
+</body>
+</html>

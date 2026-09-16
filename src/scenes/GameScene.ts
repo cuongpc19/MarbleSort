@@ -173,6 +173,8 @@ interface Falling {
   color: Color;
   /** When this marble was last seen moving — the anti-stall nudge's clock. See `STALL_MS`. */
   stillSince?: number;
+  /** When it came loose from its tray, while the pour's pop is still running. See `POP_SCALE`. */
+  born?: number;
 }
 
 /**
@@ -189,6 +191,9 @@ interface Falling {
  * has nothing under it but slope, so the seal breaks and gravity does the rest. Well under the
  * 4s starve backstop, so the gentle fix always gets to act first — the backstop *flies* the
  * marble out, which is the artefact it exists to avoid ever showing.
+ * ⚠ The walls and marbles have been frictionless since 2026-09-07, which removes the suspect
+ * above (there is no static regime without friction). The guarantee stays: it costs nothing while
+ * nothing wedges, and the pile at the throat is still nine bodies in a hopper.
  */
 const STALL_MS = 1100;
 /** The nudge itself, px per 60Hz step — under a quarter of walking pace, invisible in motion. */
@@ -210,10 +215,19 @@ const STALL_KICK = 0.5;
 const CHUTE_STARVE_MS = 4000;
 /**
  * Above this speed (px per 60Hz step) a marble over the throat is passing, not arriving, and the
- * drain leaves it alone — see the note inside `drainFunnel`. Queued marbles creep at under 1;
- * a marble swinging across the bowl carries 3-6.
+ * drain leaves it alone — see the note inside `drainFunnel`.
+ *
+ * ⚠ **6, up from 3, and it moved with the friction.** At 3 it separated a marble that had crept in
+ * (under 2) from one swinging across (3-6). With the walls frictionless nothing creeps: a marble
+ * rolling in from rest arrives at ~4 px/step, the same speed as a crosser passing through, so the
+ * old number refused the ordinary arrival — traced: a lone marble reached the throat at 1.1 s, was
+ * turned away at 4.0, ran up the far wall and was only taken on the way back at 2.1 s, and over a
+ * pour the last marble left 500 ms *later* than under the sticky walls. Over the opening the speeds
+ * now measured run 2-8 px/step; 6 takes the arrivals and still lets a marble fresh off the steep
+ * wall (8-10) finish its arc. A marble the rail is not ready for swings regardless, which during a
+ * pour is eight of the nine.
  */
-const SWALLOW_SPEED = 3;
+const SWALLOW_SPEED = 6;
 
 /**
  * How long the last box's clear is left on screen before the results card goes up.
@@ -240,8 +254,8 @@ const WIN_CARD_DELAY_MS = 500;
  * of height. Gravity-from-rest is also what makes the answer to "khay trên cao rơi xuống, quán
  * tính có lớn hơn khay dưới không?" a true YES — arrival speed grows with the square root of the
  * drop, so the top row hits the bowl visibly harder than the bottom row. The rolling inertia
- * lives in the WALL constants (96-facet `funnelSide`, restitution 0.42, friction 0.012), not in
- * the fall, which is why the fall could be given back without losing the swing.
+ * lives in the WALL constants (48-facet `funnelSide`, restitution 0.7, friction **0** — see
+ * `dropMarble`), not in the fall, which is why the fall could be given back without losing the swing.
  */
 const FALL_DRAG = 0.0015;
 /**
@@ -256,8 +270,41 @@ const WALL_T = 40;
 const MAX_STEP = WALL_T / 2;
 /** Terminal fall speed, px per 60Hz step — the landing-quality cap. See the note in `update`. */
 const FALL_MAX = 10.5;
-/** Contact friction down there too, so they slide off the cone walls rather than stick. */
-const CONE_FRICTION = 0.008;
+/**
+ * Contact friction below the brake. **Zero, like everywhere else in the chute** — see `dropMarble`
+ * for why any friction at all makes the bowl a crawl.
+ */
+const CONE_FRICTION = 0;
+
+/**
+ * The pour's pop — "khi khay đổ bi, các bi nên có hiệu ứng scale out ra màn hình rồi lại scale in
+ * (học bản game gốc)". Measured off `Manythings/IMG_6669.MP4` and `IMG_6670.MP4`: the nine come
+ * loose at about **1.2x their rolling size** (ring-fit radius 13.0 against 11.0-11.5 px in the
+ * 384-wide clip, on both a pink and a black pour), hold it ~7-8 frames while the pile lifts, and
+ * are back to size 3-4 frames later as they start to fall. It is the reference's camera doing it:
+ * the pile lifts toward the lens, so a marble in it is nearer and bigger, and one that has dropped
+ * off the pile is already back in the plane. Sprite only — the body never changes, so the physics
+ * pile is untouched and the lifted sprites simply overlap a little, which is what the pile in the
+ * clip looks like. A shade over the measured ratio, because ours does not lift as far.
+ *
+ * ⚠ **Clamped by height as well as by time.** The scale ramps back to 1 over the last
+ * `POP_FADE_PX` above the mouth of the chute, so nothing enters the bowl enlarged. A bottom-row
+ * tray sits right on the mouth and its marbles are through it in ~10 steps; on the time envelope
+ * alone they would push oversize sprites into the walls and each other, and the throat can take a
+ * marble while it is still oversize, which would snap it to size on the frame it is handed over.
+ */
+const POP_SCALE = 1.25;
+const POP_UP_MS = 100;
+const POP_HOLD_MS = 200;
+const POP_DOWN_MS = 130;
+const POP_FADE_PX = 40;
+
+/**
+ * The pieces fading up as a level opens — "khi bắt đầu vừa vào các level, các khay nên có hiệu ứng
+ * fade in nhẹ". Per-row duration, and the stagger between rows. See `fadeInGrid`.
+ */
+const GRID_FADE_MS = 220;
+const GRID_FADE_ROW_MS = 28;
 
 /**
  * The horizontal centre of the design box.
@@ -798,10 +845,18 @@ export class GameScene extends Phaser.Scene {
     this.refreshGrid();
     this.refreshBoxes();
     this.refreshHud();
-    this.startTutorial();
-    this.hardWarning();
-    this.startMagnetTutor();
-    this.startCoach();
+    // The pieces fade up (`fadeInGrid`), and the cards that point at them wait for the board to be
+    // there — a hand on a tray that has not appeared yet is pointing at nothing. All four together,
+    // so their order (walkthrough, warning, magnet lesson, coach) is exactly what it was.
+    const opening = this.fadeInGrid();
+    const intro = () => {
+      this.startTutorial();
+      this.hardWarning();
+      this.startMagnetTutor();
+      this.startCoach();
+    };
+    if (opening) this.time.delayedCall(opening, intro);
+    else intro();
 
     // ⚠ Analytics starts **here**, on reaching a board, not at boot — the script is 145 KB from
     // another origin and time-to-gameplay is graded. And not for a hand-built board: the editor's
@@ -1334,11 +1389,13 @@ export class GameScene extends Phaser.Scene {
       const a = Math.atan2(y2 - y1, x2 - x1);
       // Normal to the segment, pushed by half the slab so the face — not the middle — is on the line.
       const nx = Math.sin(a) * push, ny = -Math.cos(a) * push;
+      // ⚠ Frictionless, like the marbles — see `dropMarble` for the resolver behaviour that turns
+      // any friction at all into a crawl along the bottom of the bowl.
       this.matter.add.rectangle((x1 + x2) / 2 + nx, (y1 + y2) / 2 + ny, len, WALL_T, {
         isStatic: true,
         angle: a,
-        friction: 0.008,
-        frictionStatic: 0.02,
+        friction: 0,
+        frictionStatic: 0,
       });
     };
     /**
@@ -1732,22 +1789,43 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
+  /**
+   * ⚠ **Friction is ZERO, on the marbles and on the walls, and it is not a tuning.** It was 0.008 /
+   * 0.02, "near-frictionless", and a lone marble set down on the bowl wall crept the whole bottom at
+   * 1-2 px/step — 1.7 s from the mouth to the throat, gaining 0.013 px/step² where the slope owed
+   * it ~0.08 (gravity is 1.05 × 0.001 × 16.67² = **0.29 px/step²** in Matter's units, not 1.05).
+   * Matter's resolver is why: below `_restingThreshTangent` (√6 ≈ 2.45 px/step) the friction
+   * impulse on a persistent contact is **cached and accumulated step after step**, capped only at
+   * the sliding speed itself, so any friction at all ramps up until it balances gravity and the
+   * marble settles into an equilibrium crawl. Above that speed the cache is cleared every step and
+   * the same 0.008 is nothing — which is why a marble arriving fast kept its speed while one
+   * arriving slow never gained any. The same path glues two marbles that touch with little relative
+   * motion, which was reported as *"các bi lăn trên phễu hơi dính vào nhau"*. At 0 the same lone
+   * marble runs the bottom at 1.5 → 4.1 px/step and swings up the far wall; over a nine-marble
+   * pour the mean bowl speed went 1.9 → 3.2 px/step, time parked 7-11% → 3-4%, and marble-on-marble
+   * contact 0.44-0.88 → 0.26-0.37 neighbours (`scripts/shot.mjs --trace`, level 5, cell 23).
+   * The spin goes with it — no torque without friction — and that is right for a glossy ball: the
+   * highlight is the light, not the surface, and the reference's spheres do not visibly turn.
+   *
+   * Restitution **0.7**, up from 0.6, for *"k có độ đàn hồi"*: the hops in the bowl go from 2-4 to
+   * 4-6 px/step, which is a bounce the eye sees and well short of the mouth. Measured with it: the
+   * livelier marbles were then *refused* by the throat — see `SWALLOW_SPEED`, which moved with it.
+   * The gravity that goes with all this is in main.ts.
+   */
   private dropMarble(x: number, y: number, color: Color, toss?: { x: number; y: number }) {
-    // Lively on purpose — asked for as "quán tính viên bi lăn nhanh hơn, đôi khi... văng sang
-    // thành phễu bên kia": enough bounce and little enough drag that a marble keeps its momentum
-    // through the bowl and can run up the far wall. The gravity that goes with this is in main.ts.
     const body = this.matter.add.circle(x, y, L.marbleR, {
-      restitution: 0.6,
-      friction: 0.008,
-      frictionStatic: 0.02,
+      restitution: 0.7,
+      friction: 0,
+      frictionStatic: 0,
       frictionAir: FALL_DRAG,
       density: 0.005,
     });
-    // The burst's initial fling — see `spawnTray`. Absent for every other caller.
+    // The burst's initial fling — see `spawnTray`. Absent for every other caller, and it is also
+    // what marks a marble as freshly poured, for the pop.
     if (toss) this.matter.body.setVelocity(body, toss);
     const sprite = img(this, K.marble(color), x, y);
     this.fallLayer.add(sprite);
-    this.falling.push({ body, sprite, color });
+    this.falling.push({ body, sprite, color, born: toss ? this.time.now : undefined });
   }
 
   /**
@@ -2474,6 +2552,51 @@ export class GameScene extends Phaser.Scene {
    * tick pass it: an undo or a revive restores a board, and animating a restoration reads as the
    * board doing something it is not.
    */
+  /**
+   * The pieces fading up as a level opens — see `GRID_FADE_MS`.
+   *
+   * Only the pieces: trays, crates, hatches, clips, arrow badges, their labels and the fixtures.
+   * The cavity and its slot plates are the machine and are already there; what arrives is what the
+   * player is being dealt. **Bottom row first**, then up, `GRID_FADE_ROW_MS` apart — that row sits
+   * on the mouth of the chute and is the one the board is peeled from, so it is the one to land
+   * first — and the whole thing is over inside ~330ms on a five-row board.
+   *
+   * ⚠ Alpha only, and only on sprites nothing else touches at level start: `refreshGrid` never
+   * writes alpha and the wake/unlock effects only fire on a tap, so the tweens cannot fight
+   * anything — a sprite `refreshGrid` hides mid-tween simply finishes fading while invisible.
+   * Not for a preview, which is a still of the board for the editor.
+   *
+   * Returns how long it takes, so the intro cards can wait for the board to be there.
+   */
+  private fadeInGrid(): number {
+    if (this.preview) return 0;
+    const { cols, rows } = this.board;
+    type Fading = { visible: boolean; setAlpha(a: number): unknown };
+    const byRow: Fading[][] = Array.from({ length: rows }, () => []);
+    const put = (i: number, o: Fading | undefined) => {
+      if (o?.visible) byRow[(i / cols) | 0].push(o);
+    };
+    for (let i = 0; i < cols * rows; i++) {
+      put(i, this.tileSprites[i]);
+      put(i, this.crateSprites[i]);
+      put(i, this.dispSprites[i]);
+      put(i, this.linkSprites[i]);
+      put(i, this.arrowSprites[i]);
+      put(i, this.badgeLabels[i]);
+    }
+    // Chocolate boxes and x2 bars, as one piece — `refreshFixtures` rebuilds their children.
+    byRow[rows - 1].push(this.fixtures);
+    let total = 0;
+    byRow.forEach((list, row) => {
+      if (!list.length) return;
+      const delay = (rows - 1 - row) * GRID_FADE_ROW_MS;
+      for (const o of list) o.setAlpha(0);
+      this.tweens.add({ targets: list, alpha: 1, delay, duration: GRID_FADE_MS, ease: "Sine.easeOut" });
+      total = Math.max(total, delay + GRID_FADE_MS);
+    });
+    return total;
+  }
+
   private refreshGrid(fx = false) {
     const g = this.board;
     const gm = this.gm;
@@ -2890,7 +3013,7 @@ export class GameScene extends Phaser.Scene {
       const tail = f.body.position.y <= topY + 2;
       const slow = f.body.position.y > L.funnel.brake && !tail;
       f.body.frictionAir = slow ? CONE_DRAG : FALL_DRAG;
-      f.body.friction = slow ? CONE_FRICTION : 0.008;
+      f.body.friction = slow ? CONE_FRICTION : 0;
       // The anti-stall clock — see `STALL_MS`. Speed is read before the caps below touch it;
       // 0.2 is far under the slowest genuine creep, so only a truly parked marble accrues.
       if (Math.hypot(f.body.velocity.x, f.body.velocity.y) < 0.2) {
@@ -2946,6 +3069,23 @@ export class GameScene extends Phaser.Scene {
       }
       f.sprite.setPosition(f.body.position.x, f.body.position.y);
       f.sprite.setRotation(f.body.angle);
+      // The pour's pop — see `POP_SCALE`: a time envelope, clamped by height above the mouth.
+      if (f.born !== undefined) {
+        const age = this.time.now - f.born;
+        const over = age >= POP_UP_MS + POP_HOLD_MS + POP_DOWN_MS || f.body.position.y >= L.funnel.top;
+        let k = 0;
+        if (!over) {
+          k =
+            age < POP_UP_MS
+              ? Phaser.Math.Easing.Quadratic.Out(age / POP_UP_MS)
+              : age < POP_UP_MS + POP_HOLD_MS
+                ? 1
+                : 1 - Phaser.Math.Easing.Quadratic.In((age - POP_UP_MS - POP_HOLD_MS) / POP_DOWN_MS);
+          k = Math.min(k, Phaser.Math.Clamp((L.funnel.top - f.body.position.y) / POP_FADE_PX, 0, 1));
+        }
+        f.sprite.setScale((1 + (POP_SCALE - 1) * k) / TS);
+        if (over) f.born = undefined;
+      }
     }
 
     const frac = Phaser.Math.Clamp((this.time.now - this.lastTickAt) / this.tickMs, 0, 1);
@@ -4404,6 +4544,9 @@ export class GameScene extends Phaser.Scene {
       takeRevive: () => this.acceptRevive(),
       hint: () => hint(this.board),
       goto: (n: number) => this.scene.restart({ level: n }),
+      /** Chute geometry and ball size, for `scripts/shot.mjs --trace` — see `traceSummary` there. */
+      funnel: L.funnel,
+      marbleR: L.marbleR,
     };
   }
 }

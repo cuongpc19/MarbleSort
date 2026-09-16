@@ -218,8 +218,57 @@ async function main() {
     await cdp.eval(
       `window.__game.scene.stop("Home"); window.__game.scene.start("Game", { level: ${level} }); return 1;`,
     );
-    await sleep(1200);
+    // --fadeprobe reads the tray sprites' alpha frame by frame over the first 700ms of the level,
+    // so the level-open fade is checked from its numbers — a screenshot lands too late to catch it.
+    // Polls for `__ms`, which `create` installs on the frame the fade starts.
+    if (arg("fadeprobe", false)) {
+      await cdp.eval(`
+        const out = []; window.__fade = out; let t0 = 0;
+        const loop = () => {
+          const sc = window.__ms && window.__ms.scene;
+          if (!sc || !sc.tileSprites) return requestAnimationFrame(loop);
+          if (!t0) t0 = performance.now();
+          const a = sc.tileSprites.filter((s) => s.visible).map((s) => s.alpha);
+          out.push([Math.round(performance.now() - t0), +Math.min(...a).toFixed(2), +Math.max(...a).toFixed(2), +sc.fixtures.alpha.toFixed(2)]);
+          if (performance.now() - t0 < 700) requestAnimationFrame(loop);
+        };
+        loop(); return 1;`);
+      await sleep(1100);
+      const fade = await cdp.eval("return window.__fade;");
+      console.log("fade → [ms, min tray alpha, max tray alpha, fixtures]:\n  " + fade.map((r) => JSON.stringify(r)).join("\n  "));
+    }
+    // --settle overrides the wait before the first shot.
+    await sleep(Number(arg("settle", 1200)) || 1200);
     await snap(`01-level${level}`);
+
+    // Per-step trace of one pour through the chute — the instrument behind the numbers on the
+    // bowl, the brake and the pop. It samples `falling` on Matter's own `afterupdate`, so every
+    // row is one physics step whatever frame rate headless manages, and every duration below is
+    // read off the engine clock rather than the wall.
+    //   node scripts/shot.mjs --level 5 --trace 22 --ms 4500    (a cell index, or `hint`)
+    if (arg("trace", false)) {
+      const pick = arg("trace");
+      const ms = Number(arg("ms", 4500)) || 4500;
+      const cell = await cdp.eval(`
+        const ms = window.__ms, sc = ms.scene, eng = sc.matter.world.engine;
+        const rows = []; window.__tr = rows;
+        sc.matter.world.on("afterupdate", () => {
+          if (rows.length > 8000) return;
+          rows.push([eng.timing.timestamp,
+            sc.falling.map((f) => [f.body.id, f.body.position.x, f.body.position.y, f.body.velocity.x, f.body.velocity.y, f.body.angularVelocity])]);
+        });
+        ${String(pick).startsWith("drop:")
+          // `--trace drop:x,y` — one marble set down at rest, no tray and no neighbours: the wall
+          // on its own. The model is not told, so it rides the rail as a phantom; disposable run.
+          ? `sc.dropMarble(${pick.slice(5).split(",").map(Number).join(",")}, 0); return -1;`
+          : `const i = ${pick === "hint" || pick === true ? "ms.hint()" : Number(pick)}; ms.tap(i); return i;`}`);
+      await sleep(ms);
+      const tr = await cdp.eval(`const ms = window.__ms;
+        return { cell: ${cell}, rows: window.__tr, funnel: ms.funnel, r: ms.marbleR,
+                 cols: ms.scene.board.cols, tiles: ms.state().tiles };`);
+      writeFileSync(join(OUT, "trace.json"), JSON.stringify(tr));
+      console.log(traceSummary(tr));
+    }
 
     const taps = arg("auto", false) ? 999 : Number(arg("taps", 0));
     for (let n = 0; n < taps; n++) {
@@ -234,7 +283,8 @@ async function main() {
         await snap(`03-${ok.done}`);
         break;
       }
-      await sleep(ok?.wait ? 900 : 1400);
+      // --after overrides the wait after each tap, to catch the pour's pop at its peak.
+      await sleep(ok?.wait ? 900 : Number(arg("after", 1400)) || 1400);
     }
     if (taps && !shots.some((s) => s.includes("03-"))) await snap("02-mid");
 
@@ -413,6 +463,73 @@ async function main() {
   console.log("\nshots:\n" + shots.join("\n"));
 
   await shutdown(cdp, ws, child);
+}
+
+/**
+ * One pour, read off the trace: when each marble reached the mouth of the chute, the throat and
+ * the rail, how fast it moved through the bowl, how often it hopped, and how packed the pile was.
+ *
+ * ⚠ Everything is in engine time and px per 60Hz step, so a run at headless's 13fps and a run at
+ * a phone's 60 measure the same thing. `touching` is the mean number of neighbours within a
+ * marble's diameter (+1px) of each marble while in the bowl — a raft that slides as one block
+ * scores ~2, marbles that keep their distance under 1.
+ */
+function traceSummary({ cell, rows, funnel, r, cols, tiles }) {
+  const f = funnel;
+  const touch = 2 * r + 1;
+  const per = new Map();
+  let pairSteps = 0, bowlSteps = 0, stillSteps = 0, t0 = null, deltas = [];
+  for (let k = 0; k < rows.length; k++) {
+    const [ts, ms] = rows[k];
+    if (k) deltas.push(ts - rows[k - 1][0]);
+    const bowl = [];
+    for (const [id, x, y, vx, vy] of ms) {
+      if (t0 == null) t0 = ts;
+      let m = per.get(id);
+      if (!m) per.set(id, (m = { t0: ts, y0: y, mouth: null, throat: null, last: ts, speeds: [], hops: 0, pvy: vy, top: 0 }));
+      m.last = ts;
+      if (m.mouth == null && y >= f.top) m.mouth = ts;
+      if (m.throat == null && y >= f.coneY - 2 * r && x >= f.neckL && x <= f.neckR) m.throat = ts;
+      if (y >= f.top && y < f.coneY) {
+        const sp = Math.hypot(vx, vy);
+        m.speeds.push(sp);
+        bowl.push([x, y]);
+        if (sp < 0.3) stillSteps++;
+        if (m.pvy > 0.8 && vy < -0.8) m.hops++;
+        if (vy < m.top) m.top = vy;
+      }
+      m.pvy = vy;
+    }
+    bowlSteps += bowl.length;
+    for (let a = 0; a < bowl.length; a++)
+      for (let b = a + 1; b < bowl.length; b++)
+        if (Math.hypot(bowl[a][0] - bowl[b][0], bowl[a][1] - bowl[b][1]) < touch) pairSteps += 2;
+  }
+  deltas.sort((a, b) => a - b);
+  const med = deltas.length ? deltas[deltas.length >> 1] : 0;
+  const row = (cell / cols) | 0;
+  const out = [`trace → cell ${cell} (row ${row}, ${tiles[cell] ?? "?"}), ${rows.length} steps, step ${med.toFixed(2)}ms, ${per.size} marbles`];
+  // The board after the tap, so the next run can pick a cell by row.
+  for (let y = 0; y * cols < tiles.length; y++)
+    out.push("  " + tiles.slice(y * cols, (y + 1) * cols).map((t, x) => String(y * cols + x).padStart(2) + ":" + (t ?? "·").slice(0, 3).padEnd(3)).join(" "));
+  const rel = (t, m) => (t == null ? "   —  " : String(Math.round(t - m.t0)).padStart(5) + "ms");
+  const marbles = [...per.values()].sort((a, b) => a.t0 - b.t0);
+  out.push("  #  spawn  →mouth  →throat  →rail   bowl px/step  hops  fastest-up");
+  marbles.forEach((m, i) => {
+    const mean = m.speeds.length ? m.speeds.reduce((a, b) => a + b, 0) / m.speeds.length : 0;
+    out.push(
+      `  ${String(i + 1).padStart(2)}  ${String(Math.round(m.t0 - t0)).padStart(4)}ms ${rel(m.mouth, m)} ${rel(m.throat, m)} ${rel(m.last, m)}` +
+        `      ${mean.toFixed(2)}        ${m.hops}      ${m.top.toFixed(1)}`,
+    );
+  });
+  const gone = marbles.map((m) => m.last - t0);
+  const throat = marbles.filter((m) => m.throat != null).map((m) => m.throat - t0);
+  out.push(
+    `  first at throat ${throat.length ? Math.round(Math.min(...throat)) : "—"}ms, last gone ${Math.round(Math.max(...gone))}ms after the tap; ` +
+      `touching ${(bowlSteps ? pairSteps / bowlSteps : 0).toFixed(2)} neighbours/marble in the bowl, ` +
+      `still ${(bowlSteps ? (100 * stillSteps) / bowlSteps : 0).toFixed(0)}% of bowl time`,
+  );
+  return out.join(String.fromCharCode(10));
 }
 
 /**

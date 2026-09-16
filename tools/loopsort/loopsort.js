@@ -10,7 +10,21 @@
 //                Cai roi di la hang, khong phai xe - khoang xe la ben co dinh.
 //   - toc do   : ~20 don vi/giay, do theo dau dong cube o level 5 (t=74.5 -> 76.0).
 
-const DATA = "../../Manythings/LoopSort-teardown/data/";
+// ⚠ TRO THANG VAO BO LEVEL GOC trong Manythings/LoopSort-teardown/data, theo lenh chu du an
+// ngay 2026-09-13: "b de lai bo level nhu game goc di, roi t se sua tu do". Bo tu sinh van con
+// nguyen trong tools/loopsort/data/ va van sinh lai duoc bang levelgen.mjs - no chi khong con
+// la bo dang duoc choi. Xem lai no bang `?data=./data/`.
+// ⚠ VA VI THE DAY LA BAN CHAY TAI CHO, KHONG PHAI BAN DEM DI DEPLOY. Bo level goc co ban quyen
+// (Garawell/Voodoo), `.gitignore` da loai no ra, nen mot ban build dua len GitHub se KHONG mang
+// theo no: trang se fetch 404 roi dung hinh. Truoc khi deploy phai tra DATA ve "./data/".
+// ⚠ Cua DEV de doi thu muc du lieu: `?data=/duong/dan/`. Dung de doi chieu hai bo level ma
+// KHONG phai chep file nao vao du an - chep vao day la dua no vao ban build.
+// ⚠ Phai chan `location`: file nay chay ca trong trinh duyet LAN trong Node (levelgen.mjs,
+// levelbot.mjs, headless.mjs deu import no). Thieu cai chan thi moi cong cu do dac chet ngay
+// o dong import voi mot loi khong lien quan gi toi viec chung dang lam.
+const DATA = (typeof location !== "undefined"
+  && new URLSearchParams(location.search).get("data"))
+  || "../../Manythings/LoopSort-teardown/data/";
 
 // Do tu clip: hang do #ce1528, xanh duong #4191ec, vang #f6c12b - dam va bao hoa hon
 // bang mau dau tien minh dat theo cam tinh. Nhung mau khong do duoc thi keo theo cung
@@ -39,13 +53,72 @@ const CONFETTI = ["#f5c518", "#3fbf4f", "#2f8fe0", "#ef5fa7", "#f2892a", "#5fd0e
 const CAP = 4;            // suc chua mot ben khi bat dau = 4 khoi
 const DELIVER = 4;        // so khoi cung mau de mot chuyen hang duoc giao
                           // (moi mau xuat hien dung 4 lan tren toan bo 800 bo carrier)
-const SLOT_LEN = 1.5;     // dai mot o hang - do tren clip: xe dai ~6.2 dv cho 4 o
-const TRUCK_W = 2.6;   // rong than xe, cung do tu clip
-const SPEED = 19.0;       // don vi luoi / giay - do tu clip
-const CRUMBLE_MS = 110;   // khoi vo vun tai cho truoc khi tuon ra
-const POUR_STAGGER = 14;  // khoang cach giua hai cube roi khoi mieng ben (~390ms/khoi)
+// ⚠ MOT he so kich thuoc cho ca xe, hang va be rong ray - SCALE. Con so 1.5 la yeu cau cua
+// chu du an ("tang kich thuoc ray va vali len 1.5 lan"), va no chi co nghia khi duong ray
+// GIU NGUYEN kich thuoc: camera khop khung bao, nen phong to ca the gioi thi tren man hinh
+// khong doi mot pixel. Cai to len o day la xe/hang/be rong ray SO VOI vong ray, tuc khoang
+// trong trong long ray nho lai - do moi la thu doc ra "to hon".
+// ⚠ Doi SCALE thi PHAI doi theo o ba cho: khoang cach dat ben trong levelgen.mjs, be rong
+// cac dai ray trong three3d.js, va chinh no o day. Lech mot cho la xe chong nhau hoac ray
+// khong con phu kin hang.
+// ⚠ BA he so, vi ba thu bi ba thu khac chan:
+//   SCALE      - chieu DAI khay (4 o hang noi tiep). Dai qua thi khay dai hon ca vong ray.
+//   WIDE       - be NGANG khay. Do tren anh ban goc: khay cua ho ty le ngang:dai ~ 1:2.1,
+//                con cua minh luc dau la 1:3.8 - thuon dai nhu que, nen trong be du dien tich
+//                tuong duong. Phong to be ngang la cach lam khay "to" ma khong lam no dai ra.
+//   CUBE_SCALE - mieng hang chay tren ray, bi BE RONG RAY chan (ray 2.82, khong doi).
+// ⚠ 2.4: chieu DAI khay. Do tren anh chup that: ban co chiem 94% be ngang man hinh nhung chi
+// 55% chieu cao - tuc be ngang la cai chan, con chieu cao dang bo khong 45%. Keo dai khay thi
+// khung bao cao them, ma cao them KHONG lam camera lui ra (be ngang van chan), nen xe to len
+// that su. Day la don bay duy nhat con lai sau khi da ep ray hep bang be ngang hang xe.
+// ⚠ Ca ba he so ve 1 = kich thuoc goc. Lui theo lenh chu du an ("de design lai nhu ban dau
+// truoc"), KHONG phai vi chung sai. So do noi ro benh "ray to vali be" nam o cho khac: vong
+// ray bo sinh tao ra dai 29-77 don vi trong khi bo tham chieu chi 14-19, ma camera khop ca
+// khung bao nen ray dai gap ba bon lan thi moi thu ve nho di tuong ung. Phong to vali 1.5 lan
+// chi keo ti le vali/ray tu 2.9% len 4.3%, van chua bang mot nua muc 9.4% cua ban goc.
+// Giu nguyen ba hang so nay de bat lai bang mot dong khi quay lai viec do.
+export const SCALE = 1.2;
+export const WIDE = 1.2;
+// ⚠ Hai he so, khong phai mot. SCALE phong to KHAY (o hang, than xe) - cai nay tu do lon bao
+// nhieu cung duoc vi camera se khop lai. Con mieng hang CHAY TREN RAY thi bi be rong ray chan:
+// ray rong 2.82 va khong doi, nen cube ban kinh qua 1.1 la no tran ra ngoai hai mep ray.
+export const CUBE_SCALE = 1.2;
+const SLOT_LEN = 1.68 * SCALE;    // Larger four-candy trays, with the mouth anchored to its dock.
+const TRUCK_W = 2.6 * WIDE;   // rong than xe, cung do tu clip
+const SPEED = 9.0;        // Whole candies travel slowly enough to follow by eye.
+// ⚠ 0, khong phai 110. Vali bien mat khoi khay NGAY khi cham (tap() tru blocks lien), nen bao
+// nhieu mili giay o day la bay nhieu mili giay no khong ton tai o dau ca - roi moi hien ra. Do
+// la nua con lai cua cai "nhay coc" ma chu du an bao (nua kia la sinh sai o, da sua). Gio cham
+// phat nao la no roi cho ngay phat do. Gian cach giua cac vali trong mot luot do van la
+// POUR_STAGGER, khong doi.
+const CRUMBLE_MS = 0;
+// ⚠ 0, khong phai 210. Tu khi moi vali ra tu DUNG O CUA NO (xem tap()), chung da san sang
+// cach deu nhau dung mot o - tha cung luc thi ca hang truot ra giu nguyen doi hinh, dung nhu
+// mot cai khay do nghieng. Gian cach 210ms cong them quang duong trong long xe khac nhau (o
+// sau phai di them mot o mua 187ms) lam ba vali ra so le cham, keo dai gan mot giay va doc ra
+// luc nhanh luc cham - chu du an bao "animation 2-3 cai ra no khong nhe nhang, cu lam no di ra
+// mot cach don gian nhu binh thuong thoi".
+const POUR_STAGGER = 0;
 const EAT_MS = 30;        // nhip hut mot cube (~850ms/khoi, khop clip)
-const ABSORB_MS = 190;    // thoi gian bay tu ray len khoang hang
+const POUR_GUARD = 900;   // ben khong hut lai cat cua chinh no trong ngan nay - xem absorb()
+const ABSORB_MS = 190;    // thoi gian bay tu ray len khoang hang (chi con lam tran duoi)
+// ⚠ Ba hang so duoi day ghim TOC DO, khong ghim THOI GIAN. Do tren 6 level: cu bay vao xe
+// truoc day deu dai dung ABSORB_MS du quang duong chay tu 2.69 den 8.49 don vi, nen toc do
+// tra ve tu 14.2 den 44.7 dv/giay - gap 1.6 den 5 lan bang chuyen (9). Vali dang troi thong
+// tha tren ray bong vot di gap nam lan: dung cai "giat giat" chu du an bao. Ghim toc do thi
+// cu xa bay lau hon cu gan, va do moi la chuyen dong binh thuong.
+const FLY_SPEED = 18;     // toc do nhap vali vao khoang hang (dv/giay), gap doi bang chuyen
+// ⚠ Tran phai du rong de KHONG cham toi trong choi binh thuong. Chang duong vao gio di vong
+// theo cau (ray -> dau cau -> mieng khay -> o dich) nen dai 8-12 don vi chu khong con la doan
+// thang 2.7-8.5; de tran 420ms thi cu dai bi kep, va kep thoi gian chinh la ghim thoi gian -
+// dung cai benh vua chua. Do duoc: toc do vot len 35.8 dv/giay. 560ms phu toi 10 don vi.
+const FLY_MIN = 200, FLY_MAX = 650;
+// ⚠ Con cach ray bao xa thi vali bat dau be lai cho xuoi chieu ray. Phai NHO hon cau nhieu:
+// cau chi dai 2.0 den 4.7 don vi, nen dat 2.2 thi vali roi cau tu giua duong roi truot cheo -
+// do duoc lech toi 2.3 don vi khoi cai cau ma bo ve dang ve, va chu du an goi dung ten la
+// "vali di duong rieng". 1.0 thi no bam cau gan het roi moi luon vao, va ban kinh luon van
+// con lon hon than vali (1.22) nen khong thanh goc nhon.
+const MERGE_LEAD = 1.0;
 const DRAIN_MS = 830;     // hang rut khoi ben khi day
 const CHECK_MS = 1500;    // dau tick con nam lai
 const RIPPLE_MS = 360;
@@ -54,7 +127,10 @@ const RIPPLE_MS = 360;
 // Ray la mot MANG CO BE RONG, khong phai hang doi mot chieu: trong ban goc cube don
 // thanh dong 2 hat ngang va xo nhau. Bang chuyen keo cube toi SPEED, va cham giu chung
 // lai - nen he qua la "thay cho trong phia truoc thi troi vao", khong can luat rieng.
-const CHANNEL = 0.62;     // nua be rong mang, tinh tu tim ray
+// ⚠ Long ray GIU NGUYEN (khong nhan SCALE): day la be rong duong ray, ma chu du an muon giu
+// nhu cu. Hang to len 1.5 lan chay tren mot long ray khong doi, tuc hang lap day ray hon
+// truoc - dung y do.
+const CHANNEL = 0.92;     // Clearance for whole square candies.
 const DRIVE = 11;         // do bam cua bang chuyen (1/giay)
 const PULL = 34;          // luc keo ve tim mang khi cube lech ra ngoai
 const NDAMP = 7;          // ma sat theo phuong NGANG (1/giay)
@@ -76,10 +152,91 @@ export async function loadData() {
   AREAS = ar.slice().sort((a, b) => a.UnlockLevel - b.UnlockLevel);
 }
 
+// Do cong cua mot cu bay tu ray vao khoang hang. MOT dinh nghia, ca ban ve 3D lan ban 2D
+// deu goi - chep thanh hai ban thi hai ban se troi khoi nhau.
+//
+// ⚠ Dieu kien la VAN TOC LUC ROI RAY PHAI BANG TOC DO BANG CHUYEN, roi giam dan ve 0 khi
+// nhap o. Ease-out cu (1-(1-k)^2) xuat phat bang 2 lan toc do trung binh, tuc ~72 dv/giay
+// so voi bang chuyen 9 - vali bi giat mot cai ngay luc roi ray. Da thuc bac ba duoi day co
+// e(0)=0, e(1)=1, e'(1)=0 va e'(0)=s, nen dat s = SPEED*ms/quang_duong la van toc luc xuat
+// phat khop dung bang chuyen. s nam trong [0,3] thi e van tang don dieu (e' = (3k+1)(1-k)
+// khi s=1), khong bao gio lui.
+export function flyEase(f, k) {
+  const s = f.s === undefined ? 1 : f.s;
+  return ((s - 2) * k + (3 - 2 * s)) * k * k + s * k;
+}
+
+// Vi tri va goc quay cua mot cu bay, tai thoi diem k trong [0,1]. MOT dinh nghia cho ca ban
+// ve 3D lan 2D.
+//
+// ⚠ Di doc CHANG DUONG chu khong bay thang tu ray vao o. Duong thang tu diem tren ray toi o
+// dich cat cheo qua thanh xe va khong dinh dang gi toi cai cau ma bo ve dang ve - nhin ra la
+// vali nhay coc. Chang duong la: diem tren ray -> dau cau -> mieng ben -> o dich, tuc dung
+// nguoc lai chang duong luc no di ra.
+// ⚠ Chia theo DO DAI CUNG (f.plen), khong chia deu cho so doan: cac doan dai ngan rat khac
+// nhau, chia deu thi vali luot cham o doan ngan va vut qua o doan dai - lai giat.
+// Cat goc Chaikin: moi doan trong duoc thay bang hai diem o 1/4 va 3/4, giu nguyen hai dau.
+// ⚠ Chang duong vao co goc gap thuc su o dau cau va o mieng khay. Di dung goc gap voi toc do
+// khong doi la do cong vo han - mat nhin ra ngay la mot cai be gap, va huong quay cua vali
+// nhay mot phat: do duoc p99 91.5 do va co cu 175 do trong MOT khung. Hai luot cat goc lam
+// ban kinh luon con khoang 1/4 doan ngan nhat, du de mat doc ra la "di vong qua goc".
+function chaikin(P, passes) {
+  for (let n = 0; n < passes; n++) {
+    if (P.length < 3) return P;
+    const out = [P[0]];
+    for (let i = 0; i < P.length - 1; i++) {
+      const a = P[i], b = P[i + 1];
+      if (i > 0) out.push({ x: a.x + (b.x - a.x) * 0.25, y: a.y + (b.y - a.y) * 0.25 });
+      if (i < P.length - 2) out.push({ x: a.x + (b.x - a.x) * 0.75, y: a.y + (b.y - a.y) * 0.75 });
+    }
+    out.push(P[P.length - 1]);
+    P = out;
+  }
+  return P;
+}
+
+export function flyPos(f, k) {
+  const e = flyEase(f, k);
+  const P = f.path;
+  if (!P || P.length < 2)
+    return { x: f.fx + (f.tx - f.fx) * e, y: f.fy + (f.ty - f.fy) * e, rot: f.rot };
+  const here = walk(P, e * f.plen);
+  // ⚠ Goc quay NOI SUY tu goc luc roi ray sang goc truc khay, khong doc dao ham cua duong di.
+  // Doc dao ham thi moi cho duong be goc la mot cu quay - do duoc p99 43 do, co cu 180 do
+  // trong mot khung, ke ca khi da lam tron goc va lay cua so nhin truoc. Noi suy thi tron theo
+  // dinh nghia, va no dung y nghia hon: vali dang xoay cho khop voi o no sap nam vao.
+  let d = (f.rot1 === undefined ? f.rot : f.rot1) - f.rot;
+  while (d > Math.PI) d -= Math.PI * 2;
+  while (d < -Math.PI) d += Math.PI * 2;
+  return { x: here.x, y: here.y, rot: f.rot + d * e };
+}
+
+// Diem tren duong gap khuc P o do dai cung s.
+function walk(P, s) {
+  for (let i = 0; i < P.length - 1; i++) {
+    const dx = P[i + 1].x - P[i].x, dy = P[i + 1].y - P[i].y;
+    const d = Math.hypot(dx, dy);
+    if (s <= d || i === P.length - 2) {
+      const u = d > 1e-6 ? Math.max(0, Math.min(1, s / d)) : 1;
+      return { x: P[i].x + dx * u, y: P[i].y + dy * u };
+    }
+    s -= d;
+  }
+  return P[P.length - 1];
+}
+
 export function areaOf(id) {
   let a = null;
   for (const x of AREAS) if (x.UnlockLevel <= id) a = x;
   return a ? a.Type : "";
+}
+
+// Thanh pho thu may - de bo ve chon anh nen. ⚠ Tra ve CHI SO chu khong phai ten: bo ve chi
+// can biet "doi sang khu khac", con ten thanh pho la viec cua giao dien.
+export function areaIndexOf(id) {
+  let i = 0;
+  for (let k = 0; k < AREAS.length; k++) if (AREAS[k].UnlockLevel <= id) i = k;
+  return i;
 }
 
 // "A\n90\n0,0.25;6;8" -> {idx:null, mk:"A", rot:90, x:6, y:8}
@@ -131,28 +288,33 @@ function parseCarrier(c) {
 
 // ------------------------------------------------------------------ hinh hoc
 
-function roundedPath(pts, closed, r) {
+function curvePath(pts, closed) {
   const n = pts.length, out = [];
-  const seg = (a, b) => Math.hypot(b.x - a.x, b.y - a.y);
-  const lerp = (a, b, t) => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
-  const first = closed ? 0 : 1;
-  const last = closed ? n : n - 1;
-  if (!closed) out.push({ x: pts[0].x, y: pts[0].y });
-  for (let i = first; i < last; i++) {
-    const p = pts[i % n], a = pts[(i - 1 + n) % n], b = pts[(i + 1) % n];
-    const rr = Math.min(r, seg(a, p) / 2, seg(p, b) / 2);
-    const s = lerp(p, a, rr / Math.max(seg(a, p), 1e-6));
-    const e = lerp(p, b, rr / Math.max(seg(p, b), 1e-6));
-    const STEPS = 10;
-    for (let k = 0; k <= STEPS; k++) {
-      const t = k / STEPS, u = 1 - t;
-      out.push({
-        x: u * u * s.x + 2 * u * t * p.x + t * t * e.x,
-        y: u * u * s.y + 2 * u * t * p.y + t * t * e.y,
-      });
+  const get = (i) => {
+    if (closed) return pts[(i + n) % n];
+    if (i < 0) return { x: 2 * pts[0].x - pts[1].x, y: 2 * pts[0].y - pts[1].y };
+    if (i >= n) return { x: 2 * pts[n - 1].x - pts[n - 2].x, y: 2 * pts[n - 1].y - pts[n - 2].y };
+    return pts[i];
+  };
+  const blend = (a, b, ta, tb, t) => {
+    const d = Math.max(tb - ta, 1e-6), wa = (tb - t) / d, wb = (t - ta) / d;
+    return { x: wa * a.x + wb * b.x, y: wa * a.y + wb * b.y };
+  };
+  const first = closed ? 0 : 0, segments = closed ? n : n - 1;
+  for (let i = first; i < segments; i++) {
+    const p0 = get(i - 1), p1 = get(i), p2 = get(i + 1), p3 = get(i + 2);
+    const spacing = (a, b) => Math.max(Math.sqrt(Math.hypot(b.x - a.x, b.y - a.y)), 1e-3);
+    const t0 = 0, t1 = t0 + spacing(p0, p1), t2 = t1 + spacing(p1, p2), t3 = t2 + spacing(p2, p3);
+    const steps = Math.max(8, Math.ceil((t2 - t1) * 8));
+    for (let k = 0; k < steps; k++) {
+      const t = t1 + (t2 - t1) * (k / steps);
+      const a1 = blend(p0, p1, t0, t1, t), a2 = blend(p1, p2, t1, t2, t);
+      const a3 = blend(p2, p3, t2, t3, t);
+      const b1 = blend(a1, a2, t0, t2, t), b2 = blend(a2, a3, t1, t3, t);
+      out.push(blend(b1, b2, t1, t2, t));
     }
   }
-  if (!closed) out.push({ x: pts[n - 1].x, y: pts[n - 1].y });
+  if (!closed) out.push(pts[n - 1]);
   return out;
 }
 
@@ -191,7 +353,11 @@ const easeOut = (t) => 1 - (1 - t) * (1 - t);
 // ⚠ Phai dung goc nay chu khong phai "diem ray gan nhat": o level 4 ba ben cach canh
 // tren va canh phai BANG NHAU, phep tim gan nhat hoa nhau va quay ngang ba cai xe,
 // lam chung chong len nhau.
-function mouthFromRot(deg) {
+// ⚠ Export vi EDITOR phai suy nguoc: keo mot ben toi cho moi thi `rot` cua no phai tinh lai.
+// Editor tu viet lai phep nay la ban sao thu hai cua mot luat hinh hoc - hai ban se troi khoi
+// nhau va luc do ben ve mot huong con hang bay ve mot huong khac. Editor chi duoc chon `rot`
+// bang cach THU ca bon goc qua chinh ham nay.
+export function mouthFromRot(deg) {
   const a = (deg || 0) * Math.PI / 180;
   return { x: -Math.sin(a), y: Math.cos(a) };
 }
@@ -207,15 +373,18 @@ export class Game {
     this.geo = sp;
     this.closed = sp.closed;
 
-    this.ring = densify(roundedPath(sp.path, sp.closed, 2.2), sp.closed, 0.25);
+    // Use one continuous centripetal spline through the authored route points. Some
+    // curves are encoded as short successive segments, so rounding each point separately
+    // left visible kinks on the finished belt. Art and movement share this same smooth path.
+    this.ring = densify(curvePath(sp.path, sp.closed), sp.closed, 0.18);
     this.len = totalLen(this.ring, sp.closed);
 
-    this.r = sp.spacing * 0.42;                 // ban kinh cube
+    this.r = 0.61 * CUBE_SCALE;                // Whole candy collision footprint.
     const d = this.r * 2;
     this.abreast = Math.max(1, Math.floor((2 * (CHANNEL - this.r)) / d) + 1);
     this.railSlots = Math.floor((this.len / d) * this.abreast * 0.8);
     this.slotCount = lv.SlotCount;
-    this.perBlock = Math.max(6, Math.min(40, Math.round(this.railSlots / this.slotCount)));
+    this.perBlock = 1;                         // One tray piece is one travelling candy.
     this.capCubes = this.slotCount * this.perBlock;
 
     this.trucks = parseCarrier(CARRIERS[lv.Carriers]).map((t) => {
@@ -230,6 +399,47 @@ export class Game {
     });
     for (const t of this.trucks) this.reveal(t);
 
+    // ⚠ CO THAN XE THEO TUNG LEVEL. SLOT_LEN do tu clip level 1-5 - nhung ban co THUA. Du lieu
+    // cua ho dat cac ben sat nhau hon nhieu o ban dong xe, nen xe dung kich thuoc co dinh se
+    // PHINH RA DE LEN NHAU: quet 1299 level thi 263 level (20.2%) co it nhat mot cap chong,
+    // tong 2844 cap, nang nhat la level 60 voi 29 cap. Xe bi de khong con mot diem nao de cham
+    // - picktest level 1299 ra 4/12.
+    // ⚠ KHONG phai loi camera: da do fov 32/12/7 va do doc 56/72/83 do, TAT CA deu ra 4/12.
+    // ⚠ KHONG duoc chua bang cach giam t.cap - so o hang la LUAT choi, khong phai hinh hoc.
+    this.fit = 1;                       // he so co than xe cua rieng level nay, luon <= 1
+    if (this.trucks.length > 1) {
+      // ⚠ Phai co CA HAI CHIEU. Rut ngan thoi thi khong du: hai xe SONG SONG nam sat canh nhau
+      // chong theo chieu RONG, ngan bao nhieu cung khong roi nhau. Do duoc: chi co chieu dai thi
+      // level 60 tu 29 cap chi xuong 8, level 52 va 333 khong nhuc nhich.
+      const hits = (f) => {
+        const bs = this.trucks.map((t) => {
+          const L = t.cap * SLOT_LEN * f, h = TRUCK_W * f / 2;
+          const nx = -t.my, ny = t.mx, pts = [];
+          for (const k of [0, L]) for (const sg of [-1, 1])
+            pts.push({ x: t.x - t.mx * k + nx * sg * h, y: t.y - t.my * k + ny * sg * h });
+          return { x0: Math.min(...pts.map((p) => p.x)), x1: Math.max(...pts.map((p) => p.x)),
+                   y0: Math.min(...pts.map((p) => p.y)), y1: Math.max(...pts.map((p) => p.y)) };
+        });
+        for (let i = 0; i < bs.length; i++) for (let j = i + 1; j < bs.length; j++) {
+          const a = bs[i], b = bs[j];
+          if (Math.min(a.x1, b.x1) > Math.max(a.x0, b.x0) &&
+              Math.min(a.y1, b.y1) > Math.max(a.y0, b.y0)) return true;
+        }
+        return false;
+      };
+      // Chi co lai, khong bao gio phong to: ban thua giu nguyen kich thuoc do tu clip.
+      if (hits(1)) {
+        let lo = 0.10, hi = 1;
+        for (let i = 0; i < 24; i++) {
+          const mid = (lo + hi) / 2;
+          if (hits(mid)) hi = mid; else lo = mid;
+        }
+        this.fit = lo;
+      }
+    }
+    this.slotLen = SLOT_LEN * this.fit;
+    this.truckW = TRUCK_W * this.fit;
+
     this.cubes = [];   // {x,y,vx,vy,rot,vrot,color,sz,seg}
     this.pending = []; // {color, truck, at}
     this.flying = [];  // hieu ung: cube dang bay tu ray vao khoang hang
@@ -242,6 +452,15 @@ export class Game {
   }
 
   // Diem ray gan nhat NAM VE PHIA mieng ben dang quay toi.
+  //
+  // ⚠ Da thu thay bang "ban mot tia thang tu mieng khay ra, lay cho tia cat vong ray" - de dot
+  // noi thang hang voi khay. Ve so do thi dep hon that: 14708/14779 dot thang tap 0 do, thay vi
+  // lech toi 38.5 do tren spline hinh so 8. NHUNG NHIN THI XAU: o level 9 hai ben giua nam ngay
+  // tren cho hai vong giao nhau, ray o do chay gan nhu song song voi tia, nen cho cat dau tien
+  // o tan vong duoi - cai dot dai ngoang cat ngang ca ban co. Chu du an xem anh va chot bo.
+  // Giu cach cu; phan lech thi da duoc xu ly o chO KHAC roi: duong di cua vali bam theo HUONG
+  // CAU CO DINH (xem nhanh nhap ray trong physics), nen dot ve xien thi vali cung di xien dung
+  // y nhu the - hai duong trung nhau, do duoc lech toi da 0.69 don vi.
   railToward(x, y, dx, dy) {
     let best = null, bd = Infinity;
     for (const p of this.ring) {
@@ -271,7 +490,7 @@ export class Game {
     };
     for (const p of this.ring) add(p.x, p.y);
     for (const t of this.trucks) {
-      const L = t.cap * SLOT_LEN + 0.5, w = TRUCK_W / 2 + 0.3;
+      const L = t.cap * this.slotLen + 0.5, w = this.truckW / 2 + 0.3;
       for (const k of [0, L])
         for (const sgn of [-1, 1])
           add(t.x - t.mx * k - t.my * sgn * w, t.y - t.my * k + t.mx * sgn * w);
@@ -286,45 +505,46 @@ export class Game {
 
   // Diem giua o hang thu i. i=0 la day ben (xa mieng nhat).
   slotPos(t, i, frac) {
-    const along = t.cap * SLOT_LEN - (i + (frac === undefined ? 0.5 : frac)) * SLOT_LEN;
+    const along = t.cap * this.slotLen - (i + (frac === undefined ? 0.5 : frac)) * this.slotLen;
     return { x: t.x - t.mx * along, y: t.y - t.my * along };
   }
 
   // Ben nay co nhan mau nay khong.
+  //  - da giao xong / day cho   -> khong nhan gi
   //  - dang gom do mot khoi roi -> chi nhan dung mau do
-  //  - ben RONG                 -> nhan bat ky mau nao, mau dau tien toi chiem ben
-  //  - con lai                  -> "Hut thoang" (mac dinh): khop mau khoi o mieng;
-  //                                tat di: ca ben phai dang thuan mot mau
+  //  - con khoi o mieng         -> chi nhan dung mau khoi o mieng
+  //  - RONG HAN (het khoi)      -> nhan MOI mau, khong giu mau nao lam cua chan
   //
-  // ⚠ Co cho phep mot mau bi CHIA giua hai ben, va do khong phai loi. Truoc day o day
-  // co mot rang buoc cam chia, dat tren ket luan sai rang chia la chet: level 1 chia
-  // 4 khoi do thanh A:1 / B:2 + 1 con lan, va trong do van thang duoc - chi ton them
-  // mot lan cham vao A de don not sang B. Chia lam ban dai ra, khong lam ban hong.
+  // ⚠ Luat do chu du an chot: "Xe rong CO THE nhan duoc hang. Chi co xe da du mau, da
+  // dong nap lai, thi khong nhan duoc hang."
+  // ⚠ Bao cao nguoi choi "xe trong, khay van co cat, ma no khong chay vao" chinh la mot
+  // ben RONG dang tu choi hang. Nen dong duoi day tra ve true: ben rong nhan het moi mau.
+  // ⚠ `if (color === t.lastDump) return false` truoc day la mot co TU CHE: no lam mot ben
+  // rong tu choi VINH VIEN dung mot mau, va chinh no sinh ra dau gach cheo 'not allowed'
+  // ve tu `t.lastDump`. Da bo.
+  // ⚠ Chuyen ben hut lai dong cat minh vua do ra gio duoc chan trong absorb() bang NGUON
+  // GOC (c.src) va THOI GIAN (t.pourUntil) - xem chu thich o absorb(), khong can `lastDump`.
   accepts(t, color) {
-    if (t.gone || t.blocks.length >= t.cap) return false;
-    // ⚠ Khong bao gio hut lai mau minh vua do ra. Thieu dieu nay thi mot ben do het
-    // hang xong se rong, va hut nguoc chinh dong cube vua tuon ra khoi mieng no - cube
-    // chui ra roi quay dau chui vao lai. Day moi la ly do that su ban goc de ben rong
-    // tro; cam chia mau (cach cu cua minh) la chua dung benh.
-    if (color === t.lastDump) return false;
+    if (t.gone) return false;
+    if (t.blocks.length >= t.cap) return false;
     if (t.fill > 0) return color === t.claim;
     if (!t.blocks.length) return true;
-    if (EAGER) return color === t.blocks[t.blocks.length - 1].color;
-    const c = t.blocks[0].color;
-    return color === c && t.blocks.every((b) => b.color === c);
+    return color === t.blocks[t.blocks.length - 1].color;
   }
 
-  // Mau dai dien cho HUD/bot. "*" nghia la ben rong, dang cho mau dau tien toi.
+  // Mau dai dien cho HUD/bot. "*" nghia la ben rong, dang cho mau dau tien toi. Phai
+  // noi cung mot thu voi accepts(): ben rong tra "*", ben co hang tra mau khoi o mieng.
   wants(t) {
     if (t.gone || t.blocks.length >= t.cap) return null;
     if (t.fill > 0) return t.claim;
-    if (!t.blocks.length) return t.lastDump ? "*" : "*";
     if (!t.blocks.length) return "*";
-    if (EAGER) return t.blocks[t.blocks.length - 1].color;
-    const c = t.blocks[0].color;
-    return t.blocks.every((b) => b.color === c) ? c : null;
+    return t.blocks[t.blocks.length - 1].color;
   }
 
+  // ⚠ KHONG cong cu dang bay vao day. Da thu va bo: o dem nay chan ca canTap(), nen cong them
+  // la SIET LUAT CHOI chu khong chi sua hien thi - va thuoc do bat duoc ngay, cot "counter sai"
+  // bao lech tren 8/10 level vi mo hinh doi chieu doc lap cua no khong tinh cu bay. Vali roi ray
+  // la het nam tren ray; cho no vao o thi la viec cua khay, khong phai cua o dem.
   loose() { return this.cubes.length + this.pending.length; }
   // ⚠ Phai cong ca t.fill cua moi ben: hat da bi hut do dang nam trong ben nhung chua
   // thanh mot khoi, van la sand dang luu thong. Thieu no thi o dem thap hon thuc te.
@@ -335,26 +555,64 @@ export class Game {
     return Math.ceil(grains / this.perBlock - 1e-9);
   }
 
-  tap(t) {
+  // So KHOI mot cu cham se do ra ray: nguyen doan cung mau o mieng vali. tap() dung
+  // chinh ham nay de tru hang, nen cai canTap() hoi truoc va cai tap() do ra khong the
+  // lech nhau.
+  tapLoad(t) {
+    if (!t.blocks.length) return 0;
+    const c = t.blocks[t.blocks.length - 1].color;
+    let n = 0;
+    while (n < t.blocks.length && t.blocks[t.blocks.length - 1 - n].color === c) n++;
+    return n;
+  }
+
+  // ⚠ HET CHO TREN RAY KHONG PHAI LA THUA - chi la khong cham duoc vali nua, cho toi khi
+  // cac ben nuot bot hang. Truoc day tran ray la `state = "lose"` ngay lap tuc, va no sai
+  // ca ve luat lan ve cam giac: ray day la mot trang thai TAM THOI, no tu go khi hang chay
+  // vao ben, con thua thi khong go duoc. Thua chi con dung mot nghia: ban co chet han
+  // (isStuck).
+  canTap(t) {
     if (this.state !== "play" || t.gone || !t.blocks.length || t.drain >= 0) return false;
+    return this.counter() + this.tapLoad(t) <= this.slotCount;
+  }
+
+  // Ban co chet han: khong cham duoc vali nao, va khong mieng hang nao dang tren ray co
+  // ben nhan. ⚠ Chi hoi khi moi thu da DUNG YEN - con hang dang tuon ra, dang bay vao ben
+  // hay mot ben dang rut hang thi ban co van dang chay, va tra loi luc do la doan mo.
+  isStuck() {
+    if (this.state !== "play") return false;
+    if (this.pending.length || this.flying.length) return false;
+    for (const t of this.trucks) if (!t.gone && (t.drain >= 0 || t.fill > 0)) return false;
+    for (const c of this.cubes)
+      for (const t of this.trucks) if (this.accepts(t, c.color)) return false;
+    for (const t of this.trucks) if (this.canTap(t)) return false;
+    return true;
+  }
+
+  tap(t) {
+    if (!this.canTap(t)) return false;
     const now = this.now;
     t.ripple = now;
     const c = t.blocks[t.blocks.length - 1].color;
-    let n = 0;
-    while (t.blocks.length && t.blocks[t.blocks.length - 1].color === c) {
-      t.blocks.pop();
-      n++;
-    }
+    const n = this.tapLoad(t);
+    t.blocks.length -= n;
     t.fill = 0;
     t.claim = null;
-    t.lastDump = c;
+    // ⚠ KHONG con gan t.lastDump nua - xem chu thich o accepts(). Truong nay de nguyen
+    // null mai mai: phan VE con doc no de ve dau gach cheo, de null thi dau do tu bien
+    // mat ma khong phai dung vao ham ve (mot phien khac dang sua phan ve).
     this.reveal(t);
     this.taps++;
     this.history.push({ truck: t, color: c, n });
+    // ⚠ Nho vali nay dang nam o O NAO. Truoc day moi vali deu sinh ra o mieng ben, nen mot
+    // vali o sau bien mat khoi cho no roi hien lai o mieng - dung cai "nhay coc" ma chu du an
+    // bao. `t.blocks.length` da bi tru n o tren, nen o cu cua vali thu i la (len + n) - 1 - i:
+    // vali sat mieng nhat di truoc.
+    const top = t.blocks.length + n;
     for (let i = 0; i < n * this.perBlock; i++)
-      this.pending.push({ color: c, truck: t, at: now + CRUMBLE_MS + i * POUR_STAGGER });
+      this.pending.push({ color: c, truck: t, slot: top - 1 - Math.floor(i / this.perBlock),
+                          at: now + CRUMBLE_MS + i * POUR_STAGGER });
     this.peak = Math.max(this.peak, this.counter());
-    if (this.counter() > this.slotCount) this.state = "lose";
     return true;
   }
 
@@ -407,21 +665,118 @@ export class Game {
     const endI = this.ring.length - 1;
 
     for (const c of cubes) {
+      // ⚠ Vali con TRONG LONG XE khong chiu mot ti vat ly nao cua ray. No di thang theo truc
+      // than xe ra mieng, het. Truoc day no van qua cac phep kep cua ray, va vach `maxOff`
+      // (cach tim mang 3.81) keo no ngang ve phia ray - do duoc: mot vali bi ghim cung o
+      // x=4.88 trong khi mieng khay o x=6.00, roi no bay nguoc lai mieng khay ma khong bao gio
+      // toi, dung im |v|=9 suot 68 giay. Ray o ngoai, san xe o trong; hai thu khong dinh gi
+      // den nhau. `way` co han muc quang duong nen doan nay khong the keo dai mai.
+      if (c.way && c.way.length) {
+        const g = c.way[0];
+        let ax = g.x - c.x, ay = g.y - c.y;
+        const d = Math.hypot(ax, ay);
+        if ((c.x - g.x) * g.nx + (c.y - g.y) * g.ny >= -0.02 ||
+            d <= SPEED * dt * 1.2 || (c.lap || 0) > g.budget) c.way.shift();
+        ax /= (d || 1); ay /= (d || 1);
+        c.vx = ax * SPEED; c.vy = ay * SPEED;
+        c.x += c.vx * dt; c.y += c.vy * dt;
+        continue;
+      }
       const p = this.probe(c);
+      // ⚠ Giu TIEP TUYEN LIEN TUC cho vali chua nhap ray. O cho hai nhanh cua spline hinh so 8
+      // giao nhau (level 9), diem ray gan nhat nhay qua lai giua hai nhanh CHAY NGUOC CHIEU, nen
+      // tiep tuyen doi dau moi nua buoc - va huong nham doi dau theo. Do duoc: van toc lat tu
+      // (-8.91,-1.30) sang (+8.91,+1.30) va nguoc lai, vali dung y mot cho, |v|=9 ma khong nhuc
+      // nhich, khong bao gio nhap ray. Chi ap cho vali CHUA nhap ray: vali dang chay tren ray
+      // van dung tiep tuyen goc, de khong dong vao hanh vi bang chuyen ma thuoc do dang bao dat.
+      if (!c.landed) {
+        if (c.mtx !== undefined && p.tx * c.mtx + p.ty * c.mty < 0) { p.tx = -p.tx; p.ty = -p.ty; }
+        c.mtx = p.tx; c.mty = p.ty;
+      }
       const nx = -p.ty, ny = p.tx;
       const off = (c.x - p.px) * nx + (c.y - p.py) * ny;
       let vt = c.vx * p.tx + c.vy * p.ty;
       let vn = c.vx * nx + c.vy * ny;
 
-      if (!c.landed && Math.abs(off) <= lim) c.landed = true;
+      // ⚠ KHONG duoc chan `landed` cho toi khi di het chang duong. Da thu va no KET: vong go
+      // chong lan cuoi moi buoc day vali dang ra khoi khay lech sang ben, do duoc toi 1.12 don
+      // vi, nen no khong bao gio qua duoc mat phang miengm khay - ma chan lai thi no cung khong
+      // bao gio nhap ray, dung im mot cho voi |v|=9. Level 1 tu intake 98.6% tut ve 0%.
+      // Chang duong chi de LAI HUONG. Cham tim mang la nhap ray, dung nhu truoc gio. Khong sinh
+      // ra nhap ray som duoc: mieng ben cach ray 2.0 den 4.7 don vi, con lim chi 0.31.
+      if (!c.landed && Math.abs(off) <= lim) { c.landed = true; c.way = null; }
       if (c.landed) {
         vt += (SPEED - vt) * Math.min(1, DRIVE * dt);  // bang chuyen keo phuong DOC
         vn *= Math.exp(-NDAMP * dt);                   // ma sat ngang, cho cube lang xuong
+        c.vx = p.tx * vt + nx * vn;
+        c.vy = p.ty * vt + ny * vn;
       } else {
-        vn -= Math.sign(off) * PULL * dt;              // dang roi tu mieng ben xuong mang
+        // ⚠ RA KHOI KHAY: giu nguyen TOC DO, chi doi HUONG. Truoc day khuc nay la mot luc keo
+        // PULL=34 va de vali tu do tang toc - do duoc no vot tu 7.1 len 16.7 dv/giay (gan gap
+        // doi bang chuyen 9), roi dung khung cham mang thi vach cung an sach thanh phan ngang
+        // va toc do sup con 3.9 trong MOT khung: buoc nhay 9.6 dv/giay, chinh la cu giat.
+        // Gio do dai van toc luon bang SPEED tu luc roi mieng khay toi luc nhap ray, nen khong
+        // con buoc nhay nao - vali chi BE HUONG chu khong doi toc.
+        // Huong mong muon: con xa ray thi di dung theo huong mieng khay (t.mx, t.my) - "di tu
+        // khay ra" - toi gan thi xoay dan cho xuoi chieu ray de nhap lan. Khong nhay thang vao
+        // diem bat ray: tren spline hinh so 8 (level 9) mieng ben lech toi 36 do so voi phap
+        // tuyen ray, va nhay thang se cat cheo qua mat mang.
+        let ax, ay;
+        {
+          // Ba cach nham, hai cach dau da thu va deu hong - ghi lai de khoi thu lai:
+          //
+          //  1. Theo HUONG THAN XE (t.mx,t.my). Khi ben dat lech so voi ray - tren spline hinh
+          //     so 8 level 9 lech toi 38.5 do - huong nay gan nhu song song voi ray, khong co
+          //     thanh phan nao cat vao. Do duoc: 90 khung van chua cham ray, vali bay mat.
+          //  2. Nham vao DAU CAU (t.px,t.py) tinh lai moi khung. Dung cho toi khi vali di QUA
+          //     dau cau; qua roi thi vector quay nguoc lai, keo vali lui, va no lai khong bao
+          //     gio cham ray. Do duoc tren level 3 lane A: bam cau den khung 18 roi lech ra mai.
+          //  3. Cach dung: HUONG CAU CO DINH, do mot lan tu (t.x,t.y) den (t.px,t.py). Vector
+          //     co dinh thi khong bao gio quay nguoc, va no luon co thanh phan cat vao ray (goc
+          //     lech lon nhat do duoc la 36 do, tuc con 0.81 thanh phan huong vao).
+          //
+          // ⚠ Va KHONG duoc tru `lim` truoc khi chia. Tru xong thi w ve dung 0 tai dung nguong
+          // `landed`, tuc thanh phan cat vao tat han dung luc con thieu mot chut nua moi cham -
+          // vali tiem can mai khong cat qua. Giu |off|/MERGE_LEAD thi tai nguong van con
+          // w = 0.14, du de cat. Ban giao cung khong giat: luc cham ray van toc da 86% tiep
+          // tuyen nen nhanh `landed` chi lam vn tat dan.
+          const src = c.src;
+          let ox = 0, oy = 0, od = 0;
+          if (src) { ox = src.px - src.x; oy = src.py - src.y; od = Math.hypot(ox, oy); }
+          // ⚠ Chi bam huong cau KHI CON TREN CAU. Qua khoi dau cau roi ma van bam huong cu thi
+          // gap doan ray uon di, vali cu the chay thang mai - do duoc lech toi 17.7 don vi tren
+          // level 61 lane A, tuc bay vong qua ca ban co. Ra khoi cau roi thi cat thang vao tim
+          // mang: huong do luon hoi tu, khong bao gio dan vali di lac.
+          //
+          // ⚠ Va phai CHOT MOT CHIEU (c.offRamp), khong duoc hoi lai moi buoc. Hai huong nay
+          // lech nhau toi 120 do, nen ngay tai nguong cai test rung: nua buoc bao con tren cau,
+          // nua buoc sau bao het, van toc lat tu (-8.91,-1.30) sang (+8.91,+1.30) roi lat lai -
+          // vali dung y mot cho voi |v|=9 va khong bao gio nhap ray. Do duoc tren level 9 lane E,
+          // ket 43 giay. Chot roi thi ra khoi cau la ra han.
+          if (!c.offRamp && (od <= 0.4 || ((c.x - src.x) * ox + (c.y - src.y) * oy) / od >= od)) {
+            c.offRamp = true; c.offAt = c.lap || 0;
+          }
+          // Huong cau, va huong cat thang vao tim mang.
+          let rx, ry;
+          if (od > 0.4) { rx = ox / od; ry = oy / od; }
+          else { rx = -Math.sign(off) * nx; ry = -Math.sign(off) * ny; }
+          const qx = -Math.sign(off) * nx, qy = -Math.sign(off) * ny;
+          if (!c.offRamp) { ox = rx; oy = ry; }
+          else {
+            // ⚠ Doi huong DAN trong 0.8 don vi duong di, khong doi mot phat. Hai huong lech nhau
+            // toi 120 do nen doi ngay la mot cu lat thay ro: do duoc 98 do trong mot khung.
+            // 1.6 don vi ~ 0.18 giay o toc do bang chuyen.
+            const k = Math.min(1, ((c.lap || 0) - (c.offAt || 0)) / 1.6);
+            ox = rx * (1 - k) + qx * k; oy = ry * (1 - k) + qy * k;
+          }
+          const w = Math.min(1, Math.abs(off) / MERGE_LEAD);
+          ax = ox * w + p.tx * (1 - w); ay = oy * w + p.ty * (1 - w);
+        }
+        let m = Math.hypot(ax, ay);
+        // Hai huong triet tieu nhau (dau cau nam nguoc chieu ray): quay ve huong cat vao mang.
+        if (m < 1e-3) { ax = -Math.sign(off) * nx; ay = -Math.sign(off) * ny; m = 1; }
+        c.vx = (ax / m) * SPEED; c.vy = (ay / m) * SPEED;
       }
-      c.vx = p.tx * vt + nx * vn;
-      c.vy = p.ty * vt + ny * vn;
       c.x += c.vx * dt; c.y += c.vy * dt;
 
       if (c.landed) {
@@ -435,7 +790,12 @@ export class Game {
           const v2 = c.vx * nx + c.vy * ny;
           if (v2 * sg > 0) { c.vx -= nx * v2; c.vy -= ny * v2; }
         }
-      } else if (Math.abs(off) > maxOff) {
+      } else if (!c.src && Math.abs(off) > maxOff) {
+        // ⚠ `!c.src`: vach nay de keo lai vali di lac, KHONG duoc dong vao vali dang tren duong
+        // ra khoi khay. Mieng ben cach tim ray toi 4.71 don vi (level 9 lane E) trong khi vach
+        // o 3.81, nen vali vua roi long xe la bi giat ngang 0.9 don vi - no van di song song
+        // voi cau nhung lech han 0.83, truot qua dau cau va khong bao gio nhap duoc ray. Duong
+        // ra da co lai huong rieng va chac chan hoi tu, khong can vach nay giup.
         const sg = Math.sign(off), over = Math.abs(off) - maxOff;
         c.x -= nx * over * sg; c.y -= ny * over * sg;
       }
@@ -454,11 +814,23 @@ export class Game {
     }
 
     // go chong lan: luoi khong gian, vai lan lap cho dong on dinh
+    //
+    // ⚠ Vali CHUA NHAP RAY thi khong tham gia go chong lan. No dang nam trong long xe hoac
+    // dang truot tren cai cau noi xuong - ca hai deu o mat phang khac voi bang chuyen, nen cho
+    // no day nhau voi vali dang chay tren ray la sai ve vat ly. Hau qua do duoc, hai kieu:
+    //   - vali trong long xe bi day dat sang ben 1.12 don vi roi nham nguoc lai mieng khay ma
+    //     vat nhau voi bang chuyen, dung im |v|=9 suot 68 giay.
+    //   - vali xuong toi noi thi bi ket NGAY CANH doan dang xep hang, cach tim mang 0.61 (chi
+    //     can 0.31 la nhap duoc), huc mai khong lot ma cung khong troi di: treo 34 giay.
+    // Nhap ray roi thi no tham gia binh thuong, ke ca khi phai chen vao cho chat - vong go
+    // chong lan giai quyet trong vai khung, va do dung la hinh anh "ray dang dong".
     const cell = r * 2.2;
+    const inTruck = (c) => !c.landed;
     for (let pass = 0; pass < RELAX; pass++) {
       const grid = new Map();
       for (let i = 0; i < n; i++) {
         const c = cubes[i];
+        if (inTruck(c)) continue;
         const key = ((c.x / cell) | 0) + "," + ((c.y / cell) | 0);
         let a = grid.get(key);
         if (!a) grid.set(key, (a = []));
@@ -466,6 +838,7 @@ export class Game {
       }
       for (let i = 0; i < n; i++) {
         const a = cubes[i];
+        if (inTruck(a)) continue;
         const cx = (a.x / cell) | 0, cy = (a.y / cell) | 0;
         for (let gx = cx - 1; gx <= cx + 1; gx++)
           for (let gy = cy - 1; gy <= cy + 1; gy++) {
@@ -508,14 +881,16 @@ export class Game {
       }
       t.confetti = t.confetti.filter((p) => p.life < 1.3);
     }
-    this.flying = this.flying.filter((f) => now - f.at < f.ms);
-    // ⚠ Tran phai duoc kiem tra MOI KHUNG HINH khi dang choi: o dem co the vuot giua
-    // chung luc sand dang chay chu khong chi ngay luc cham. peak cung theo tung khung.
-    if (this.state === "play") {
-      const n = this.counter();
-      this.peak = Math.max(this.peak, n);
-      if (n > this.slotCount) this.state = "lose";
-    }
+    // ⚠ Cu bay nao het gio thi go co `flying` cua khoi no mang theo - do la luc vali that su
+    // dat vao o, va cung la luc bo ve duoc phep ve khoi do ra.
+    this.flying = this.flying.filter((f) => {
+      if (now - f.at < f.ms) return true;
+      if (f.block) f.block.flying = false;
+      return false;
+    });
+    // peak theo tung khung hinh chu khong chi ngay luc cham: o dem con leo len trong luc
+    // hang dang chay tren ray. ⚠ Khong con phan xu thua o day - xem canTap().
+    if (this.state === "play") this.peak = Math.max(this.peak, this.counter());
     if (this.state !== "play") return;
 
     // nha cube dang cho ra khoi mieng ben. Khong can cho ray trong: cube ra la roi
@@ -524,31 +899,105 @@ export class Game {
       const p = this.pending[i];
       if (p.at > now) continue;
       const t = p.truck;
-      const from = this.slotPos(t, CAP - 1, 0.5);
-      const j = (Math.random() - 0.5) * 0.7;
-      const sp = 5 + Math.random() * 3;
+      const from = this.slotPos(t, p.slot === undefined ? CAP - 1 : p.slot, 0.5);
+      // perBlock = 1 nen mot mieng hang la MOT khoi chu khong phai dong hat cat: bo moi nhieu.
+      // ⚠ Ra khoi mieng khay DUNG BANG toc do bang chuyen, khong cham hon. 6.5 cu roi de vat ly
+      // tu tang toc len 16.7 truoc khi dam vao mang: toan bo cu giat nam o day.
+      const sp = SPEED;
+      // ⚠ CHANG DUONG, khong phai mot huong. Vali phai di DUNG cai cau ma bo ve dang ve: tu o
+      // cua no ra mieng ben (t.x,t.y), roi doc cau sang dau ray (t.px,t.py). Truoc day no chi
+      // di theo huong than xe (t.mx,t.my) roi be dan sang tiep tuyen ray - tren ray thang thi
+      // hai duong trung nhau, nhung tren spline hinh so 8 (level 9) mieng ben lech toi 38.5 do
+      // so voi huong cau, nen vali di mot duong con cau ve mot neo. Do duoc: lech toi 12-13 don
+      // vi, va co vali khong bao gio nhap duoc ray vi huong di gan nhu song song voi ray.
+      // ⚠ Moc mang theo MOT MAT PHANG (nx,ny), khong phai mot vong tron ban kinh nho. Ban dau
+      // moc la diem va coi nhu toi noi khi vao trong ban kinh mot buoc di - vali chi can bi day
+      // lech mot chut (va cham voi vali khac, hoac vong go chong lan cuoi moi buoc) la truot
+      // qua ben canh, roi quay dau lai, roi lai truot qua: no luon vong quanh cai moc MAI MAI.
+      // Do duoc tren level 1: vali co lap = 4.8 (da di gan het cau) ma van con nguyen moc, va
+      // vi `landed` bi chan khi con moc nen no khong bao gio nhap ray - level 1 tu intake 98.6%
+      // tut xuong 0%. Mat phang thi khong the truot qua: di qua roi la qua han.
+      const wx0 = t.x - from.x, wy0 = t.y - from.y, wd = Math.hypot(wx0, wy0) || 1;
+      // ⚠ Moc phai co HAN MUC QUANG DUONG, neu khong no ket vinh vien. Vong go chong lan day
+      // vali dat sang ben; dat roi thi no cu nham nguoc ve mieng khay ma vat nhau voi bang
+      // chuyen, khong bao gio qua duoc moc va cung khong bao gio nhap ray - do duoc tren
+      // level 8: vali dung im |v|=9 suot 68 giay. Het han thi bo moc, va doan sau (bam huong
+      // cau roi luon vao ray) luon co thanh phan cat vao nen chac chan nhap duoc.
+      const way = [{ x: t.x, y: t.y, nx: t.mx, ny: t.my, budget: wd * 2 + 0.6 }];
+      const wx = wx0, wy = wy0;
       this.cubes.push({
-        x: from.x - t.my * j, y: from.y + t.mx * j,
-        vx: t.mx * sp + (Math.random() - 0.5) * 2,
-        vy: t.my * sp + (Math.random() - 0.5) * 2,
-        rot: Math.random() * 6.3, vrot: (Math.random() - 0.5) * 8,
-        sz: 0.9 + Math.random() * 0.2, color: p.color, seg: undefined,
+        x: from.x, y: from.y,
+        vx: (wx / wd) * sp, vy: (wy / wd) * sp,
+        rot: Math.atan2(wy, wx), vrot: 0,
+        way,
+        sz: 1, color: p.color, seg: undefined,
+        // ⚠ Nho ben nao vua tuon hat nay ra, va tuon luc nao. absorb() dung hai truong
+        // nay de mot ben khong hut lai chinh dong cat dang ra khoi mieng no.
+        src: t, born: now,
       });
+      // ⚠ Moc tinh tu hat CUOI CUNG tuon ra, khong phai tung hat: mot luot do keo dai
+      // hon mot giay, nen neu tinh theo tuoi tung hat thi hat dau tien da het han trong
+      // khi ben van dang tuon hat cuoi ngay tai mieng - va no hut lai luon.
+      t.pourUntil = now + POUR_GUARD;
       this.pending.splice(i, 1);
       i--;
     }
 
+    // ⚠ Do QUANG DUONG hat da di tren ray, khong do khoang cach toi mieng va cung khong
+    // do bang dong ho. Khoang cach hut lai: hat vua tuon ra da nam ngoai ban kinh hut roi
+    // nen dau `src` bi xoa ngay, chan duoc gi dau. Dong ho hut lai: luc ray tac, cat nam
+    // li o mieng hang giay, hen gio nao roi cung het han trong khi dong cat van y nguyen.
+    // Quang duong thi khong noi doi: chua di du xa thi van la cat cua ben do.
     const h = dt / SUBSTEPS;
+    for (const c of this.cubes) { c._x = c.x; c._y = c.y; }
     for (let k = 0; k < SUBSTEPS; k++) this.physics(h);
+    // Mat vali luon nhin ve phia dang di - MOI vali, ca dang ra khay lan dang chay tren ray,
+    // va deu qua cung mot cai kep toc do quay.
+    //
+    // ⚠ Hai bay o day, ca hai deu da dinh:
+    //  - Bam THANG van toc: trong dam dong van toc giat lung tung, do duoc co cu doi huong 161
+    //    do trong MOT khung o toc do 1.4 dv/giay. Nen bo qua khi gan dung yen, va kep toc do.
+    //  - De vali da nhap ray giu nguyen goc luc sinh: mot vali vao ray o canh tren se quay mat
+    //    ve huong do suot ca vong, toi canh duoi thi no di lui.
+    const TURN = 6.5 * dt;                       // radian moi giay, du de om het goc ray
+    for (const c of this.cubes) {
+      if (Math.hypot(c.vx, c.vy) < 3) continue;  // gan dung yen thi huong khong con y nghia
+      let d = Math.atan2(c.vy, c.vx) - c.rot;
+      while (d > Math.PI) d -= Math.PI * 2;
+      while (d < -Math.PI) d += Math.PI * 2;
+      c.rot += Math.max(-TURN, Math.min(TURN, d));
+    }
+    const FREE_RUN = this.len * 0.34;   // hon mot phan ba vong ray
+    // ⚠ MOT bo dem quang duong cho ca hai viec, khong phai hai. `c.lap` dem tu luc mieng
+    // hang roi mieng ben: duoi FREE_RUN thi no van la hang cua ben do (chan tu nuot), va
+    // qua `this.len` thi no da di tron MOT VONG ray. Cai vong do la thuoc do duy nhat noi
+    // duoc "hang nay da chao het moi ben roi ma khong ai nhan" - the RAY TAC doi dung no.
+    for (const c of this.cubes) {
+      c.lap = (c.lap || 0) + Math.hypot(c.x - c._x, c.y - c._y);
+      if (c.src && c.lap > FREE_RUN) c.src = null;
+    }
     this.absorb(now);
+    // Khay day thi giao hang - nhung chi tinh khi vali cuoi DA VAO DEN O. Mot ben con cu bay
+    // nao huong ve no thi coi nhu chua xong. deliver() tra false khi chua du bo, nen goi moi
+    // khung khong ton gi va khong lam gi thua.
+    for (const t of this.trucks)
+      if (!t.gone && t.blocks.length && !this.flying.some((f) => f.truck === t)) this.deliver(t);
 
     // Ben rong van song (van nhan hang), nen dieu kien thang la: khong con gi tren
     // ray, va moi ben hoac da giao xong hoac dang rong.
     if (!this.cubes.length && !this.pending.length &&
         this.trucks.every((t) => t.gone || !t.blocks.length))
       this.state = "win";
+    // ⚠ Hoi SAU cau thang, va chi sau no: mot ban co vua don xong cung khong cham duoc
+    // vali nao va khong con hang cho ben nao nhan - dung y het mot ban co chet.
+    else if (this.isStuck()) this.state = "lose";
   }
 
+  // ⚠ Ben vua do hang thi dong cat con nam ngay o mieng no. Khong chan thi no hut lai
+  // ngay lap tuc - do duoc: level 1 tu 1 lan cham nhay len 8 lan cham, 8 lan tu nuot.
+  // Chan bang THOI GIAN va NGUON GOC, khong bang mau: cat cua chinh ben do, tuon ra
+  // chua duoc POUR_GUARD, thi ben do khong hut. Mot vong ray mat hon 2 giay nen cat di
+  // het mot vong quay lai van vao binh thuong - dung luat "ben rong nhan moi mau".
   absorb(now) {
     // ⚠ Bo vung hut ra bang BAN KINH r*2.6: hat chay SPEED 19 nen chi nam trong tam
     // voi vai phan tram giay, va truoc day chi mot hat moi ben moi khung hinh duoc hut
@@ -557,29 +1006,79 @@ export class Game {
     const R = this.r * 2.6, R2 = R * R;
     for (const t of this.trucks) {
       if (t.gone) continue;   // ben da giao xong thi khong con nhan (accepts cung chan)
+      if (now < (t.pourUntil || 0)) continue;   // dang tuon hang ra - chua hut lai
+      // ⚠ Cau dang co hang DI RA thi khong nhan hang DI VAO. Hai chieu dung chung mot cay cau
+      // (xem flyPos), nen bo cai chan nay thi mot vali bay len trong luc mot vali dang di
+      // xuong, va hai cai di xuyen qua nhau ngay giua cau. `pourUntil` khong du: no la dong
+      // ho 900ms, con vali cuoi cua mot luot do bon o thi roi mieng o giay thu 0.74 va con
+      // phai di het chieu dai cau nua. Dieu kien dung la CAU CON BAN HAY KHONG.
+      if (this.cubes.some((c) => c.src === t && !c.landed)) continue;
       // ⚠ Duyet nguoc + KHONG break: splice khong bo sot hat phia sau, va mot ben phai
       // hut HET moi hat du dieu kien dang nam trong vung trong CUNG mot khung hinh.
       // accepts() da tu chan khi ben day (blocks >= cap) hoac gone, nen vong lap an toan.
       for (let i = this.cubes.length - 1; i >= 0; i--) {
         const c = this.cubes[i];
+        if (c.src === t) continue;          // cat cua chinh ben nay, chua roi mieng
         if (!this.accepts(t, c.color)) continue;
         const dx = c.x - t.px, dy = c.y - t.py;
         if (dx * dx + dy * dy > R2) continue;
         this.cubes.splice(i, 1);
-        t.ate = now;
         if (!t.fill) { t.claim = c.color; t.lastDump = null; }
         this.history = this.history.filter((h) => h.color !== c.color);
-        const to = this.slotPos(t, t.blocks.length, 1 - t.fill / this.perBlock);
-        this.flying.push({
-          at: now, ms: ABSORB_MS, color: c.color, rot: c.rot, sz: c.sz,
+        // ⚠ Dich phai la TAM O (frac 0.5), dung cai toa do ma bo ve dat khoi hang vao
+        // (three3d.js: slotPos(t, i, 0.5)). Cong thuc cu `1 - fill/perBlock` viet cho thoi mot
+        // khoi hang la mot dong vai chuc hat cat - hat dau tien rot vao day o, hat cuoi day len
+        // mieng. Voi perBlock = 1 no thoai hoa thanh frac = 1, tuc LECH NUA O so voi cho khoi
+        // that su nam. Vali bay vao roi dung lai canh khoi chu khong trung vao no, va vi khoi
+        // duoc them vao t.blocks NGAY luc hut, mat doc ra la "co mot vali nhay vao ma khay van
+        // the" - dung nhu chu du an bao.
+        const to = this.slotPos(t, t.blocks.length, 0.5);
+        // Chang duong vao: diem tren ray -> dau cau -> mieng ben -> o dich. Dung nguoc lai
+        // chang duong luc vali di ra, nen hai chieu trung khop nhau va trung voi cai cau ve.
+        // ⚠ KHONG them doan dan nhap theo huong vali dang chay. Da thu va no lam TE HON: vung
+        // hut rong 1.59 don vi nen vali thuong bi hut khi DA DI QUA dau cau, keo dai them theo
+        // huong cu la day no di xa hon nua roi phai quay dau - do duoc p99 tu 29 len 43 do.
+        const path = [{ x: c.x, y: c.y }];
+        if (Math.hypot(t.px - t.x, t.py - t.y) > 0.4) path.push({ x: t.px, y: t.py });
+        path.push({ x: t.x, y: t.y }, { x: to.x, y: to.y });
+        // Bo cac moc trung nhau: doan dai 0 khong them gi ma lam roi phep chia do dai cung.
+        for (let k = path.length - 1; k > 0; k--)
+          if (Math.hypot(path[k].x - path[k - 1].x, path[k].y - path[k - 1].y) < 1e-3) path.splice(k, 1);
+        const smooth = chaikin(path, 2);
+        let plen = 0;
+        for (let k = 0; k < smooth.length - 1; k++)
+          plen += Math.hypot(smooth[k + 1].x - smooth[k].x, smooth[k + 1].y - smooth[k].y);
+        // ⚠ Ghim TOC DO chu khong ghim thoi gian - xem chu thich o FLY_SPEED. Va s dat sao cho
+        // van toc luc roi ray dung bang bang chuyen, xem flyEase().
+        const ms = Math.max(FLY_MIN, Math.min(FLY_MAX, (plen / FLY_SPEED) * 1000));
+        const s = Math.max(0, Math.min(3, (SPEED * ms) / 1000 / (plen || 1)));
+        // Logic reserves the slot immediately, but the artwork has not arrived there yet.
+        // Keep the visual arrival time so the bounce and closing lid start after the flight.
+        t.arriveAt = now + ms;
+        t.ate = t.arriveAt;
+        const cuBay = {
+          at: now, ms, s, truck: t, color: c.color, rot: c.rot, rot1: Math.atan2(t.my, t.mx), sz: c.sz,
+          path: smooth, plen,
           fx: c.x, fy: c.y, tx: to.x, ty: to.y,
-        });
+        };
+        this.flying.push(cuBay);
         t.fill++;
         if (t.fill >= this.perBlock) {
           t.fill = 0;
-          t.blocks.push({ color: t.claim, hidden: false, key: null, seen: true });
+          // ⚠ Danh dau khoi nay DANG BAY. Ve luat no da nam trong khay ngay tu bay gio (o dem,
+          // accepts(), tapLoad() deu phai thay no), nhung ve HINH thi chua: vali tuong ung con
+          // dang bay tren duong vao. Khong danh dau thi bo ve dat no vao o ngay lap tuc va
+          // nguoi choi thay HAI cai - mot dung san trong o, mot dang bay toi. Chu du an bao
+          // dung y: "nhay chua vao den noi thi co 1 vali dung san o do".
+          const khoi = { color: t.claim, hidden: false, key: null, seen: true, flying: true };
+          t.blocks.push(khoi);
+          cuBay.block = khoi;
           t.claim = null;
-          this.deliver(t);
+          // ⚠ KHONG goi deliver() o day. Day la luc vali vua bi NHAT KHOI RAY, no con bay them
+          // toi 650ms nua moi vao den o. Goi ngay thi khay dong nap va giao hang trong khi vali
+          // cuoi van dang lo lung giua khong trung - chu du an bao dung y: "logic full khay dang
+          // duoc ghi nhan som qua, som hon ca khi vali cuoi chua vao vi tri".
+          // Phep kiem chuyen sang step(), va chi chay khi khong con cu bay nao ve ben nay.
         }
       }
     }
@@ -608,14 +1107,23 @@ export class Game {
   // "Undo the last block" - tra lai chuyen do vua roi vao ben cu.
   // ⚠ Chi lam duoc khi so cube cua mau do con lang thang du mot khoi tro len; neu chung
   // da bi hut mat thi khong the tra lai ma khong pha vo so hoc "moi mau dung 4 khoi".
-  undo() {
+  // ⚠ Mot dinh nghia cho "co hoan tac duoc khong". Nut booster phai mo san khi khong hoan
+  // tac duoc (luat 3.5: dung de bam roi bao loi), va neu no chep lai dieu kien nay thanh
+  // ban thu hai thi hai ban se troi khoi nhau - nut sang trong khi engine tu choi.
+  canUndo() {
     const last = this.history[this.history.length - 1];
-    if (!last) return false;
+    if (!last) return null;
     const have = this.cubes.filter((c) => c.color === last.color).length +
                  this.pending.filter((p) => p.color === last.color).length;
+    if (have < last.n * this.perBlock) return null;
+    if (last.truck.blocks.length + last.n > last.truck.cap) return null;
+    return last;
+  }
+
+  undo() {
+    const last = this.canUndo();
+    if (!last) return false;
     const need = last.n * this.perBlock;
-    if (have < need) return false;
-    if (last.truck.blocks.length + last.n > last.truck.cap) return false;
     let k = need;
     this.pending = this.pending.filter((p) => !(p.color === last.color && k-- > 0));
     if (k > 0) {
@@ -655,7 +1163,9 @@ export class Game {
   addConveyorSlot() {
     this.slotCount++;
     this.capCubes = this.slotCount * this.perBlock;
-    if (this.state === "lose" && this.counter() <= this.slotCount) this.state = "play";
+    // Them mot cho tren ray go duoc ban co chet khi no lam it nhat mot vali cham duoc tro
+    // lai; hoi lai bang chinh isStuck() chu khong so sanh o dem voi suc chua nua.
+    if (this.state === "lose") { this.state = "play"; if (this.isStuck()) this.state = "lose"; }
     return true;
   }
 
@@ -701,7 +1211,7 @@ export class Game {
       const dx = wx - t.x, dy = wy - t.y;
       const along = -(dx * t.mx + dy * t.my); // doc than ben, tinh tu mieng
       const across = dx * -t.my + dy * t.mx;
-      if (along >= -0.6 && along <= t.cap * SLOT_LEN + 0.6 && Math.abs(across) <= TRUCK_W / 2 + 0.4)
+      if (along >= -0.6 && along <= t.cap * this.slotLen + 0.6 && Math.abs(across) <= this.truckW / 2 + 0.4)
         return t;
     }
     return null;
@@ -713,13 +1223,17 @@ export class Game {
 let cv = null, ctx = null;
 let game = null, view = null;
 let EAGER = true;
-let CHROME = true;   // dai HUD trong canvas - tat khi lam nen man Home
+// Chieu cao THAT (px CSS) cua hai dai HUD bang DOM - app.js do bang offsetHeight roi bao
+// sang. ⚠ Truoc day day la mot co bool va layout() doan 9.2%/8.8% chieu cao canvas: dung
+// o may nay, sai o may co safe-area (tai tho), va sai them lan nua moi lan doi kich thuoc
+// nut. Ban co khong duoc phep chay xuong duoi gam hai dai do.
+let HEAD = 0, FOOT = 0;
 
 export function initCanvas(el) { cv = el; ctx = el.getContext("2d"); }
 export function setGame(g) { game = g; layout(); }
 export function getGame() { return game; }
 export function setEager(v) { EAGER = v; }
-export function setChrome(v) { CHROME = v; layout(); }
+export function setChrome(headCss, footCss) { HEAD = headCss || 0; FOOT = footCss || 0; layout(); }
 export function getEager() { return EAGER; }
 
 // Doi toa do con tro sang toa do the gioi roi hoi xem trung ben nao.
@@ -738,17 +1252,20 @@ export function layout() {
   cv.height = Math.max(1, Math.round(r.height * dpr));
   if (!game) return;
   const b = game.bounds;
-  const head = CHROME ? Math.round(cv.height * 0.092) : 0;
-  // ⚠ Phai chua cho CA hang nut duoi, khong chi thanh HUD tren. Truoc day khung ghim
+  // O dem cube ve trong canvas (drawHud), ngay duoi dai DOM, nen chieu cao cua no cung
+  // phai tru vao cho ban co.
+  const bar = Math.round(HEAD * dpr);
+  const gauge = HEAD ? Math.round(Math.min(cv.width * 0.082, cv.height * 0.046)) : 0;
+  const head = bar + Math.round(gauge * 1.35);
+  // ⚠ Phai chua cho CA hang booster duoi, khong chi dai HUD tren. Truoc day khung ghim
   // 480px nen ban co luon bi be RONG chan lai va khong bao gio voi toi hang nut; tu khi
   // khung noi rong theo vh thi chieu CAO moi la cai chan, va thieu `foot` la ban co
-  // chay thang xuong duoi gam cac nut. Hang nut cao 56px + padding 12/16 = 84px tren
-  // khung ~980px, tuc 8.6% - lay 0.088.
-  const foot = CHROME ? Math.round(cv.height * 0.088) : 0;
+  // chay thang xuong duoi gam cac nut.
+  const foot = Math.round(FOOT * dpr);
   const sc = Math.min(cv.width / (b.x1 - b.x0),
                       (cv.height - head - foot) / (b.y1 - b.y0));
   view = {
-    sc, head,
+    sc, head, bar, gauge,
     ox: (cv.width - (b.x1 - b.x0) * sc) / 2 - b.x0 * sc,
     oy: head + (cv.height - head - foot - (b.y1 - b.y0) * sc) / 2 - b.y0 * sc,
   };
@@ -953,46 +1470,68 @@ export function draw(now) {
   for (const t of game.trucks) drawBay(t, now);
   for (const c of game.cubes) drawCube(c.x, c.y, PALETTE[c.color] || "#888", c.rot, c.sz);
   for (const f of game.flying) {
-    const k = Math.min(1, (now - f.at) / f.ms), e = easeOut(k);
-    drawCube(f.fx + (f.tx - f.fx) * e, f.fy + (f.ty - f.fy) * e,
-             PALETTE[f.color] || "#888", f.rot + k * 2, f.sz);
+    const k = Math.min(1, (now - f.at) / f.ms), q = flyPos(f, k);
+    drawCube(q.x, q.y, PALETTE[f.color] || "#888", q.rot, f.sz);
   }
   for (const t of game.trucks) drawTrim(t, now);
-  if (CHROME) drawHud();
+  for (const t of game.trucks) drawBlocked(t);
+  if (HEAD) drawHud();
 }
 
-// Dai dau man hinh: "Level N" ben trai, o dem hinh cube o giua - do lai khi sap tran,
-// dung nhu ban goc (level 3 chuyen do o 6/8).
+// O dem cube tren ray - do lai khi sap tran, dung nhu ban goc (level 3 chuyen do o 6/8).
+//
+// ⚠ Chi con moi o dem o day; so level da chuyen han sang the level bang DOM tren dai HUD,
+// vi nhan do kho (luat 2.8) va vung cham 44px (2.6) deu la viec cua DOM. Nhung o dem thi
+// o lai canvas co chu dich: no la dong ho cua CHINH BAN CO - no doi mau theo ray, phong
+// to nho theo ban co, va o giua ngay duoi dai HUD thay vi tranh cho voi bon vat the tren
+// do (2.1: toi da 4). Dat no vao dai HUD la vat the thu nam, va o 360px thi khong con cho.
+// ⚠ Vali khong cham duoc phai NHIN RA la khong cham duoc, khong de nguoi choi cham roi
+// moi bao (luat 3.5). Ve thanh mot ham rieng, sau drawBay/drawTrim, chu khong nhuom mau
+// ben trong drawBay: phan ve than xe dang duoc mot phien khac sua, va mot lop phu chong
+// len tren la thu de go ra nhat neu sau nay muon doi cach the hien.
+function drawBlocked(t) {
+  if (game.state !== "play") return;
+  if (t.gone || !t.blocks.length || t.drain >= 0 || game.canTap(t)) return;
+  const S = view.sc, w = TRUCK_W * S, bodyL = t.cap * SLOT_LEN;
+  ctx.save();
+  ctx.translate(SX(t.x), SY(t.y));
+  ctx.rotate(Math.atan2(-t.my, -t.mx));
+  roundRect(-0.35 * S, -w / 2, bodyL * S + 0.5 * S, w, 0.5 * S);
+  ctx.fillStyle = "rgba(11,9,32,.5)";
+  ctx.fill();
+  ctx.restore();
+}
+
 function drawHud() {
-  const h = view.head, u = h * 0.5;
-  const warn = game.counter() >= game.slotCount - 2;
+  const hh = view.gauge, u = hh * 0.5;
+  const cy = view.bar + hh * 0.68;
+  // ⚠ (3.2) Hai muc do khac nhau thi phai nhin ra duoc: "sap day" (con 1-2 cho) khac han
+  // "DAY" (khong cham duoc vali nao nua). Mot mau cho ca hai thi luc ban co khoa lai
+  // nguoi choi khong co gi bao, va se ngoi cham vao vali mai.
+  const full = game.counter() >= game.slotCount;
+  const warn = full || game.counter() >= game.slotCount - 2;
   ctx.textBaseline = "middle";
-
-  const pill = (cx, cy, w, hh, fill, stroke) => {
-    roundRect(cx - w / 2, cy - hh / 2, w, hh, hh / 2);
-    ctx.fillStyle = fill; ctx.fill();
-    ctx.strokeStyle = stroke; ctx.lineWidth = Math.max(1, u * 0.09); ctx.stroke();
-  };
-
-  ctx.font = "bold " + u * 0.62 + "px system-ui";
-  const lw = ctx.measureText("Level " + game.id).width + u * 1.1;
-  pill(u * 0.35 + lw / 2, h * 0.55, lw, u * 1.1, "rgba(46,36,96,.92)", "#6e5db4");
-  ctx.fillStyle = "#e9e4ff"; ctx.textAlign = "center";
-  ctx.fillText("Level " + game.id, u * 0.35 + lw / 2, h * 0.55);
+  ctx.textAlign = "center";
+  ctx.font = "bold " + u * 1.12 + "px system-ui";
 
   const txt = game.counter() + "/" + game.slotCount;
-  const cw = ctx.measureText(txt).width + u * 2.5;
+  const cw = ctx.measureText(txt).width + u * 4.4;
   const cx = cv.width / 2;
-  pill(cx, h * 0.55, cw, u * 1.1, warn ? "rgba(150,26,66,.95)" : "rgba(46,36,96,.92)",
-       warn ? "#ff7ba3" : "#6e5db4");
-  ctx.fillStyle = warn ? "#ffd6e2" : "#e9e4ff";
-  ctx.fillText(txt, cx + u * 0.4, h * 0.55);
+  roundRect(cx - cw / 2, cy - hh / 2, cw, hh, hh / 2);
+  ctx.fillStyle = full ? "rgba(176,20,62,.97)"
+                : warn ? "rgba(150,84,20,.95)" : "rgba(46,36,96,.92)";
+  ctx.fill();
+  ctx.strokeStyle = full ? "#ff7ba3" : warn ? "#ff9d3c" : "#6e5db4";
+  ctx.lineWidth = Math.max(1, u * 0.16);
+  ctx.stroke();
+  ctx.fillStyle = full ? "#ffd6e2" : warn ? "#ffe2c2" : "#e9e4ff";
+  ctx.fillText(txt, cx + u * 0.7, cy);
   // bieu tuong cube
   ctx.save();
-  ctx.translate(cx - cw / 2 + u * 0.78, h * 0.55);
+  ctx.translate(cx - cw / 2 + u * 1.45, cy);
   ctx.rotate(0.18);
-  ctx.fillStyle = warn ? "#ffb8cc" : "#c9c0f0";
-  roundRect(-u * 0.34, -u * 0.34, u * 0.68, u * 0.68, u * 0.16);
+  ctx.fillStyle = full ? "#ffb8cc" : warn ? "#ffcf9a" : "#c9c0f0";
+  roundRect(-u * 0.6, -u * 0.6, u * 1.2, u * 1.2, u * 0.28);
   ctx.fill();
   ctx.restore();
 }
@@ -1203,4 +1742,7 @@ function drawTrim(t, now) {
 }
 
 
-export { LEVELS, CARRIERS, SPLINES, AREAS, PALETTE, UI, CAP, DELIVER };
+// ⚠ CHANNEL/RIM di kem nhau: editor ve mat ray theo dung be rong engine dung de tinh
+// `bounds`, nen ve ra bang chinh hai so nay chu khong uoc luong. Uoc luong thi hinh trong
+// editor rong hep khac hinh trong game, va nguoi ve se can bang theo mot cai ray khong co that.
+export { LEVELS, CARRIERS, SPLINES, AREAS, PALETTE, UI, CAP, DELIVER, CHANNEL, RIM };

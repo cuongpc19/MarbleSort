@@ -1,5 +1,5 @@
 import { defineConfig } from "vite";
-import { appendFileSync, readFileSync } from "node:fs";
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { execSync } from "node:child_process";
 
@@ -181,9 +181,100 @@ function crazySdkTag() {
 
 // base: "./" keeps asset paths relative — required so the same build works on the
 // web, inside the Capacitor wrapper (file://) and inside the CrazyGames iframe.
+// ⚠ Bo level cua ban dung lai Loop Sort duoc `fetch` luc chay (`./data/Levels.json`), khong
+// phai `import`, nen rollup khong nhin thay no va khong chep sang dist. Thieu buoc nay thi
+// trang build ra van len hinh roi chet ngay o loadData - dung cai kieu hong im lang te nhat:
+// bam Play khong co gi xay ra.
+function loopsortData() {
+  return {
+    name: "copy-loopsort-data",
+    closeBundle() {
+      for (const dir of ["data", "bg"]) {
+        const from = root + "tools/loopsort/" + dir;
+        const to = root + "dist/tools/loopsort/" + dir;
+        if (!existsSync(from)) continue;
+        mkdirSync(to, { recursive: true });
+        for (const f of readdirSync(from)) copyFileSync(from + "/" + f, to + "/" + f);
+      }
+    },
+  };
+}
+
+// Duong ghi cua `tools/loopsort/editor.html`. Trinh duyet khong ghi duoc file, nen editor POST
+// sang day va may chu DEV ghi vao `tools/loopsort/data/`.
+//
+// ⚠ `configureServer` nen no CHI ton tai khi `npm run dev`. Khong co gi trong ban build mo mot
+// duong ghi file - do la thu duy nhat khien mot cong cu noi bo tro thanh mot lo hong.
+//
+// ⚠ NHAN BAN KHI DUNG CHUNG, va day la ca ly do ham nay ton tai. 1299 level chi co 800 carrier
+// va 800 spline: sua thang carrier cua level 105 la sua LUON moi level khac tro vao carrier do,
+// va hong theo kieu im lang nhat - nguoi sua chi thay o mot man hinh khac, nhieu ngay sau. Nen:
+// dung chung thi tach ban moi roi tro level nay sang ban do; dung mot minh thi sua tai cho.
+function loopsortSave() {
+  const dir = root + "tools/loopsort/data/";
+  const rd = (f: string) => JSON.parse(readFileSync(dir + f, "utf8"));
+  const wr = (f: string, v: unknown) => writeFileSync(dir + f, JSON.stringify(v));
+  return {
+    name: "loopsort-editor-save",
+    configureServer(server: any) {
+      server.middlewares.use("/__loopsort/save", (req: any, res: any, next: any) => {
+        if (req.method !== "POST") return next();
+        let raw = "";
+        req.on("data", (c: any) => { raw += c; if (raw.length > 1e6) req.destroy(); });
+        req.on("end", () => {
+          res.setHeader("content-type", "application/json");
+          try {
+            const b = JSON.parse(raw);
+            const id = Number(b.id);
+            if (!Number.isInteger(id) || id < 1) throw new Error("id không hợp lệ");
+            if (typeof b.spline !== "string" || typeof b.colorData !== "string")
+              throw new Error("thiếu spline/colorData");
+            if (!existsSync(dir + "Levels.json")) throw new Error("chưa có tools/loopsort/data/");
+
+            const levels = rd("Levels.json"), carriers = rd("Carriers.json"), splines = rd("Splines.json");
+            let lv = levels.find((x: any) => x.Id === id);
+            if (!lv) {
+              lv = { Map: 0, Carriers: 0, Spline: 0, Theme: "Default", SlotCount: 8, CameraRotation: 0, ColorMix: 0, Id: id };
+              levels.push(lv);
+              levels.sort((a: any, z: any) => a.Id - z.Id);
+            }
+            const shared = (key: "Carriers" | "Spline") =>
+              levels.filter((x: any) => x[key] === lv[key]).length > 1 || !lv[key];
+            const next1 = (arr: any[]) => arr.reduce((m: number, x: any) => Math.max(m, x.Id), 0) + 1;
+
+            let cloned = false;
+            let car = carriers.find((x: any) => x.Id === lv.Carriers);
+            if (!car || shared("Carriers")) {
+              car = { ColorData: "", Features: "-", Colors: null, Id: next1(carriers) };
+              carriers.push(car); lv.Carriers = car.Id; cloned = true;
+            }
+            let sp = splines.find((x: any) => x.Id === lv.Spline);
+            if (!sp || shared("Spline")) {
+              sp = { CameraOffset: { X: 0, Y: 0 }, CameraRotation: 0, Closed: true, Spacing: 0.58,
+                     Subdivide: 1, Spline: "", SplineGrid: null, Id: next1(splines) };
+              splines.push(sp); lv.Spline = sp.Id; cloned = true;
+            }
+
+            car.ColorData = b.colorData;
+            sp.Spline = b.spline;
+            sp.Closed = !!b.closed;
+            if (Number.isFinite(Number(b.slot))) lv.SlotCount = Number(b.slot);
+
+            wr("Levels.json", levels); wr("Carriers.json", carriers); wr("Splines.json", splines);
+            res.end(JSON.stringify({ ok: true, carrier: lv.Carriers, spline: lv.Spline, cloned }));
+          } catch (err: any) {
+            res.statusCode = 400;
+            res.end(JSON.stringify({ error: String(err.message || err) }));
+          }
+        });
+      });
+    },
+  };
+}
+
 export default defineConfig({
   base: "./",
-  plugins: [playlogSink(), crazySdkTag()],
+  plugins: [playlogSink(), crazySdkTag(), loopsortData(), loopsortSave()],
   resolve: {
     alias: {
       // The platform door. Aliasing rather than branching keeps the unselected implementation
@@ -212,10 +303,15 @@ export default defineConfig({
       // page with its own bundle, a "play this level" link and a localStorage scratch slot —
       // shipping it to a reviewer is the same mistake as leaving a test harness in `dist/`,
       // and it spends payload on something no player can reach from the game.
+      // ⚠ `loopsort` la ban dung lai Loop Sort - cung dien dev tool nhu editor, va cung bi
+      // loai khoi ban crazy vi cung mot ly do: nguoi duyet game khong the toi duoc no, con
+      // no thi an payload. Nhung no PHAI co trong ban web, vi do la cach chu du an mo tren
+      // dien thoai de choi thu.
       input:
         TARGET === "crazy"
           ? { main: root + "index.html" }
-          : { main: root + "index.html", editor: root + "editor.html" },
+          : { main: root + "index.html", editor: root + "editor.html",
+              loopsort: root + "tools/loopsort/index.html" },
     },
   },
 });

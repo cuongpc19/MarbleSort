@@ -1,4 +1,4 @@
-# Marble Sort — project notes for Claude
+# Marble Sort — project notes for Codex
 
 **2026-08-07: scaffolded from the Beads Out project** (`github.com/cuongpc19/BeadsOut`)
 following its `NEW-GAME.md` checklist, then built out from the reference material in
@@ -2250,20 +2250,10 @@ qua chúng; ô đếm giờ là `#beltGauge` bằng DOM. Sửa hình thì sửa 
 
 ### Bộ level là của mình, và nó được SINH ra — `tools/loopsort/levelgen.mjs`
 
-Level trong `tools/loopsort/data/` do `levelgen.mjs` sinh: ray riêng, bố cục riêng, thứ tự màu
-riêng.
-
-⚠ **`DATA` trong `loopsort.js` hiện trỏ về BỘ GỐC (`Manythings/LoopSort-teardown/data/`), theo
-lệnh chủ dự án ngày 2026-09-13**: *"b để lại bộ level như game gốc đi, rồi t sẽ sửa từ đó"*. Lý
-do là bộ tự sinh **làm khay và vali bé đi thấy rõ** và không sửa được bằng cách chỉnh bộ sinh
-trong thời gian chấp nhận được — đo trên 10 level đầu, bề ngang bàn 22–48 đv so với 20–25 của
-bản gốc, tức cùng một cỡ khay thật mà camera phải lùi xa gấp đôi. Bộ tự sinh vẫn còn nguyên
-trong `data/`, xem lại bằng `?data=./data/`.
-
-⚠ **Và vì thế bản đang chạy KHÔNG deploy được.** Bộ gốc có bản quyền (Garawell/Voodoo) và
-`.gitignore` loại nó ra, nên build lên GitHub sẽ fetch 404 rồi đứng hình — đúng kiểu hỏng im
-lặng. **Trước khi deploy phải trả `DATA` về `"./data/"`**, và lúc đó `data/` phải có đủ level
-người chơi với tới.
+1299 level trong `tools/loopsort/data/` do `levelgen.mjs` sinh: ray riêng, bố cục riêng, thứ
+tự màu riêng. `loopsort.js` trỏ `DATA` vào đó. ⚠ Trước đây nó trỏ thẳng vào
+`Manythings/LoopSort-teardown/data/` — tức là chơi bằng chính level của Loop Sort, đúng thứ
+README của bản mổ ghi rõ là **tài liệu tham khảo, không ship**.
 
 **Đường cong độ khó thì chép, level thì không.** Đo trên cả 1299 level của họ:
 
@@ -2328,99 +2318,9 @@ node tools/loopsort/levelbot.mjs 1-50         # đo độ khó một dải (bot 
 node tools/loopsort/levelbot.mjs 1-50 --data Manythings/LoopSort-teardown/data   # đo bản gốc
 ```
 
-### Bộ level hiện tại được GHÉP, không phải sinh — `tools/loopsort/remap.mjs`
-
-Lệnh chủ dự án 2026-09-13: *"chọn random level design bất kỳ rồi apply lên level đấy (ví dụ lấy
-level 99 apply vào level 5). Dựa vào số lượng khay của level 5 hiện tại, mà thêm bớt khay cho
-hợp lý."* Đó là công thức:
-
-- **Độ khó giữ nguyên của level gốc** — carrier (số khay, số màu, thứ tự màu trong từng khay) và
-  `SlotCount`. ⚠ **Độ khó nằm ở carrier, không nằm ở ray.** Ray chỉ đổi đường đi, nên ghép kiểu
-  này cho ra một bộ "khó y như bản cũ" mà **không phải đo lại từ đầu** — khác hẳn `levelgen.mjs`,
-  nơi mọi thay đổi đều phải dò lại bằng bot.
-- **Bảng màu đổi** — hoán vị gieo theo số level. Cách xếp không đổi một ô nào nên độ khó không
-  đổi. `--no-recolor` để so trực tiếp với bản gốc.
-- **Hình ray mượn** — ngẫu nhiên trong 800 hình của họ, bắt buộc khác hình cũ, rồi chọn lại số
-  bến cho khớp số khay: **trải đều quanh vòng theo góc**, không lấy mấy cái đầu danh sách (lấy
-  đầu danh sách thì mọi bến dồn về một góc và nửa vòng ray trống trơn).
-
-⚠ **Vì sao bỏ `levelgen.mjs`.** Nó vẽ ray từ đầu và hỏng ở chỗ không ai ngờ: ray nó sinh rộng
-gần **gấp đôi** ray của họ (22–48 đơn vị so với 20–25). Camera khớp cả bàn cờ vào khung hình,
-nên bàn rộng gấp đôi tức là khay và vali trên màn hình **bé đi một nửa** — chính là thứ bị báo
-đi báo lại suốt nhiều phiên, và không phiên nào tìm ra vì ai cũng đi sửa camera, sửa HUD, sửa
-hằng số phóng to, chứ không ai đo bề ngang ray của hai bên. `levelgen.mjs` vẫn còn để tham khảo.
-
-⚠ **Cỡ khay trên màn hình = nghịch đảo của khung bàn cờ, nên khung bàn là NÚT CHỈNH cỡ khay.**
-`remap.mjs` nhắm khung bàn về `TARGET_SPAN` = 42: lọc hình học trước (rẻ), **xếp hạng ứng viên
-theo khung bàn**, rồi mới cho bot chơi (đắt). Lấy ngay hình đầu tiên qua được hình học thì khung
-bàn nằm đâu cũng được — và đó chính là "khay bé tí ở level này, to ở level kia".
-
-⚠ **Luật chọn ray là "GẦN BẢN GỐC NHẤT", không phải "bot thắng", và cái bẫy này đã sập một lần.**
-Bản đầu đòi bot phải thắng — nó không giữ độ khó mà **lọc lấy ray dễ**: đo ra bộ ghép thắng 100%
-trong khi bản gốc 55%, tức đã làm dễ đi cả một bộ level mà vẫn tưởng là giữ nguyên. Nên độ khó
-bản gốc phải **đo hết một lượt TRƯỚC** khi sửa bất cứ thứ gì (nhiều level dùng chung carrier, sửa
-cái này là hỏng số đo của cái kia), rồi chọn ray theo `|thắng − gốc|` cộng lệch số chạm.
-
-Đo trên 20 level đầu, đối chiếu thẳng với bản gốc (6 ván/level, cùng hạt gieo):
-
-| | bộ ghép | bộ gốc |
-|---|---|---|
-| bot thắng · số chạm · peak ray | **55% · 45 · 9,2** | 55% · 46 · 9,2 |
-| level khớp đúng kết quả bản gốc | **20/20** | — |
-| chênh lệch cỡ khay giữa level to nhất và bé nhất | **0%** | 157% |
-| level bị xe chồng nhau (`fit < 1`) | **0/20** | 3/20 |
-| level có thân xe cắt qua ray | **0/20** | 5/20 |
-
-⚠ Nghiệm thu mỗi level: bến lệch ≤ 12°, cách ray 1,5–5,2 đv, không cặp xe nào chồng, ray đủ dài
-cho `SlotCount`, **và bot thắng bằng chính engine**. Hình học kiểm trước vì **một bàn có xe
-chồng nhau vẫn thắng được** — bot không bao giờ báo.
-
-`data/remap.json` là sổ ghi: mỗi level kèm số khay/màu/khối, `shape` (khuôn xếp màu trong từng
-khay, ghi bằng chữ cái chuẩn hoá nên đọc được sau khi đổi bảng màu), hình ray đã mượn, hoán vị
-màu, khung bàn đo được.
-
-```
-node tools/loopsort/remap.mjs --to 20
-node tools/loopsort/levelbot.mjs 1-20 --data tools/loopsort/data
-```
-
-### Editor level — `tools/loopsort/editor.html`
-
-Mở `/tools/loopsort/editor.html?level=N` trên dev server. Trái là **mặt bằng nhìn từ trên**
-(kéo khay, kéo/chèn/xoá đỉnh ray), phải là bảng màu từng khay, bảng kiểm, và **khung xem trước
-dựng bằng chính bộ vẽ 3D của game**.
-
-⚠ **Editor không giữ một bản sao nào của luật chơi.** Vòng đời là `st` → sinh lại chuỗi
-`Spline`/`ColorData` → gán vào `SPLINES`/`CARRIERS`/`LEVELS` → **`new Game(id)`** → vẽ. Đường ray
-vẽ ra là `game.ring`, ô hàng là `game.slotPos`, khung bàn là `game.bounds`, hệ số co xe là
-`game.fit`. Đây đúng bài học mà editor của Marble Sort đã trả giá: một editor vẽ theo *bản vẽ*
-thay vì theo trạng thái đã settle thì nó nói dối về chính cái level đang sửa.
-- Vì thế `mouthFromRot` và `CHANNEL`/`RIM` đã được **export** từ `loopsort.js`. `rot` của một bến
-  chọn bằng cách **thử cả bốn góc qua chính hàm đó** rồi lấy góc hướng miệng về phía ray nhất —
-  viết thẳng `atan2` thì nhanh hơn và là bản sao thứ hai của luật.
-
-⚠ **Bảng kiểm đặt phép `% DELIVER` lên trước mọi phép khác.** Một màu không chia hết cho 4 là một
-bàn **không thể thắng**, và không có gì trên màn hình nói ra điều đó — người thiết kế chỉ phát
-hiện sau khi chơi vài phút. Nó cũng hiện `game.fit`: `fit < 1` nghĩa là engine đã phải co cả đàn
-xe cho khỏi chồng nhau, và **đó chính là cái làm "vali và khay bé tí"**.
-
-⚠ **Lưu thì NHÂN BẢN nếu dùng chung.** 1299 level chỉ có 800 carrier và 800 spline, nên sửa thẳng
-carrier của level 105 là sửa luôn mọi level khác trỏ vào nó. `loopsortSave()` trong
-`vite.config.ts` tách bản mới rồi trỏ level này sang, chỉ sửa tại chỗ khi không ai dùng chung.
-Nó nằm trong `configureServer` nên **chỉ tồn tại khi `npm run dev`** — không bản build nào mở một
-đường ghi file.
-
-⚠ Mở một level của **bộ gốc** rồi Lưu thì nó ghi vào `tools/loopsort/data/` (bộ của mình), không
-ghi ngược vào `Manythings/`. Đó là cách dựng bộ level bằng tay từ hình của họ — và cũng là chỗ
-duy nhất quyết định bản deploy có gì.
-
-`window.__ed` (`st()`, `game()`, `load`, `apply`, `ser()`) là cửa đo, cùng lý do `window.__ls`
-tồn tại: không có nó thì không phép kiểm nào chạm được vào editor.
-
 ## Commands
 
 - Typecheck: `npx tsc --noEmit` · Dev: `npm run dev` · Android: `npm run apk`
-- Editor level của Loop Sort: `/tools/loopsort/editor.html?level=N` trên dev server.
 - Level editor: `npm run editor` (or `/editor.html` on the dev server). `?level=N` and
   `?custom=1` on the game URL open a board directly, skipping the home screen.
 - Screenshot a non-game page: `npm run shot -- --page editor.html [--js "<snippet>"]` —
