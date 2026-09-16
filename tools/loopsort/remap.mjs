@@ -9,13 +9,22 @@
 // nen camera phai lui xa gap doi va khay/vali tren man hinh be di mot nua. Hinh ray cua ho la
 // thu da duoc chinh tay qua 1299 level - muon hoc thi muon hinh, dung ve lai.
 //
-// ⚠ DO KHO NAM O CARRIER, KHONG NAM O RAY. So mau, so khay, thu tu mau trong tung khay, va
-// SlotCount - do la bai toan. Hinh ray chi doi duong di. Nen ghep nay giu nguyen carrier va
-// SlotCount cua level goc, va do la ly do bo moi co the coi la "kho y nhu ban cu" ma khong
-// phai do lai tu dau.
+// ⚠ THU TU MAU TRONG KHAY LA CUA MINH, KHONG CHEP. Lenh chu du an 2026-09-16: "tu xao thu tu
+// mau la du". Ban dau file nay giu NGUYEN ColorData cua ho va chi doi ten mau - tuc bai toan
+// nguoi choi giai van la bai toan cua ho tung o mot. Gio moi level XAO LAI mau giua cac o:
+//   - giu so khoi moi khay (khay dai bao nhieu van dai bay nhieu),
+//   - giu SO LUONG moi mau - bat buoc, vi DELIVER = 4: mot mau khong chia het cho 4 la mot
+//     ban KHONG THANG DUOC, va khong gi tren man hinh noi ra dieu do,
+//   - giu vi tri khoi an "?" (hau to _H o lai o cua no, chi phan mau doi).
+// Xao ngau nhien thi do kho troi di, nen thu nhieu cach xao va cho bot chon cach GAN BAN GOC
+// NHAT - dung cai luat da dung de chon ray. Cai con lay tu ban goc chi la cac CON SO do kho
+// (so khay, so mau, SlotCount) va hinh ray muon.
+// ⚠ remap.json KHONG duoc ghi khuon xep cua ban goc. No nam trong data/ va di theo ban build,
+// nen ghi khuon cu vao do la dua lai dung cai vua bo di. Chi ghi khuon MOI.
 //
 //   node tools/loopsort/remap.mjs --to 20
-//   node tools/loopsort/remap.mjs --to 20 --no-recolor
+//   node tools/loopsort/remap.mjs --to 20 --shuffles 6 --rails 3
+//   node tools/loopsort/remap.mjs --to 20 --no-shuffle      # hanh vi cu: giu thu tu cua ho
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -32,6 +41,13 @@ const arg = (n, d) => {
 const TO = Number(arg("to", 20));
 const TRIES = Number(arg("tries", 40));
 const RECOLOR = process.argv.indexOf("--no-recolor") < 0;
+const SHUFFLE = process.argv.indexOf("--no-shuffle") < 0;
+const SHUFFLES = Number(arg("shuffles", 6));   // so cach xao dem cho bot thu
+const RAILS = Number(arg("rails", 3));         // so hinh ray sat co chuan nhat dem cho bot thu
+// Mot cach xao phai doi mau it nhat chung nay phan o so voi ban goc, neu khong thi coi nhu
+// chua xao. Xao ngau nhien gan nhu luon vuot xa nguong nay; no o day de chan truong hop suy
+// bien (level it mau, khay ngan) ma ban xao tinh co gan trung ban cu.
+const MIN_CHANGED = 0.5;
 
 // ⚠ Nguong hinh hoc. Ban goc TU NO cung truot nhieu cho (do duoc fit 0.64 o level 104, tuc
 // engine phai co ca dan xe con 64% cho khoi de nhau) - nen day la nguong de bo MOI sach hon
@@ -86,6 +102,32 @@ function spread(docks, need, cx, cy) {
   const out = [];
   for (let i = 0; i < need; i++) out.push(byAngle[Math.round((i * byAngle.length) / need) % byAngle.length]);
   return out;
+}
+
+// Xao mau giua MOI o cua level. Tra ve lanes moi (cung dang voi lanesOf) va ti le o bi doi mau.
+function shuffleLanes(lanes, rng) {
+  const slots = [];
+  lanes.forEach((l, li) => l.slice(1).forEach((tok, k) => {
+    const [col, ...rest] = tok.split("_");
+    slots.push({ li, k, col, rest });
+  }));
+  const cols = slots.map((x) => x.col);
+  let best = null;
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const c = cols.slice();
+    for (let i = c.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      [c[i], c[j]] = [c[j], c[i]];
+    }
+    const changed = c.filter((v, i) => v !== cols[i]).length / c.length;
+    if (!best || changed > best.changed) best = { c, changed };
+    if (changed >= MIN_CHANGED) break;
+  }
+  const out = lanes.map((l) => [l[0], ...l.slice(1)]);
+  slots.forEach((x, i) => {
+    out[x.li][x.k + 1] = best.c[i] + (x.rest.length ? "_" + x.rest.join("_") : "");
+  });
+  return { lanes: out, changed: best.changed };
 }
 
 function lanesOf(colorData) {
@@ -156,10 +198,17 @@ for (let id = 1; id <= TO; id++) {
     }
     map = Object.fromEntries(colors.map((c, i) => [c, pool[i % pool.length]]));
   }
-  const colorData = lanes.map((l) => [l[0], ...l.slice(1).map((tok) => {
+  const toData = (ls) => ls.map((l) => [l[0], ...l.slice(1).map((tok) => {
     const [c, ...rest] = tok.split("_");
     return (map ? map[c] || c : c) + (rest.length ? "_" + rest.join("_") : "");
   })].join(";")).join(":");
+  // Cac cach xao dem thu. Khong xao thi chi co mot "cach": thu tu goc.
+  const shuffles = SHUFFLE
+    ? Array.from({ length: SHUFFLES }, () => shuffleLanes(lanes, rng))
+    : [{ lanes, changed: 0 }];
+  for (const sh of shuffles) sh.colorData = toData(sh.lanes);
+  // Hinh hoc khong phu thuoc mau (so khay va so khoi moi khay giu nguyen), nen kiem bang cach dau.
+  const colorData = shuffles[0].colorData;
 
   // Thu cac hinh ray cho den khi mot cai qua duoc ca hinh hoc lan con bot.
   const order = donors.slice();
@@ -225,30 +274,34 @@ for (let id = 1; id <= TO; id++) {
   let won = null;
   const want = base.get(id) || { win: 1, taps: 30 };
   cands.sort((a, z) => Math.abs(a.span - TARGET_SPAN) - Math.abs(z.span - TARGET_SPAN));
-  for (const c of cands.slice(0, 8)) {
-    const sid = 90000 + id;
-    E.SPLINES[sid] = c.spline;
-    const keepSp = E.LEVELS[id].Spline;
-    E.LEVELS[id].Spline = sid;
-    seed(id * 31 + 7);
-    const r = rate(E, id, RUNS);
-    // Lech ti le thang la chinh; so cu cham la phu, no bat duoc "cung thang nhung mot ben phai
-    // vat va gap ruoi" - thu ma mot con so thang/thua khong bao gio noi ra.
-    c.win = r.win; c.taps = r.taps;
-    c.cost = Math.abs(r.win - want.win) * 2 + Math.abs(r.taps - want.taps) / Math.max(8, want.taps);
-    E.LEVELS[id].Spline = keepSp;
-    delete E.SPLINES[sid];
-  }
-  const scored = cands.slice(0, 8).filter((c) => c.cost !== undefined);
+  // ⚠ Thu TICH cach xao x hinh ray, khong thu rieng tung truc. Do kho la cua ca ban co, va mot
+  // cach xao de tren ray nay co the kho tren ray kia. It ray hon truoc (RAILS thay vi 8) de
+  // tong so van choi khong phinh qua.
+  const scored = [];
+  for (const c of cands.slice(0, SHUFFLE ? RAILS : 8))
+    for (const sh of shuffles) {
+      const sid = 90000 + id;
+      E.SPLINES[sid] = c.spline;
+      E.CARRIERS[src.Carriers].ColorData = sh.colorData;
+      const keepSp = E.LEVELS[id].Spline;
+      E.LEVELS[id].Spline = sid;
+      seed(id * 31 + 7);
+      const r = rate(E, id, RUNS);
+      // Lech ti le thang la chinh; so cu cham la phu, no bat duoc "cung thang nhung mot ben phai
+      // vat va gap ruoi" - thu ma mot con so thang/thua khong bao gio noi ra.
+      const cost = Math.abs(r.win - want.win) * 2 + Math.abs(r.taps - want.taps) / Math.max(8, want.taps);
+      scored.push({ ...c, sh, win: r.win, taps: r.taps, cost });
+      E.LEVELS[id].Spline = keepSp;
+      delete E.SPLINES[sid];
+    }
   scored.sort((a, z) => a.cost - z.cost);
   won = scored[0] || null;
-  if (won) { const sid = 90000 + id; E.SPLINES[sid] = won.spline; E.LEVELS[id].Spline = sid; }
 
   if (!won) { console.log(`lv ${id}: khong tim duoc hinh (${lastWhy || "het lua chon"})`); continue; }
 
   const cid = nextId, spid = nextId; nextId++;
   outLevels.push({ ...src, Carriers: cid, Spline: spid });
-  outCarriers.push({ ColorData: colorData, Features: "-", Colors: null, Id: cid });
+  outCarriers.push({ ColorData: won.sh.colorData, Features: "-", Colors: null, Id: cid });
   outSplines.push({ ...won.spline, Id: spid });
   const b = won.bbox;
   // ⚠ "Cach sap xep moi mau trong khay" ghi thanh KHUON, khong ghi mau that: mau nao nam o
@@ -256,7 +309,7 @@ for (let id = 1; id <= TO; id++) {
   // mau do con nam o khay nao nua. Ghi khuon thi so lieu nay van doc duoc sau khi doi bang mau,
   // va doi chieu duoc voi bat ky level nao khac.
   const seen = new Map();
-  const shape = lanes.map((l) => l.slice(1).map((tok) => {
+  const shape = won.sh.lanes.map((l) => l.slice(1).map((tok) => {
     const c = tok.split("_")[0];
     if (!seen.has(c)) seen.set(c, String.fromCharCode(97 + seen.size));
     return seen.get(c) + (/_H/.test(tok) ? "?" : "");
@@ -264,12 +317,15 @@ for (let id = 1; id <= TO; id++) {
 
   manifest.push({
     level: id, lanes: need, colors: colors.length, blocks: blocks.length,
-    slot: src.SlotCount, shape, donorSpline: won.donor,
+    slot: src.SlotCount, shape, shuffled: SHUFFLE, changed: +won.sh.changed.toFixed(2),
+    donorSpline: won.donor,
     recolor: map, bbox: [+(b.x1 - b.x0).toFixed(1), +(b.y1 - b.y0).toFixed(1)],
   });
   console.log(`lv ${id}: ${need} khay · ${colors.length} mau · ${blocks.length} khoi · ` +
     `ray ${won.donor} · khung ${(b.x1 - b.x0).toFixed(0)}x${(b.y1 - b.y0).toFixed(0)} · ` +
-    `bot ${(100 * won.win).toFixed(0)}% (gốc ${(100 * want.win).toFixed(0)}%)`);
+    `xao ${(100 * won.sh.changed).toFixed(0)}% o · ` +
+    `bot ${(100 * won.win).toFixed(0)}% (gốc ${(100 * want.win).toFixed(0)}%) · ` +
+    `chạm ${won.taps.toFixed(0)} (gốc ${want.taps.toFixed(0)})`);
 }
 
 // ⚠ `--dry` de do THU mot gia tri span xem co level nao khong dat, ma khong ghi de bo dang

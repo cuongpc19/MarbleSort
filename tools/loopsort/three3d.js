@@ -1263,7 +1263,10 @@ export function mountThree(frameEl, getGameFn) {
       // ⚠ `gone` va `drain` KHONG phai trang thai khoa. canTap() tra false cho ca hai, nhung
       // xe da giao xong thi la xong chu khong phai bi cam, con xe dang rut hang chi false
       // trong DRAIN_MS - lam toi roi sang lai trong mot phan giay chi ra cai nhap nhay.
+      // ⚠ Khay dang nhan vali cung bi canTap tu choi, nhung chi trong vai tram mili giay -
+      // lam toi no la chop tat moi lan co vali bay vao. Khong phai trang thai khoa.
       const locked = !t.gone && t.blocks.length > 0 && t.drain < 0 &&
+                     !game.flying.some((f) => f.truck === t) &&
                      game.state === "play" && !game.canTap(t);
       m.material = locked ? dimOf(m.userData.litMat) : m.userData.litMat;
     }

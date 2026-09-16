@@ -22,9 +22,15 @@
 // ⚠ Phai chan `location`: file nay chay ca trong trinh duyet LAN trong Node (levelgen.mjs,
 // levelbot.mjs, headless.mjs deu import no). Thieu cai chan thi moi cong cu do dac chet ngay
 // o dong import voi mot loi khong lien quan gi toi viec chung dang lam.
+// ⚠ BAN BUILD doc `./data/` (bo cua minh, co trong repo); may DEV van doc bo goc de doi chieu.
+// Bo goc nam trong `Manythings/` - bi .gitignore loai ra - nen ban build ma tro vao do la fetch
+// 404 roi dung hinh ngay man dau, dung kieu hong im lang. `import.meta.env` chi co khi chay qua
+// Vite; trong Node (headless, levelbot, remap) no la undefined nen roi xuong nhanh DEV.
 const DATA = (typeof location !== "undefined"
   && new URLSearchParams(location.search).get("data"))
-  || "../../Manythings/LoopSort-teardown/data/";
+  || (import.meta.env && import.meta.env.PROD
+    ? "./data/"
+    : "../../Manythings/LoopSort-teardown/data/");
 
 // Do tu clip: hang do #ce1528, xanh duong #4191ec, vang #f6c12b - dam va bao hoa hon
 // bang mau dau tien minh dat theo cam tinh. Nhung mau khong do duoc thi keo theo cung
@@ -92,13 +98,16 @@ const SPEED = 9.0;        // Whole candies travel slowly enough to follow by eye
 // phat nao la no roi cho ngay phat do. Gian cach giua cac vali trong mot luot do van la
 // POUR_STAGGER, khong doi.
 const CRUMBLE_MS = 0;
-// ⚠ 0, khong phai 210. Tu khi moi vali ra tu DUNG O CUA NO (xem tap()), chung da san sang
-// cach deu nhau dung mot o - tha cung luc thi ca hang truot ra giu nguyen doi hinh, dung nhu
-// mot cai khay do nghieng. Gian cach 210ms cong them quang duong trong long xe khac nhau (o
-// sau phai di them mot o mua 187ms) lam ba vali ra so le cham, keo dai gan mot giay va doc ra
-// luc nhanh luc cham - chu du an bao "animation 2-3 cai ra no khong nhe nhang, cu lam no di ra
-// mot cach don gian nhu binh thuong thoi".
-const POUR_STAGGER = 0;
+// ⚠ 160, KHONG PHAI 0 - va day la mot hang so LUAT CHOI, khong chi la hang so hinh.
+// Tu khi moi vali ra tu DUNG O CUA NO (xem tap()), khoang cach giua cac vali tren cau la
+// (gian cach + mot o duong trong long xe), tuc DEU NHAU voi bat ky gian cach co dinh nao - nen
+// cai "luc nhanh luc cham" chu du an bao khong den tu con so nay.
+// Da thu 0 (tha ca hang cung luc) theo yeu cau "cho 2-3 vali di ra don gian" va NO PHA LUAT:
+// bot tren 20 level dau cua ban goc tut tu 60% xuong 25%. Quet ca dai:
+//     0 -> 25%     60 -> 30%     120 -> 55%     160 -> 65%     210 -> 60%
+// (bot tat dinh, nen 3 hay 6 van moi level cho dung mot ket qua - chenh lech la that). Duoi
+// ~100ms la vung hong; 160 ra gan nhau hon ban cu 210 ma van cach xa vung do.
+const POUR_STAGGER = 160;
 const EAT_MS = 30;        // nhip hut mot cube (~850ms/khoi, khop clip)
 const POUR_GUARD = 900;   // ben khong hut lai cat cua chinh no trong ngan nay - xem absorb()
 const ABSORB_MS = 190;    // thoi gian bay tu ray len khoang hang (chi con lam tran duoi)
@@ -573,6 +582,14 @@ export class Game {
   // (isStuck).
   canTap(t) {
     if (this.state !== "play" || t.gone || !t.blocks.length || t.drain >= 0) return false;
+    // ⚠ Khay dang co vali BAY VAO thi khong cham duoc. Giao hang bi hoan toi luc vali cuoi
+    // ha canh (xem vong deliver trong step), nen trong ~0.4-0.65 giay do mot khay da du bo van
+    // nam do voi day hang - va ray thi trong tron vi moi vali dang tren khong. Cho cham luc do
+    // thi khay bi do nguoc ra truoc khi kip giao, va khong bao gio giao duoc: do tren level 1
+    // cua ban goc, bot do qua do lai 49 lan trong 240 giay ma khong thang, va ca bo 20 level
+    // tut tu 55% xuong 20%. Nguoi choi cung lam duoc dieu do, va no doc ra la vo ly: cham
+    // vao mot khay sap dong nap thi hang tuon ra.
+    if (this.flying.some((f) => f.truck === t)) return false;
     return this.counter() + this.tapLoad(t) <= this.slotCount;
   }
 
