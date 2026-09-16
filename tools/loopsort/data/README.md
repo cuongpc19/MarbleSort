@@ -20,18 +20,15 @@ Công thức, theo lệnh chủ dự án 2026-09-16 (*"tự xáo thứ tự màu
 lệ ô đã đổi màu (`changed`), hình ray đã mượn, hoán vị màu, khung bàn đo được. ⚠ Nó **không**
 ghi khuôn xếp của bản gốc — thư mục này đi theo bản build.
 
-## Nghiệm thu 5 level hiện có (2026-09-16)
+## Nghiệm thu 100 level hiện có (2026-09-16, luật 8 viên một hộp)
 
-| lv | khay | màu | ô đổi màu | bot (gốc) | chạm (gốc) | thắng khi bot chơi lệch |
-|---|---|---|---|---|---|---|
-| 1 | 2 | 1 | 0% (chỉ một màu) | 100% (100%) | 2 (2) | 20/30 |
-| 2 | 3 | 2 | 50% | 0% (0%) | 77 (76) | 7/30 |
-| 3 | 3 | 3 | 83% | 0% (0%) | 54 (50) | 7/30 |
-| 4 | 3 | 3 | 67% | 100% (100%) | 9 (11) | 23/30 |
-| 5 | 4 | 4 | 75% | 100% (100%) | 22 (20) | 20/30 |
-
-Bot 0% không có nghĩa là không thắng được: bot là tất định, nên phải cho nó chơi lệch ngẫu nhiên
-mới biết bàn có đường thắng hay không — cả 5 level đều có.
+- **100/100** level dựng được; **99/100** cho đúng kết quả bot như bản gốc cùng số.
+- **100/100** level có **đường thắng đã tìm thấy**: bot chơi lệch ngẫu nhiên (slip 0.15–0.5)
+  tới khi thắng. 15 level bot thắng 0% khi chơi thẳng; 3 trong số đó (66, 74, 85) lúc đầu không
+  tìm ra đường thắng sau 30 ván và được dựng lại bằng `--only 66,74,85 --shuffles 10 --rails 5`,
+  lần này bắt buộc có đường thắng. Bản gốc của 66 và 74 bot cũng không thắng nổi.
+- Không level nào phải co xe (`fit` = 1), mọi viên kẹo nhập được ray, `factory-check` 12/12.
+- Mọi level nhiều màu đều đổi màu ≥ 50% số ô so với bản gốc.
 
 ## Vì sao ghép chứ không tự sinh
 

@@ -57,6 +57,7 @@ const CONFETTI = ["#f5c518", "#3fbf4f", "#2f8fe0", "#ef5fa7", "#f2892a", "#5fd0e
 const CAP = 4;            // suc chua mot ben khi bat dau = 4 khoi
 const DELIVER = 4;        // so khoi cung mau de mot chuyen hang duoc giao
                           // (moi mau xuat hien dung 4 lan tren toan bo 800 bo carrier)
+const CANDIES_PER_BOX = 8; // 2 x 4 vien nho: day ray hon ma van doc duoc tung hop.
 // ⚠ MOT he so kich thuoc cho ca xe, hang va be rong ray - SCALE. Con so 1.5 la yeu cau cua
 // chu du an ("tang kich thuoc ray va vali len 1.5 lan"), va no chi co nghia khi duong ray
 // GIU NGUYEN kich thuoc: camera khop khung bao, nen phong to ca the gioi thi tren man hinh
@@ -105,7 +106,7 @@ const CRUMBLE_MS = 0;
 //     0 -> 25%     60 -> 30%     120 -> 55%     160 -> 65%     210 -> 60%
 // (bot tat dinh, nen 3 hay 6 van moi level cho dung mot ket qua - chenh lech la that). Duoi
 // ~100ms la vung hong; 160 ra gan nhau hon ban cu 210 ma van cach xa vung do.
-const POUR_STAGGER = 160;
+const POUR_STAGGER = 95;
 const EAT_MS = 30;        // nhip hut mot cube (~850ms/khoi, khop clip)
 const POUR_GUARD = 900;   // ben khong hut lai cat cua chinh no trong ngan nay - xem absorb()
 const ABSORB_MS = 190;    // thoi gian bay tu ray len khoang hang (chi con lam tran duoi)
@@ -386,12 +387,12 @@ export class Game {
     this.ring = densify(curvePath(sp.path, sp.closed), sp.closed, 0.18);
     this.len = totalLen(this.ring, sp.closed);
 
-    this.r = 0.30 * CUBE_SCALE;                // Small candy collision radius (0.36 world units).
+    this.r = 0.17 * CUBE_SCALE;                // Eight separated candies fit a 2 x 4 carton and enrich the belt.
     const d = this.r * 2;
     this.abreast = Math.max(1, Math.floor((2 * (CHANNEL - this.r)) / d) + 1);
     this.railSlots = Math.floor((this.len / d) * this.abreast * 0.8);
     this.slotCount = lv.SlotCount;
-    this.perBlock = 4;                         // Four candies pack one box; four boxes fill a tray.
+    this.perBlock = CANDIES_PER_BOX;           // Eight candies pack one box; four boxes fill a tray.
     this.capCubes = this.slotCount * this.perBlock;
 
     this.trucks = parseCarrier(CARRIERS[lv.Carriers]).map((t) => {
@@ -454,6 +455,7 @@ export class Game {
     this.taps = 0;
     this.peak = 0;
     this.history = [];
+    this.pourSeq = 0;
     // Candy units, by colour. Removed stock remains accountable after delivery/revive.
     this.delivered = {};
     this.revived = {};
@@ -523,8 +525,8 @@ export class Game {
   // (mx,my), +v follows (-my,mx), exactly the full box's coordinate system.
   candyPos(t, slot, piece) {
     const p = this.slotPos(t, slot);
-    const u = (piece % 2 ? 1 : -1) * this.slotLen * 0.19;
-    const v = (piece < 2 ? -1 : 1) * this.slotLen * 0.19;
+    const u = (piece % 4 - 1.5) * this.slotLen * 0.20;
+    const v = (Math.floor(piece / 4) - 0.5) * this.slotLen * 0.36;
     return { x: p.x + t.mx * u - t.my * v, y: p.y + t.my * u + t.mx * v };
   }
 
@@ -532,15 +534,15 @@ export class Game {
 
   // Khay nay co duoc BAT DAU mot hop mau `color` khong. Luat: MOI MAU CHI MOT HOP DANG DO.
   //
-  // ⚠ Thieu luat nay thi ban co chet ma nguoi choi khong co loi gi. Keo ra theo hop 4 vien,
-  // nhung moi vien bi hut rieng le boi khay nao no di ngang truoc - nen 4 vien cua mot hop co
-  // the bi CHIA cho hai khay (3/1, 2/2). Hai hop do khong bao gio du 4, ca hai khay ket o trang
+  // ⚠ Thieu luat nay thi ban co chet ma nguoi choi khong co loi gi. Keo ra theo hop 8 vien,
+  // nhung moi vien bi hut rieng le boi khay nao no di ngang truoc - nen 8 vien cua mot hop co
+  // the bi CHIA cho hai khay. Hai hop do khong bao gio du 8, ca hai khay ket o trang
   // thai dang dong hop: khong cham duoc (packing), chi nhan dung mau do, ma mau do da het. Do
   // tren 20 level dau cua ban goc: 79 trong 95 van bot thua co dung canh nay.
   //
-  // Vi sao mot hop dang do la du: keo luon vao/ra theo boi cua 4 (do ra 4 vien mot hop, giao
-  // xong rut 4 vien mot hop), nen tong vien X (dang do + tren ray + cho do) chia het cho 4. Chi
-  // mot hop X dang do voi f vien thi so X con lai >= 4 - f, tuc hop do LUON dong duoc.
+  // Vi sao mot hop dang do la du: keo luon vao/ra theo boi cua 8 (do ra 8 vien mot hop, giao
+  // xong rut 8 vien mot hop), nen tong vien X (dang do + tren ray + cho do) chia het cho 8. Chi
+  // mot hop X dang do voi f vien thi so X con lai >= 8 - f, tuc hop do LUON dong duoc.
   canStart(t, color) {
     if (t.fill > 0) return true;           // dang do chinh hop cua no - accepts() da kiem mau
     return !this.trucks.some((o) => o !== t && !o.gone && o.fill > 0 && o.claim === color);
@@ -585,21 +587,26 @@ export class Game {
   candyCount() {
     let grains = this.loose();
     for (const t of this.trucks) grains += t.fill;
-    // A fully reserved box owns its four candies, including its outstanding flights.
+    // A fully reserved box owns all eight candies, including its outstanding flights.
     // A partial box owns fill reservations (arrived + incoming), counted exactly once.
     return grains;
   }
   counter() { return Math.ceil(this.candyCount() / this.perBlock); }
 
-  // So KHOI mot cu cham se do ra ray: nguyen doan cung mau o mieng vali. tap() dung
-  // chinh ham nay de tru hang, nen cai canTap() hoi truoc va cai tap() do ra khong the
-  // lech nhau.
-  tapLoad(t) {
-    if (!t.blocks.length) return 0;
-    const c = t.blocks[t.blocks.length - 1].color;
-    let n = 0;
-    while (n < t.blocks.length && t.blocks[t.blocks.length - 1 - n].color === c) n++;
-    return n;
+  // One click opens exactly one candy box. `slot` is optional so bots and old tools
+  // keep selecting the front box, while the 3D picker can address the box the player
+  // actually touched.
+  tapSlot(t, slot) {
+    if (!t || !t.blocks.length) return -1;
+    return Number.isInteger(slot) && slot >= 0 && slot < t.blocks.length
+      ? slot : t.blocks.length - 1;
+  }
+
+  tapLoad(t, slot) {
+    const i = this.tapSlot(t, slot);
+    if (i < 0) return 0;
+    const b = t.blocks[i];
+    return b.hidden && !b.seen ? 0 : 1;
   }
 
   // ⚠ HET CHO TREN RAY KHONG PHAI LA THUA - chi la khong cham duoc vali nua, cho toi khi
@@ -607,7 +614,7 @@ export class Game {
   // ca ve luat lan ve cam giac: ray day la mot trang thai TAM THOI, no tu go khi hang chay
   // vao ben, con thua thi khong go duoc. Thua chi con dung mot nghia: ban co chet han
   // (isStuck).
-  canTap(t) {
+  canTap(t, slot) {
     if (this.state !== "play" || t.gone || !t.blocks.length || t.drain >= 0) return false;
     // ⚠ Khay dang co vali BAY VAO thi khong cham duoc. Giao hang bi hoan toi luc vali cuoi
     // ha canh (xem vong deliver trong step), nen trong ~0.4-0.65 giay do mot khay da du bo van
@@ -617,7 +624,19 @@ export class Game {
     // tut tu 55% xuong 20%. Nguoi choi cung lam duoc dieu do, va no doc ra la vo ly: cham
     // vao mot khay sap dong nap thi hang tuon ra.
     if (this.packing(t)) return false;
-    return this.counter() + this.tapLoad(t) <= this.slotCount;
+    // Keep the eight source candies in their original pockets until all eight have
+    // started moving. This makes the clicked box read as one physical action and
+    // prevents another click from shifting a half-open carton underneath it.
+    if (this.pending.some((p) => p.truck === t)) return false;
+    const load = this.tapLoad(t, slot);
+    return load === 1 && this.counter() + load <= this.slotCount;
+  }
+
+  canTapAny(t) {
+    if (!t || !t.blocks.length) return false;
+    for (let slot = 0; slot < t.blocks.length; slot++)
+      if (this.canTap(t, slot)) return true;
+    return false;
   }
 
   // Ban co chet han: khong cham duoc vali nao, va khong mieng hang nao dang tren ray co
@@ -629,17 +648,18 @@ export class Game {
     for (const t of this.trucks) if (!t.gone && t.drain >= 0) return false;
     for (const c of this.cubes)
       for (const t of this.trucks) if (this.accepts(t, c.color)) return false;
-    for (const t of this.trucks) if (this.canTap(t)) return false;
+    for (const t of this.trucks) if (this.canTapAny(t)) return false;
     return true;
   }
 
-  tap(t) {
-    if (!this.canTap(t)) return false;
+  tap(t, slot) {
+    if (!this.canTap(t, slot)) return false;
     const now = this.now;
     t.ripple = now;
-    const c = t.blocks[t.blocks.length - 1].color;
-    const n = this.tapLoad(t);
-    t.blocks.length -= n;
+    const selected = this.tapSlot(t, slot);
+    const [box] = t.blocks.splice(selected, 1);
+    const c = box.color;
+    const n = 1;
     t.fill = 0;
     t.claim = null;
     // ⚠ KHONG con gan t.lastDump nua - xem chu thich o accepts(). Truong nay de nguyen
@@ -647,15 +667,13 @@ export class Game {
     // mat ma khong phai dung vao ham ve (mot phien khac dang sua phan ve).
     this.reveal(t);
     this.taps++;
-    this.history.push({ truck: t, color: c, n });
-    // ⚠ Nho vali nay dang nam o O NAO. Truoc day moi vali deu sinh ra o mieng ben, nen mot
-    // vali o sau bien mat khoi cho no roi hien lai o mieng - dung cai "nhay coc" ma chu du an
-    // bao. `t.blocks.length` da bi tru n o tren, nen o cu cua vali thu i la (len + n) - 1 - i:
-    // vali sat mieng nhat di truoc.
-    const top = t.blocks.length + n;
-    for (let i = 0; i < n * this.perBlock; i++)
-      this.pending.push({ color: c, truck: t, slot: top - 1 - Math.floor(i / this.perBlock),
-                          piece: i % this.perBlock, at: now + CRUMBLE_MS + i * POUR_STAGGER });
+    const pour = ++this.pourSeq;
+    this.history.push({ truck: t, color: c, n, slot: selected, box, pour });
+    // All eight pieces retain the selected box's pocket. The renderer leaves a
+    // temporary gap there until the last piece starts moving, then compacts the row.
+    for (let piece = 0; piece < this.perBlock; piece++)
+      this.pending.push({ color: c, truck: t, slot: selected, piece, pour,
+                          at: now + CRUMBLE_MS + piece * POUR_STAGGER });
     this.peak = Math.max(this.peak, this.counter());
     return true;
   }
@@ -925,7 +943,7 @@ export class Game {
       }
       t.confetti = t.confetti.filter((p) => p.life < 1.3);
     }
-    // A reserved box becomes visible only after ALL its flights land. The fourth
+    // A reserved box becomes visible only after ALL its flights land. The eighth
     // reservation can arrive first; it must not materialize the other three candies.
     this.flying = this.flying.filter((f) => {
       if (now - f.at < f.ms) return true;
@@ -933,8 +951,13 @@ export class Game {
     });
     for (const t of this.trucks)
       for (let slot = 0; slot < t.blocks.length; slot++)
-        if (t.blocks[slot].flying)
-          t.blocks[slot].flying = this.flying.some((f) => f.truck === t && f.slot === slot);
+        if (t.blocks[slot].flying) {
+          const moving = this.flying.some((f) => f.truck === t && f.slot === slot);
+          t.blocks[slot].flying = moving;
+          // Cosmetic milestone consumed by the renderer. It is written only after
+          // the eighth candy really lands, never when its destination is reserved.
+          if (!moving) t.blocks[slot].packedAt = now;
+        }
     // peak theo tung khung hinh chu khong chi ngay luc cham: o dem con leo len trong luc
     // hang dang chay tren ray. ⚠ Khong con phan xu thua o day - xem canTap().
     if (this.state === "play") this.peak = Math.max(this.peak, this.counter());
@@ -1050,7 +1073,14 @@ export class Game {
     // voi vai phan tram giay, va truoc day chi mot hat moi ben moi khung hinh duoc hut
     // (break), cong them chan nhip EAT_MS 30ms chi cho ~33 hat/giay - phan lon hat luot
     // qua mieng roi troi tiep. Nay hat nao trong vung va duoc nhan thi vao ngay.
-    const R = this.r * 2.6, R2 = R * R;
+    // ⚠ Vung hut phai PHU HET LONG RAY, khong duoc chi tinh theo co keo. Truoc day R = r*2.6,
+    // dung khi mot mieng hang to gan bang long ray. Tu khi mot hop la 8 vien nho (r = 0.23) thi
+    // R con 0.59, trong khi long ray van rong nhu cu va keo nho chay 4 hang song song, trai ra
+    // toi +-0.69 khoi tim ray - vien nao chay mep ngoai la di ngang khay dang can ma khong bao
+    // gio vao. Do duoc: intake gan 0% tren 7/10 level (hang tram luot bo lo), va bot thua
+    // 180/180 van tren 20 level dau. Phu ca long ray thi 10/10, bot thang 100%.
+    // Van nho hon R cu cua mieng hang to (1.90), nen khong voi sang doan ray ben canh.
+    const R = Math.max(this.r * 2.6, CHANNEL + this.r), R2 = R * R;
     for (const t of this.trucks) {
       if (t.gone) continue;   // ben da giao xong thi khong con nhan (accepts cung chan)
       if (now < (t.pourUntil || 0)) continue;   // dang tuon hang ra - chua hut lai
@@ -1095,11 +1125,14 @@ export class Game {
         const ms = Math.max(FLY_MIN, Math.min(FLY_MAX, (plen / FLY_SPEED) * 1000));
         const s = Math.max(0, Math.min(3, (SPEED * ms) / 1000 / (plen || 1)));
         // Logic reserves the slot immediately, but the artwork has not arrived there yet.
-        // Keep the visual arrival time so the bounce and closing lid start after the flight.
-        t.arriveAt = Math.max(t.arriveAt || 0, now + ms);
+        // Give clusters a short cadence into the carton. A queued flight remains drawn at
+        // its belt position until `flightAt`, so the candy never blinks out while waiting.
+        const flightAt = Math.max(now, t.nextFlyAt || 0);
+        t.nextFlyAt = flightAt + 58;
+        t.arriveAt = Math.max(t.arriveAt || 0, flightAt + ms);
         t.ate = t.arriveAt;
         const cuBay = {
-          at: now, ms, s, truck: t, slot, piece, color: c.color, rot: c.rot, rot1: Math.atan2(t.my, t.mx), sz: c.sz,
+          at: flightAt, ms, s, truck: t, slot, piece, color: c.color, rot: c.rot, rot1: Math.atan2(t.my, t.mx), sz: c.sz,
           path: smooth, plen,
           fx: c.x, fy: c.y, tx: to.x, ty: to.y,
         };
@@ -1108,7 +1141,7 @@ export class Game {
         if (t.fill >= this.perBlock) {
           t.fill = 0;
           // Reserve the full box now for accepts/capacity. Its paper packing may
-          // appear only after all four candies land; until then render the arrived
+          // appear only after all eight candies land; until then render the arrived
           // pockets individually, subtracting this slot's active flights.
           const khoi = { color: t.claim, hidden: false, key: null, seen: true, flying: true };
           t.blocks.push(khoi);
@@ -1169,7 +1202,11 @@ export class Game {
     if (!last) return false;
     const need = last.n * this.perBlock;
     let k = need;
-    this.pending = this.pending.filter((p) => !(p.color === last.color && k-- > 0));
+    this.pending = this.pending.filter((p) => {
+      if (p.pour !== last.pour) return true;
+      k--;
+      return false;
+    });
     if (k > 0) {
       // bo cube xa mieng ben cu nhat truoc, cho gon mat
       const same = this.cubes
@@ -1181,8 +1218,9 @@ export class Game {
       const drop = new Set(same);
       this.cubes = this.cubes.filter((c) => !drop.has(c));
     }
-    for (let i = 0; i < last.n; i++)
-      last.truck.blocks.push({ color: last.color, hidden: false, key: null, seen: true });
+    const box = last.box || { color: last.color, hidden: false, key: null, seen: true };
+    last.truck.blocks.splice(Math.min(last.slot ?? last.truck.blocks.length,
+      last.truck.blocks.length), 0, box);
     last.truck.lastDump = null;
     this.reveal(last.truck);
     this.history.pop();
@@ -1572,7 +1610,7 @@ export function draw(now) {
 // len tren la thu de go ra nhat neu sau nay muon doi cach the hien.
 function drawBlocked(t) {
   if (game.state !== "play") return;
-  if (t.gone || !t.blocks.length || t.drain >= 0 || game.canTap(t)) return;
+  if (t.gone || !t.blocks.length || t.drain >= 0 || game.canTapAny(t)) return;
   const S = view.sc, w = TRUCK_W * S, bodyL = t.cap * SLOT_LEN;
   ctx.save();
   ctx.translate(SX(t.x), SY(t.y));
@@ -1740,9 +1778,9 @@ function drawBay(t, now) {
     for (let piece = 0; piece < count; piece++) {
       if (game.flying.some((f) => f.truck === t && f.slot === slot && f.piece === piece)) continue;
       // Canvas +x points away from the belt, opposite candyPos's +u.
-      const u = (piece % 2 ? 1 : -1) * SLOT_LEN * .19 * S;
-      const v = (piece < 2 ? -1 : 1) * SLOT_LEN * .19 * S;
-      drawCandy(cx - u, -v, SLOT_LEN * .32 * S, col);
+      const u = (piece % 4 - 1.5) * SLOT_LEN * .20 * S;
+      const v = (Math.floor(piece / 4) - .5) * SLOT_LEN * .36 * S;
+      drawCandy(cx - u, -v, SLOT_LEN * .17 * S, col);
     }
   }
 
@@ -1834,4 +1872,4 @@ function drawTrim(t, now) {
 // ⚠ CHANNEL/RIM di kem nhau: editor ve mat ray theo dung be rong engine dung de tinh
 // `bounds`, nen ve ra bang chinh hai so nay chu khong uoc luong. Uoc luong thi hinh trong
 // editor rong hep khac hinh trong game, va nguoi ve se can bang theo mot cai ray khong co that.
-export { LEVELS, CARRIERS, SPLINES, AREAS, PALETTE, UI, CAP, DELIVER, CHANNEL, RIM };
+export { LEVELS, CARRIERS, SPLINES, AREAS, PALETTE, UI, CAP, DELIVER, CANDIES_PER_BOX, CHANNEL, RIM };

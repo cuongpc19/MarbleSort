@@ -28,7 +28,7 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { useData, rate, seed } from "./levelbot.mjs";
+import { useData, rate, seed, playOnce } from "./levelbot.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ORIG = path.resolve(HERE, "../../Manythings/LoopSort-teardown/data");
@@ -48,6 +48,23 @@ const RAILS = Number(arg("rails", 3));         // so hinh ray sat co chuan nhat 
 // chua xao. Xao ngau nhien gan nhu luon vuot xa nguong nay; no o day de chan truong hop suy
 // bien (level it mau, khay ngan) ma ban xao tinh co gan trung ban cu.
 const MIN_CHANGED = 0.5;
+// `--only 66,74,85` dung lai RIENG may level do va GHEP vao bo dang co, giu nguyen moi level khac.
+const ONLY = arg("only", null) ? String(arg("only")).split(",").map(Number) : null;
+const IDS = ONLY || Array.from({ length: TO }, (_, i) => i + 1);
+// ⚠ Moi level di ra phai CO DUONG THANG da tim thay, khong chi "gan do kho ban goc". Bot la tat
+// dinh, nen bot thua 0% khong noi duoc ban co con thang duoc hay khong - phai cho no choi lech
+// ngau nhien (slip) nhieu van. Do tren bo 100 level dau tien: 3 level (66, 74, 85) khong tim
+// duoc duong thang sau 30 van, trong do 85 BAN GOC thi co. Dua len cho nguoi choi mot ban co co
+// the khong thang duoc la loi te nhat cua ca he thong nay - nguoi choi khong phan biet duoc voi
+// loi cua chinh ho. Tat bang --no-winnable.
+const WINNABLE = process.argv.indexOf("--no-winnable") < 0;
+const WIN_TRIES = Number(arg("win-tries", 10));   // so van moi muc slip khi tim duong thang
+function findWin(id) {
+  for (const slip of [0, 0.15, 0.3, 0.5])
+    for (let k = 0; k < (slip ? WIN_TRIES : 1); k++)
+      if (playOnce(E, id, 5000 + id * 131 + k * 977 + Math.round(slip * 100), slip).win) return true;
+  return false;
+}
 
 // ⚠ Nguong hinh hoc. Ban goc TU NO cung truot nhieu cho (do duoc fit 0.64 o level 104, tuc
 // engine phai co ca dan xe con 64% cho khoi de nhau) - nen day la nguong de bo MOI sach hon
@@ -164,20 +181,20 @@ const SPANS = process.argv.indexOf("--spans") >= 0;
 const RUNS = Number(arg("runs", 3));
 const base = new Map();
 if (!SPANS)
-for (let id = 1; id <= TO; id++) {
+for (const id of IDS) {
   if (!E.LEVELS[id]) continue;
   seed(id * 31 + 7);
   const r = rate(E, id, RUNS);
   base.set(id, { win: r.win, taps: r.taps });
 }
-console.log(`do ban goc 1-${TO}: thang trung binh ` +
+console.log(`do ban goc ${ONLY ? ONLY.join(",") : "1-" + TO}: thang trung binh ` +
   `${(100 * [...base.values()].reduce((a, b) => a + b.win, 0) / base.size).toFixed(0)}%`);
 
 const PAL = Object.keys(E.PALETTE);
 const outLevels = [], outCarriers = [], outSplines = [], manifest = [];
 let nextId = 1;
 
-for (let id = 1; id <= TO; id++) {
+for (const id of IDS) {
   const src = rawLevels.find((x) => x.Id === id);
   if (!src) { console.log(`lv ${id}: ban goc khong co`); continue; }
   const srcCarrier = carrierById.get(src.Carriers);
@@ -296,8 +313,31 @@ for (let id = 1; id <= TO; id++) {
     }
   scored.sort((a, z) => a.cost - z.cost);
   won = scored[0] || null;
+  // Lay to hop GAN BAN GOC NHAT trong so nhung to hop tim duoc duong thang.
+  if (WINNABLE && won) {
+    won = null;
+    for (const c of scored) {
+      const sid = 90000 + id;
+      E.SPLINES[sid] = c.spline;
+      E.CARRIERS[src.Carriers].ColorData = c.sh.colorData;
+      const keepSp = E.LEVELS[id].Spline;
+      E.LEVELS[id].Spline = sid;
+      const ok = findWin(id);
+      E.LEVELS[id].Spline = keepSp;
+      delete E.SPLINES[sid];
+      if (ok) { won = c; won.winnable = true; break; }
+    }
+    if (!won) {
+      won = scored[0]; won.winnable = false;
+      console.log(`lv ${id}: ⚠ KHONG to hop nao tim duoc duong thang - giu to hop gan goc nhat`);
+    }
+  }
 
-  if (!won) { console.log(`lv ${id}: khong tim duoc hinh (${lastWhy || "het lua chon"})`); continue; }
+  if (!won) {
+    console.log(`lv ${id}: khong tim duoc hinh (${lastWhy || "het lua chon"})`);
+    if (ONLY) throw new Error(`--only: level ${id} khong dung lai duoc, khong ghi gi`);
+    continue;
+  }
 
   const cid = nextId, spid = nextId; nextId++;
   outLevels.push({ ...src, Carriers: cid, Spline: spid });
@@ -318,6 +358,7 @@ for (let id = 1; id <= TO; id++) {
   manifest.push({
     level: id, lanes: need, colors: colors.length, blocks: blocks.length,
     slot: src.SlotCount, shape, shuffled: SHUFFLE, changed: +won.sh.changed.toFixed(2),
+    winnable: won.winnable ?? null,
     donorSpline: won.donor,
     recolor: map, bbox: [+(b.x1 - b.x0).toFixed(1), +(b.y1 - b.y0).toFixed(1)],
   });
@@ -334,14 +375,35 @@ for (let id = 1; id <= TO; id++) {
 // xong, khong gom level nao, va van roi xuong buoc ghi - tuc la ghi de ca bo level bang bon
 // file RONG. Mot che do "chi doc" ma van di qua duong ghi thi no khong con la chi doc.
 if (SPANS || process.argv.indexOf("--dry") >= 0) {
-  console.log(`\n[--dry] khong ghi gi. ${outLevels.length}/${TO} level dat span ${TARGET_SPAN}.`);
-  process.exit(outLevels.length === TO ? 0 : 1);
+  console.log(`\n[--dry] khong ghi gi. ${outLevels.length}/${IDS.length} level dat span ${TARGET_SPAN}.`);
+  process.exit(outLevels.length === IDS.length ? 0 : 1);
 }
 
 await mkdir(OUT, { recursive: true });
+// `--only`: GHEP vao bo dang co. Level dung lai giu nguyen so Id carrier/spline cua no, nen
+// khong dong vao bat ky level nao khac.
+if (ONLY) {
+  const rd = async (f) => JSON.parse(await readFile(path.join(OUT, f), "utf8"));
+  const [curL, curC, curS, curM] = await Promise.all(
+    ["Levels.json", "Carriers.json", "Splines.json", "remap.json"].map(rd));
+  outLevels.forEach((lv, i) => {
+    const old = curL.find((x) => x.Id === lv.Id);
+    if (!old) throw new Error(`--only: bo hien tai khong co level ${lv.Id}`);
+    const ci = curC.findIndex((x) => x.Id === old.Carriers);
+    const si = curS.findIndex((x) => x.Id === old.Spline);
+    curC[ci] = { ...outCarriers[i], Id: old.Carriers };
+    curS[si] = { ...outSplines[i], Id: old.Spline };
+    const mi = curM.findIndex((x) => x.level === lv.Id);
+    curM[mi] = manifest[i];
+  });
+  outLevels.length = 0; outLevels.push(...curL);
+  outCarriers.length = 0; outCarriers.push(...curC);
+  outSplines.length = 0; outSplines.push(...curS);
+  manifest.length = 0; manifest.push(...curM);
+}
 await writeFile(path.join(OUT, "Levels.json"), JSON.stringify(outLevels));
 await writeFile(path.join(OUT, "Carriers.json"), JSON.stringify(outCarriers));
 await writeFile(path.join(OUT, "Splines.json"), JSON.stringify(outSplines));
 await writeFile(path.join(OUT, "Areas.json"), JSON.stringify(areas));
 await writeFile(path.join(OUT, "remap.json"), JSON.stringify(manifest, null, 1));
-console.log(`\nda ghi ${outLevels.length}/${TO} level vao ${OUT}`);
+console.log(`\nda ghi ${outLevels.length} level vao ${OUT}` + (ONLY ? ` (dung lai ${ONLY.join(",")})` : ""));

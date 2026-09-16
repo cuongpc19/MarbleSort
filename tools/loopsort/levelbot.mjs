@@ -67,9 +67,10 @@ function pickTap(g, desperate) {
   for (const c of g.cubes) onRail[c.color] = (onRail[c.color] || 0) + 1;
   let best = null, bestScore = -1e9, fallback = null;
   for (const t of g.trucks) {
-    if (!g.canTap(t)) continue;
-    const n = g.tapLoad(t);
-    const c = t.blocks[t.blocks.length - 1].color;
+    for (let slot = 0; slot < t.blocks.length; slot++) {
+    if (!g.canTap(t, slot)) continue;
+    const n = g.tapLoad(t, slot);
+    const c = t.blocks[slot].color;
     let score = 0;
     for (const o of g.trucks) {
       if (o === t || o.gone || !g.accepts(o, c)) continue;
@@ -88,11 +89,12 @@ function pickTap(g, desperate) {
         o.blocks.length < o.cap && o.blocks.every((b) => b.color === c));
       if (!bigger) score = 0;
     }
-    const next = t.blocks[t.blocks.length - 1 - n];
-    if (next && onRail[next.color]) score += 4 * Math.min(onRail[next.color], t.cap - (t.blocks.length - n));
+    const next = t.blocks.filter((_, i) => i !== slot).at(-1);
+    if (slot === t.blocks.length - 1 && next && next.color !== c && onRail[next.color])
+      score += 4 * Math.min(onRail[next.color], t.cap - (t.blocks.length - n));
     if (score > 0) {
       score -= n * 0.5;
-      if (score > bestScore) { bestScore = score; best = t; }
+      if (score > bestScore) { bestScore = score; best = { t, slot }; }
     } else {
       // ⚠ Nuoc "khong co ai nhan" phai la nuoc DON TRONG MOT BEN, khong phai nuoc do bua cai
       // dong to nhat. Mot ben RONG nhan moi mau, nen no la cho gom duy nhat cho nhung mau
@@ -101,10 +103,11 @@ function pickTap(g, desperate) {
       // tren level 65, ray ket lai voi LB LB LB O O Y trong khi khong ben nao nhan mot mau
       // nao trong ba mau do - het cham duoc, ban chet sau 12 cu cham.
       const after = t.blocks.length - n;      // con lai bao nhieu sau khi do
-      if (!fallback || after < fallback.after) fallback = { t, after };
+      if (!fallback || after < fallback.after) fallback = { t, slot, after };
+    }
     }
   }
-  return best || (desperate || !g.cubes.length ? (fallback && fallback.t) : null);
+  return best || (desperate || !g.cubes.length ? fallback : null);
 }
 
 // ⚠ `slip` la cach DUY NHAT con lai de mot ban co ra nhieu duong choi khac nhau: engine gio
@@ -134,12 +137,13 @@ export function playOnce(E, id, s, slip = 0) {
     // Ray con rong rai thi cham ngay; gan day thi cho no lang han (khong doi trong ~0.4s)
     // roi hay cham tiep, vi hang dang tren duong vao ben.
     if (now >= nextTap && (n <= g.slotCount * 0.6 || flat > 24)) {
-      let t = pickTap(g, flat > 60);
-      if (slip && t && Math.random() < slip) {
-        const any = g.trucks.filter((x) => g.canTap(x));
-        if (any.length) t = any[Math.floor(Math.random() * any.length)];
+      let move = pickTap(g, flat > 60);
+      if (slip && move && Math.random() < slip) {
+        const any = g.trucks.flatMap((t) => t.blocks.map((_, slot) => ({ t, slot })))
+          .filter((m) => g.canTap(m.t, m.slot));
+        if (any.length) move = any[Math.floor(Math.random() * any.length)];
       }
-      if (t && g.tap(t)) { taps++; nextTap = now + 700; flat = 0; }
+      if (move && g.tap(move.t, move.slot)) { taps++; nextTap = now + 700; flat = 0; }
       else nextTap = now + 250;
     }
   }

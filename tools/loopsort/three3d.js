@@ -49,10 +49,15 @@ const LID_CLOSE_MS = 520;
 const LID_LIFT = 1.15;
 const BRIDGE_RETRACT_MS = 310;
 const LID_SETTLE_MS = ATE_MS + 80;
+const BOX_SEAL_MS = 460;
+const PACK_HOLD_MS = 260;
+const EXIT_TRAVEL_MS = 1450;
 const lidStart = (t) => Number.isFinite(t.arriveAt)
   ? t.arriveAt + LID_SETTLE_MS
   : t.drain + LID_DELAY_MS;
 const lidEnd = (t) => lidStart(t) + LID_CLOSE_MS;
+const exitStart = (t) => lidEnd(t) + PACK_HOLD_MS;
+const exitEnd = (t) => exitStart(t) + EXIT_TRAVEL_MS;
 
 const UI = {
   bg: 0x21194f,
@@ -78,7 +83,8 @@ export function mountThree(frameEl, getGameFn) {
   // sach HUD — man hinh mat het nut, diem so va o dem.
   frameEl.insertBefore(canvas, frameEl.firstChild);
 
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+  renderer.setClearColor(0x000000, 0);
   renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
   renderer.shadowMap.enabled = true;
   // ⚠ PCFSoftShadowMap da bi go khoi three 0.186 (no canh bao roi tu lui ve PCF). Goi
@@ -91,13 +97,15 @@ export function mountThree(frameEl, getGameFn) {
   // One quiet factory floor, painted to the viewport rather than stretching an airport
   // photo. Actual factory equipment, cartons and candy are lit 3D meshes.
   const backdrop = document.createElement("canvas");
-  const backgroundTexture = keep(new THREE.CanvasTexture(backdrop));
-  backgroundTexture.colorSpace = THREE.SRGBColorSpace;
-  scene.background = backgroundTexture;
   function applyBackdrop() {
     paintFactoryBackdrop(backdrop, frameEl.clientWidth, frameEl.clientHeight);
-    backgroundTexture.needsUpdate = true;
-    scene.background = backgroundTexture;
+    // The WebGL canvas is transparent and the same generated room sits behind the
+    // whole page. This removes the visible portrait seam that a scene-only texture
+    // created on desktop while keeping every 3D shadow/object in one canvas above it.
+    document.body.style.backgroundImage = `url(${backdrop.toDataURL("image/webp",.92)})`;
+    document.body.style.backgroundSize = "100% 100%";
+    document.body.style.backgroundRepeat = "no-repeat";
+    scene.background = null;
     document.body.classList.remove("has-side-scene");
     document.body.style.removeProperty("--ls-side-image");
   }
@@ -130,7 +138,8 @@ export function mountThree(frameEl, getGameFn) {
       const stem=new THREE.Mesh(new THREE.CylinderGeometry(.13,.13,.48,12),mat("#3fc7b1",true));
       stem.position.set(.3,1.8,0);g.add(stem);
       const bubble=new THREE.Mesh(new THREE.SphereGeometry(.21,14,10),mat("#ff7198",true));
-      bubble.position.set(.3,2.16,0);bubble.userData.factoryBubble=true;g.add(bubble);
+      bubble.position.set(.3,2.16,0);bubble.userData.factoryBubble=true;
+      bubble.userData.factoryBaseY=2.16;bubble.userData.factoryPhase=count*Math.PI;g.add(bubble);
       statics.add(g);count++;
     }
   }
@@ -155,9 +164,9 @@ export function mountThree(frameEl, getGameFn) {
 
   // Nen la mau tim toi, nen anh moi truong phai manh: o 0.55 thi mat ban gan nhu den va
   // ca ban co doc ra nhu mot lo thung chu khong phai mot cai ban.
-  scene.add(new THREE.AmbientLight(0xffffff, 0.68));
-  scene.add(new THREE.HemisphereLight(0xfff6e8, 0x709b98, 0.55));
-  const sun = new THREE.DirectionalLight(0xffffff, 0.82);
+  scene.add(new THREE.AmbientLight(0xffffff, 0.82));
+  scene.add(new THREE.HemisphereLight(0xfff8dc, 0x48a89d, 0.68));
+  const sun = new THREE.DirectionalLight(0xfff8e8, 1.02);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
   sun.shadow.bias=-0.0003;
@@ -202,9 +211,10 @@ export function mountThree(frameEl, getGameFn) {
   function mat(hex, glow) {
     const key = glow ? hex + "!" : hex;
     if (!matCache.has(key)) {
-      const o = { color: col(hex), roughness: 0.42, metalness: 0 };
+      const o = { color: col(hex), roughness: 0.34, metalness: 0,
+        clearcoat: 0.48, clearcoatRoughness: 0.28 };
       if (glow) { o.emissive = col(hex); o.emissiveIntensity = 0.3; }
-      matCache.set(key, keep(new THREE.MeshStandardMaterial(o)));
+      matCache.set(key, keep(new THREE.MeshPhysicalMaterial(o)));
     }
     return matCache.get(key);
   }
@@ -258,6 +268,23 @@ export function mountThree(frameEl, getGameFn) {
     m.receiveShadow = true;
     group.add(m);
     return m;
+  }
+
+  function roundedSlab(group, wx, wy, len, wid, hei, yBase, hex, radius) {
+    const x0=-len/2,z0=-wid/2,x1=len/2,z1=wid/2;
+    const r=Math.min(radius,len/2-.05,wid/2-.05);
+    const shape=new THREE.Shape();
+    shape.moveTo(x0+r,z0);
+    shape.lineTo(x1-r,z0);shape.quadraticCurveTo(x1,z0,x1,z0+r);
+    shape.lineTo(x1,z1-r);shape.quadraticCurveTo(x1,z1,x1-r,z1);
+    shape.lineTo(x0+r,z1);shape.quadraticCurveTo(x0,z1,x0,z1-r);
+    shape.lineTo(x0,z0+r);shape.quadraticCurveTo(x0,z0,x0+r,z0);
+    const geo=new THREE.ExtrudeGeometry(shape,{depth:hei,steps:1,curveSegments:12,
+      bevelEnabled:true,bevelSegments:3,bevelSize:Math.min(.10,hei*.35),bevelThickness:Math.min(.06,hei*.25)});
+    geo.rotateX(-Math.PI/2);
+    const mesh=new THREE.Mesh(geo,mat(hex,true));
+    mesh.position.set(wx,yBase,wy);mesh.castShadow=true;mesh.receiveShadow=true;
+    group.add(mesh);return mesh;
   }
 
   function clear(group) {
@@ -356,6 +383,39 @@ export function mountThree(frameEl, getGameFn) {
   progressTexture.colorSpace = THREE.SRGBColorSpace;
   const progressMaterial = keep(new THREE.MeshBasicMaterial({map:progressTexture,transparent:true,depthWrite:false}));
   let progressKey = "";
+  const shopCanvas=document.createElement("canvas");shopCanvas.width=384;shopCanvas.height=144;
+  const shopPaint=shopCanvas.getContext("2d");
+  shopPaint.fillStyle="#c84272";shopPaint.beginPath();shopPaint.roundRect(8,8,368,128,46);shopPaint.fill();
+  shopPaint.strokeStyle="#fff5be";shopPaint.lineWidth=12;shopPaint.stroke();
+  shopPaint.textAlign="center";shopPaint.textBaseline="middle";shopPaint.font="900 62px system-ui";
+  shopPaint.fillStyle="#fffbea";shopPaint.fillText("SHOP",192,73);
+  const shopTexture=keep(new THREE.CanvasTexture(shopCanvas));shopTexture.colorSpace=THREE.SRGBColorSpace;
+  const shopMaterial=keep(new THREE.SpriteMaterial({map:shopTexture,transparent:true,depthWrite:false}));
+
+  function dispatchPoint(game){
+    let index=0;
+    for(let i=1;i<game.ring.length;i++)if(game.ring[i].y<game.ring[index].y)index=i;
+    const n=game.ring.length,p=game.ring[index];
+    const a=game.ring[(index-1+n)%n],b=game.ring[(index+1)%n];
+    return {x:p.x,y:p.y,angle:Math.atan2(-(b.y-a.y),b.x-a.x)};
+  }
+
+  function buildDispatch(game){
+    if(!game.closed||game.ring.length<3)return;
+    const d=dispatchPoint(game),g=new THREE.Group();g.position.set(d.x,0,d.y);g.rotation.y=d.angle;
+    const side=BELT_W/2+.34;
+    box(g,-side,0,.44,.44,1.75,.30,"#ff7297",0,true);
+    box(g,side,0,.44,.44,1.75,.30,"#ff7297",0,true);
+    box(g,-side,0,.52,.52,.16,1.18,"#fff0a7",0,true);
+    box(g,side,0,.52,.52,.16,1.18,"#fff0a7",0,true);
+    box(g,0,0,BELT_W+1.20,.52,.42,1.88,"#33cbb2",0,true);
+    box(g,0,0,BELT_W+.72,.58,.15,2.21,"#fff0a7",0,true);
+    const sign=new THREE.Sprite(shopMaterial);sign.position.set(0,2.82,0);sign.scale.set(2.75,1.02,1);g.add(sign);
+    const glow=new THREE.Mesh(new THREE.CircleGeometry(1.02,32),keep(new THREE.MeshBasicMaterial({
+      color:0xffef96,transparent:true,opacity:.32,depthWrite:false})));
+    glow.rotation.x=-Math.PI/2;glow.position.y=.47;glow.scale.set(1,1.55,1);g.add(glow);
+    statics.add(g);
+  }
   function stamp(game) {
     const xs=game.ring.map(p=>p.x), ys=game.ring.map(p=>p.y);
     const x=(Math.min(...xs)+Math.max(...xs))/2, y=(Math.min(...ys)+Math.max(...ys))/2;
@@ -499,7 +559,7 @@ export function mountThree(frameEl, getGameFn) {
     const count=Math.max(3,Math.floor(game.len/2.5));
     for(let i=0;i<count;i++){
       const group=new THREE.Group();group.position.y=.397;
-      const seam=new THREE.Mesh(boxGeo,mat("#736a98"));
+      const seam=new THREE.Mesh(boxGeo,mat("#8a68cf"));
       seam.scale.set(.065,.02,1.82);seam.position.y=.012;group.add(seam);
       if(i%4===0){
         const face=new THREE.Mesh(beltArrowGeo,beltArrowMat);
@@ -509,23 +569,32 @@ export function mountThree(frameEl, getGameFn) {
     }
     // A transparent real shadow receiver ties the machines to the soft painted floor.
     const shadow=new THREE.Mesh(new THREE.PlaneGeometry(250,250),
-      keep(new THREE.ShadowMaterial({color:0x345d64,opacity:.16})));
+      keep(new THREE.ShadowMaterial({color:0x345d64,opacity:.22})));
     shadow.rotation.x=-Math.PI/2;shadow.position.y=-.03;shadow.receiveShadow=true;
     statics.add(shadow);
+    // A real raised workbench under the whole puzzle. Its cool mint top separates the
+    // board from the warm factory floor, and the three exposed layers provide depth on
+    // both portrait and wide desktop views.
+    const bb=game.bounds,cx=(bb.x0+bb.x1)/2,cz=(bb.y0+bb.y1)/2;
+    const pw=bb.x1-bb.x0-.15,pd=bb.y1-bb.y0-.15;
+    roundedSlab(statics,cx,cz,pw,pd,.28,-.34,"#237d83",2.1);
+    roundedSlab(statics,cx,cz,pw-.20,pd-.20,.15,-.15,"#45cfb4",2.0);
+    roundedSlab(statics,cx,cz,pw-.46,pd-.46,.055,-.025,"#d9ffec",1.85);
     if(game.closed)stamp(game);
     if(game.ring?.length>1){
       const path=beltFrame(game);
-      beltSolid(path,2.98,.02,.17,"#399e99");
-      beltSolid(path,2.83,.14,.20,"#52cbb4");
-      beltSolid(path,2.55,.28,.10,"#f6f6d9");
-      beltSolid(path,2.25,.32,.075,"#51476e");
-      beltStrip(path,2.12,.397,"#665b87");
+      beltSolid(path,2.98,.02,.17,"#168d91");
+      beltSolid(path,2.83,.14,.20,"#43d7b7");
+      beltSolid(path,2.55,.28,.10,"#fff0a8");
+      beltSolid(path,2.25,.32,.075,"#4b2f86");
+      beltStrip(path,2.12,.397,"#704fc0");
       for(const side of [-1,1]){
-        beltTube(path,side*1.32,.125,.34,"#39bca4");
-        beltTube(path,side*1.30,.078,.445,"#d9ffee");
-        beltTube(path,side*1.12,.027,.418,"#fff7df");
+        beltTube(path,side*1.32,.125,.34,"#1cb69f");
+        beltTube(path,side*1.30,.078,.445,"#c8ffea");
+        beltTube(path,side*1.12,.027,.418,"#fff3b8");
       }
     }
+    buildDispatch(game);
     if(!game.closed){
       const R=game.ring,n=R.length;
       for(const [pe,p1] of [[R[0],R[1]],[R[n-1],R[n-2]]]){
@@ -539,14 +608,14 @@ export function mountThree(frameEl, getGameFn) {
       const SL=slotLen(game,t),len=t.cap*SL,TW=TRUCK_W*(game.fit??1);
       const c=game.slotPos(t,(t.cap-1)/2,.5),rotation=rotOf(t);
       const tag=(m,packed=false)=>{m.userData.truck=t;m.userData.tintWhenPacked=packed;return m;};
-      tag(trayBox(statics,c.x,c.y,len+.5,TW+.26,.18,.03,"#d55d83",rotation,true,.12),true);
-      tag(trayBox(statics,c.x,c.y,len+.4,TW+.16,.40,.18,"#ffa9b7",rotation,true,.18),true);
-      tag(trayBox(statics,c.x,c.y,len+.24,TW,.12,.53,"#fff4d9",rotation,true,.055));
+      tag(trayBox(statics,c.x,c.y,len+.5,TW+.26,.18,.03,"#c94678",rotation,true,.12),true);
+      tag(trayBox(statics,c.x,c.y,len+.4,TW+.16,.40,.18,"#ff7f9f",rotation,true,.18),true);
+      tag(trayBox(statics,c.x,c.y,len+.24,TW,.12,.53,"#fff1bd",rotation,true,.055));
       // Open paper cavities, with real depth and no fake colored contents.
       for(let i=0;i<t.cap;i++){
         const p=game.slotPos(t,i,.5);
-        tag(trayBox(statics,p.x,p.y,SL-.12,TW-.22,.045,.648,"#dcbfa9",rotation,true,.022));
-        tag(trayBox(statics,p.x,p.y,SL-.20,TW-.31,.035,.687,"#ffedce",rotation,true,.016));
+        tag(trayBox(statics,p.x,p.y,SL-.12,TW-.22,.045,.648,"#e0ad8e",rotation,true,.022));
+        tag(trayBox(statics,p.x,p.y,SL-.20,TW-.31,.035,.687,"#fff3ca",rotation,true,.016));
       }
       // Low rounded lips keep the silhouette a shallow confectionery tray.
       for(const side of [-1,1]){
@@ -606,10 +675,21 @@ export function mountThree(frameEl, getGameFn) {
   const questionTexture=keep(new THREE.CanvasTexture(questionCanvas));questionTexture.colorSpace=THREE.SRGBColorSpace;
   const questionMaterial=keep(new THREE.MeshBasicMaterial({map:questionTexture,transparent:true,depthWrite:false}));
 
-  function addCargoMark(group,x,z,y,material,t,draining=false){
+  const smallLidMats=new Map();
+  function smallLidMat(hex){
+    if(!smallLidMats.has(hex))smallLidMats.set(hex,keep(new THREE.MeshPhysicalMaterial({
+      color:"#ffffff",emissive:hex,emissiveIntensity:.025,transparent:true,opacity:.18,
+      roughness:.08,metalness:0,clearcoat:1,clearcoatRoughness:.05,depthWrite:false
+    })));
+    return smallLidMats.get(hex);
+  }
+
+  function addCargoMark(group,x,z,y,material,t,draining=false,slot){
     const mark=new THREE.Mesh(new THREE.PlaneGeometry(1.18,1.18),material);
     mark.rotation.x=-Math.PI/2;mark.position.set(x,y,z);
-    mark.userData.truck=t;if(draining)mark.userData.drainTruck=t;
+    mark.userData.truck=t;
+    if(Number.isInteger(slot))mark.userData.slot=slot;
+    if(draining)mark.userData.drainTruck=t;
     group.add(mark);
   }
 
@@ -623,34 +703,48 @@ export function mountThree(frameEl, getGameFn) {
   }
   function candy(group,x,z,size,bottom,hex,rotation=0){
     const m=new THREE.Mesh(candyGeo,candyMat(hex));
-    m.position.set(x,bottom+CARGO_H/2,z);m.scale.set(size,CARGO_H,size);
+    const height=CARGO_H*.70;
+    m.position.set(x,bottom+height/2,z);m.scale.set(size,height,size);
     m.rotation.y=rotation;m.castShadow=true;m.receiveShadow=true;group.add(m);return m;
   }
   function candyPosition(game,t,slot,piece){
     if(game.candyPos)return game.candyPos(t,slot,piece);
-    const c=game.slotPos(t,slot,.5),d=slotLen(game,t)*.19;
-    const u=(piece%2?1:-1)*d,v=(piece<2?-1:1)*d;
+    const c=game.slotPos(t,slot,.5),sl=slotLen(game,t);
+    const u=(piece%4-1.5)*sl*.20,v=(Math.floor(piece/4)-.5)*sl*.36;
     return {x:c.x+t.mx*u-t.my*v,y:c.y+t.my*u+t.mx*v};
   }
   // Every pocket is one real candy. Flights reserve pockets in the model, but their
   // destination is kept empty until the moving candy actually arrives.
-  function makeBox(game,t,slot,color,pieces=[0,1,2,3],hidden=false,ghost=false){
+  function makeBox(game,t,slot,color,pieces=null,hidden=false,ghost=false,sealed=true,packedAt=0){
     const SL=slotLen(game,t),p=game.slotPos(t,slot,.5),r=rotOf(t);
+    pieces=pieces||Array.from({length:game.perBlock},(_,i)=>i);
     const hex=PALETTE[color]||"#ff79a6";
     const tag=m=>{m.userData.truck=t;m.userData.slot=slot;if(ghost)m.userData.drainTruck=t;return m;};
     tag(trayBox(cargo,p.x,p.y,SL-.16,SL-.16,.11,BODY_H+.045,"#fff9e9",r,true,.05));
     if(hidden){
       tag(box(cargo,p.x,p.y,SL-.24,SL-.24,.43,BODY_H+.16,HIDDEN_FILL,r,true));
-      addCargoMark(cargo,p.x,p.y,BODY_H+.60,questionMaterial,t,ghost);
+      addCargoMark(cargo,p.x,p.y,BODY_H+.60,questionMaterial,t,ghost,slot);
       return;
     }
-    const size=SL*.32;
-    for(let piece=0;piece<4;piece++){
+    const size=SL*.17;
+    for(let piece=0;piece<game.perBlock;piece++){
       const q=candyPosition(game,t,slot,piece);
       tag(box(cargo,q.x,q.y,size+.05,size+.05,.035,BODY_H+.135,"#e4c9b1",r,true));
       if(pieces.includes(piece)){
         const m=tag(candy(cargo,q.x,q.y,size,BODY_H+.14,hex,r));
         m.userData.candyPiece=piece;
+      }
+    }
+    if(sealed){
+      // A clear clamshell keeps all eight candies readable while making the completed
+      // box visibly different from the open paper cavity that is still being filled.
+      const lid=new THREE.Mesh(new RoundedBoxGeometry(SL-.12,.075,SL-.12,4,.035),smallLidMat(hex));
+      lid.position.set(p.x,BODY_H+.61,p.y);lid.rotation.y=r;lid.castShadow=true;lid.receiveShadow=true;
+      tag(lid);cargo.add(lid);
+      const band=tag(trayBox(cargo,p.x,p.y,SL*.22,SL-.17,.055,BODY_H+.65,hex,r,true,.02));
+      for(const m of [lid,band]){
+        m.userData.boxSealAt=packedAt||0;
+        m.userData.boxSealBaseY=m.position.y;
       }
     }
   }
@@ -659,7 +753,8 @@ export function mountThree(frameEl, getGameFn) {
     const snapshot=lastCargo.get(t)||[];
     const color=t.claim||snapshot.find(b=>b?.color)?.color;
     if(!color)return false;
-    for(let slot=0;slot<Math.min(DELIVER,t.cap);slot++)makeBox(game,t,slot,color,[0,1,2,3],false,true);
+    const pieces=Array.from({length:game.perBlock},(_,i)=>i);
+    for(let slot=0;slot<Math.min(DELIVER,t.cap);slot++)makeBox(game,t,slot,color,pieces,false,true,true,0);
     return true;
   }
 
@@ -672,6 +767,8 @@ export function mountThree(frameEl, getGameFn) {
     const tag=m=>{
       m.userData.truck=t;
       if(closing){m.userData.closeTruck=t;m.userData.closeBaseY=m.position.y;}
+      m.userData.exitTruck=t;
+      m.userData.exitCenterX=c.x;m.userData.exitCenterZ=c.y;
       return m;
     };
     // A shallow candy gift carton: same footprint as the tray, wrapped with a cream
@@ -700,6 +797,7 @@ export function mountThree(frameEl, getGameFn) {
     clear(cargo);
     for(const t of game.trucks){
       if(t.gone){
+        if(game.now>=exitEnd(t))continue;
         const sequencing=!reducedMotion.matches&&t.drain>=0&&game.now<lidEnd(t);
         if(sequencing&&buildDrainGhost(game,t)){
           if(game.now>=lidStart(t))buildLid(game,t,true);
@@ -707,28 +805,31 @@ export function mountThree(frameEl, getGameFn) {
         continue;
       }
       const incoming=game.flying.filter(f=>f.truck===t);
+      const waiting=game.pending.filter(p=>p.truck===t);
+      const sourceGap=waiting.length?waiting[0].slot:null;
       for(let slot=0;slot<t.blocks.length;slot++){
         const b=t.blocks[slot];
         const moving=new Set(incoming.filter(f=>f.slot===slot).map(f=>f.piece));
-        const pieces=[0,1,2,3].filter(n=>!moving.has(n));
-        makeBox(game,t,slot,b.color,pieces,b.hidden&&!b.seen);
+        const pieces=Array.from({length:game.perBlock},(_,n)=>n).filter(n=>!moving.has(n));
+        const displaySlot=sourceGap!==null&&slot>=sourceGap?slot+1:slot;
+        makeBox(game,t,displaySlot,b.color,pieces,b.hidden&&!b.seen,false,!b.flying,b.packedAt||0);
       }
       if(t.fill>0&&t.claim){
         const slot=t.blocks.length;
         const moving=new Set(incoming.filter(f=>f.slot===slot).map(f=>f.piece));
-        const pieces=Array.from({length:Math.min(4,t.fill)},(_,i)=>i).filter(n=>!moving.has(n));
-        makeBox(game,t,slot,t.claim,pieces);
+        const pieces=Array.from({length:Math.min(game.perBlock,t.fill)},(_,i)=>i).filter(n=>!moving.has(n));
+        makeBox(game,t,slot,t.claim,pieces,false,false,false,0);
       }
       // Candy still waiting for its staggered release stays visible in the source box.
-      const waiting=game.pending.filter(p=>p.truck===t);
       for(const slot of new Set(waiting.map(p=>p.slot))){
         const group=waiting.filter(p=>p.slot===slot);
-        makeBox(game,t,slot,group[0].color,group.map((p,i)=>p.piece??i));
+        makeBox(game,t,slot,group[0].color,group.map((p,i)=>p.piece??i),false,false,false,0);
       }
       lastCargo.set(t,t.blocks.map(b=>({...b})));
     }
     for(const m of cargo.children){
       m.userData.basePos=m.position.clone();m.userData.baseScale=m.scale.clone();
+      m.userData.baseRotY=m.rotation.y;
     }
   }
 
@@ -738,7 +839,7 @@ export function mountThree(frameEl, getGameFn) {
   function cargoSig(game){
     let s="";
     for(const t of game.trucks){
-      if(t.gone)s+=reducedMotion.matches||t.drain<0?"x":game.now<lidStart(t)?"s":game.now<lidEnd(t)?"c":"x";
+      if(t.gone)s+=t.drain<0?"x":game.now<lidStart(t)?"s":game.now<lidEnd(t)?"c":game.now<exitEnd(t)?"e":"o";
       else s+=t.blocks.map(b=>(b.hidden&&!b.seen?"?":b.color)+(b.flying?"~":"")).join("");
       s+="|"+t.cap+":"+(t.claim||"")+":"+t.fill+";";
     }
@@ -754,6 +855,8 @@ export function mountThree(frameEl, getGameFn) {
   // khung. Nen chung phai ve lai moi khung, khong the di qua buildCargo.
   const rippleGeo = keep(new THREE.RingGeometry(0.72, 1.0, 40));
   const ripplePool = [];
+  const sealGeo = keep(new THREE.RingGeometry(.62,.78,32));
+  const sealPool = [];
   const paperGeo = keep(new THREE.PlaneGeometry(0.36, 0.14));
   const confettiPool = [];
   const fxMat = () => keep(new THREE.MeshBasicMaterial({
@@ -769,6 +872,9 @@ export function mountThree(frameEl, getGameFn) {
     const m = new THREE.Mesh(paperGeo, fxMat());
     fx.add(m);
     return m;
+  }
+  function sealMesh(){
+    const m=new THREE.Mesh(sealGeo,fxMat());m.rotation.x=-Math.PI/2;fx.add(m);return m;
   }
 
   function animateFx(game) {
@@ -805,6 +911,18 @@ export function mountThree(frameEl, getGameFn) {
       m.material.opacity = (1 - k) * 0.55;
     }
 
+    const seals=still?[]:game.trucks.flatMap(t=>t.blocks.map((b,slot)=>({t,b,slot})))
+      .filter(o=>o.b.packedAt&&now-o.b.packedAt>=0&&now-o.b.packedAt<BOX_SEAL_MS+180);
+    while(sealPool.length<seals.length)sealPool.push(sealMesh());
+    for(let i=0;i<sealPool.length;i++){
+      const m=sealPool[i],o=seals[i];
+      if(!o){m.visible=false;continue;}
+      const k=Math.min(1,(now-o.b.packedAt)/(BOX_SEAL_MS+180)),p=game.slotPos(o.t,o.slot,.5);
+      m.visible=true;m.position.set(p.x,BODY_H+CARGO_H+.30,p.y);
+      const s=.55+k*.95;m.scale.set(s,s,s);
+      m.material.color.set(PALETTE[o.b.color]||"#ff7b9e");m.material.opacity=(1-k)*.72;
+    }
+
     // Confetti: engine da tinh x,y moi khung, chi dat vao dung cho va mo dan theo p.life.
     const papers = still ? [] : game.trucks.flatMap((t) => t.confetti);
     while (confettiPool.length < papers.length) confettiPool.push(paperMesh());
@@ -824,14 +942,63 @@ export function mountThree(frameEl, getGameFn) {
   // giao, va cu nhun khi xe nuot duoc hang. Ca hai deu cap nhat theo tung khung o day.
   function animateCargo(game){
     if(reducedMotion.matches)return;
+    for(const m of cargo.children){
+      const at=m.userData.boxSealAt;
+      if(!at)continue;
+      const k=Math.max(0,Math.min(1,(game.now-at)/BOX_SEAL_MS));
+      // Back-ease gives the little lid one soft overshoot instead of a mechanical drop.
+      const c1=1.38,c3=c1+1;
+      const eased=1+c3*Math.pow(k-1,3)+c1*Math.pow(k-1,2);
+      m.position.y=m.userData.boxSealBaseY+(1-eased)*.58;
+      const pulse=Math.sin(k*Math.PI);
+      const base=m.userData.baseScale;
+      m.scale.set(base.x*(1+.06*pulse),base.y*(1-.10*pulse),base.z*(1+.06*pulse));
+    }
     for(const t of game.trucks){
       if(t.gone&&t.drain>=0){
-        const k=Math.max(0,Math.min(1,(game.now-lidStart(t))/LID_CLOSE_MS));
-        const eased=k*k*(3-2*k);
-        for(const m of cargo.children){
-          if(m.userData.closeTruck===t){
-            // Raised -> seated. Subtract progress, not remaining lift.
-            m.position.y=m.userData.closeBaseY-LID_LIFT*eased;
+        if(game.now<lidEnd(t)){
+          const k=Math.max(0,Math.min(1,(game.now-lidStart(t))/LID_CLOSE_MS));
+          const eased=k*k*(3-2*k);
+          for(const m of cargo.children){
+            if(m.userData.closeTruck===t){
+              // Raised -> seated. Subtract progress, not remaining lift.
+              m.position.y=m.userData.closeBaseY-LID_LIFT*eased;
+            }
+          }
+        }else if(game.now>=exitStart(t)){
+          const k=Math.max(0,Math.min(1,(game.now-exitStart(t))/EXIT_TRAVEL_MS));
+          const eased=k*k*(3-2*k),start=game.slotPos(t,(t.cap-1)/2,.5),door=dispatchPoint(game);
+          let x,z,lift;
+          if(k<.28){
+            const u=k/.28,q=u*u*(3-2*u);
+            x=start.x+(t.px-start.x)*q;z=start.y+(t.py-start.y)*q;
+            lift=.55*Math.sin(u*Math.PI*.75);
+          }else{
+            const u=(k-.28)/.72,q=u*u*(3-2*u);
+            const cx=(t.px+door.x)/2,cz=(t.py+door.y)/2;
+            x=(1-q)*(1-q)*t.px+2*(1-q)*q*cx+q*q*door.x;
+            z=(1-q)*(1-q)*t.py+2*(1-q)*q*cz+q*q*door.y;
+            lift=.42+1.55*Math.sin(q*Math.PI)+q*.35;
+          }
+          // The completed tray is wider than the transport lane.  Let the transfer
+          // collar squeeze it into a compact shipping pack as it reaches the rail,
+          // then keep reducing it while the factory carries it to the SHOP hatch.
+          // Without this first-stage squeeze the long carton clips the screen edge
+          // and reads as a loose panel sliding over the machine.
+          let shrink;
+          if(k<.28){
+            const u=k/.28,q=u*u*(3-2*u);
+            shrink=1-.46*q;
+          }else{
+            const u=(k-.28)/.72,q=u*u*(3-2*u);
+            shrink=.54-.24*q;
+          }
+          for(const m of cargo.children){
+            if(m.userData.exitTruck!==t)continue;
+            const base=m.userData.basePos;
+            m.position.set(base.x+x-start.x,base.y+lift,base.z+z-start.y);
+            const s=m.userData.baseScale;m.scale.set(s.x*shrink,s.y*shrink,s.z*shrink);
+            m.rotation.y=m.userData.baseRotY+Math.sin(k*Math.PI*2)*.08;
           }
         }
       }else if(t.ate>0){
@@ -852,7 +1019,7 @@ export function mountThree(frameEl, getGameFn) {
       if(!t)continue;
       if(!t.gone){group.visible=true;group.scale.x=1;continue;}
       const k=reducedMotion.matches ? 1 : Math.max(0,Math.min(1,
-        (now-lidEnd(t))/BRIDGE_RETRACT_MS));
+        (now-exitStart(t))/BRIDGE_RETRACT_MS));
       const eased=k*k*(3-2*k);
       // Local X runs from the rail (0) back to the tray (-reach), so this folds the
       // connector into its rail collar instead of shrinking around its centre.
@@ -891,10 +1058,17 @@ export function mountThree(frameEl, getGameFn) {
       // lam toi no la chop tat moi lan co vali bay vao. Khong phai trang thai khoa.
       const locked = !t.gone && t.blocks.length > 0 && t.drain < 0 &&
                      !game.flying.some((f) => f.truck === t) &&
-                     game.state === "play" && !game.canTap(t);
+                     game.state === "play" && !game.canTapAny(t);
       const packed=m.userData.tintWhenPacked&&t.gone&&game.now>=lidEnd(t);
       const color=t.claim||lastCargo.get(t)?.find(b=>b?.color)?.color;
       m.material=packed?mat(PALETTE[color]||"#ff83aa",true):locked?dimOf(m.userData.litMat):m.userData.litMat;
+      if(t.gone&&game.now>=exitStart(t)){
+        const k=Math.max(0,Math.min(1,(game.now-exitStart(t))/BRIDGE_RETRACT_MS));
+        m.scale.y=Math.max(.02,1-k*k*(3-2*k));
+        m.visible=k<.995;
+      }else{
+        m.scale.y=1;m.visible=true;
+      }
     }
   }
 
@@ -905,17 +1079,26 @@ export function mountThree(frameEl, getGameFn) {
   function drawCubes(game){
     const list=game.cubes.map(c=>{
       let bottom=RAIL_Y+.025;
+      let hop=0,tilt=0,squash=0,sizeFactor=1,heightFactor=1;
       if(!c.landed&&c.src){
         const t=c.src,reach=Math.max(1,Math.hypot(t.x-t.px,t.y-t.py));
         const f=Math.min(1,Math.hypot(c.x-t.px,c.y-t.py)/reach);
-        bottom+=(BODY_H+.14-RAIL_Y)*f;
+        const k=1-f,e=k*k*(3-2*k);
+        hop=Math.sin(k*Math.PI);
+        bottom=(BODY_H+.14)*(1-e)+(RAIL_Y+.025)*e+hop*.36;
+        tilt=hop*.18;
+        sizeFactor=.84+.16*e;heightFactor=.70+.30*e;
       }
-      return {...c,bottom};
+      return {...c,bottom,hop,tilt,squash,sizeFactor,heightFactor};
     });
     for(const f of game.flying){
       const k=Math.max(0,Math.min(1,(game.now-f.at)/f.ms)),p=flyPos(f,k);
+      const e=k*k*(3-2*k),hop=Math.sin(k*Math.PI);
+      const landing=k>.82?Math.sin((k-.82)/.18*Math.PI):0;
       list.push({x:p.x,y:p.y,color:f.color,sz:1,rot:p.rot,
-        bottom:RAIL_Y+.025+(BODY_H+.14-RAIL_Y-.025)*k});
+        bottom:(RAIL_Y+.025)*(1-e)+(BODY_H+.14)*e+hop*.72,
+        hop,tilt:-hop*.22,squash:landing*.12,
+        sizeFactor:1-.16*e,heightFactor:1-.30*e});
     }
     while(pool.length<list.length){
       const m=new THREE.Mesh(candyGeo,candyMat("#ff79ab"));m.castShadow=true;m.receiveShadow=true;
@@ -925,7 +1108,11 @@ export function mountThree(frameEl, getGameFn) {
       const m=pool[i],c=list[i];m.visible=!!c;if(!c)continue;
       const d=game.r*2*(c.sz??1);
       m.material=candyMat(PALETTE[c.color]||"#ff79ab");
-      m.scale.set(d,CARGO_H,d);m.position.set(c.x,c.bottom+CARGO_H/2,c.y);m.rotation.y=c.rot||0;
+      const sf=c.sizeFactor??1,hf=c.heightFactor??1;
+      const mh=CARGO_H*hf*(1-(c.squash||0));
+      m.scale.set(d*sf*(1+(c.squash||0)*.45),mh,d*sf*(1+(c.squash||0)*.45));
+      m.position.set(c.x,c.bottom+mh/2,c.y);
+      m.rotation.set(c.tilt||0,c.rot||0,(c.tilt||0)*.55);
     }
   }
 
@@ -977,6 +1164,12 @@ export function mountThree(frameEl, getGameFn) {
     animateBridges(game);
     animateFx(game);
     animateLocked(game);
+    if(!reducedMotion.matches)statics.traverse((m)=>{
+      if(!m.userData.factoryBubble)return;
+      m.position.y=m.userData.factoryBaseY+.16*Math.sin(game.now*.002+m.userData.factoryPhase);
+      const s=.92+.10*Math.sin(game.now*.002+m.userData.factoryPhase);
+      m.scale.setScalar(s);
+    });
 
     updateProgress(game);
     drawCubes(game);
@@ -1015,7 +1208,11 @@ export function mountThree(frameEl, getGameFn) {
     const hits = ray.intersectObjects([...cargo.children, ...statics.children], true);
     for (const h of hits) {
       const t = h.object.userData && h.object.userData.truck;
-      if (t) return t;
+      if (t) return {
+        truck: t,
+        slot: Number.isInteger(h.object.userData.slot)
+          ? h.object.userData.slot : t.blocks.length - 1,
+      };
     }
     return null;
   }

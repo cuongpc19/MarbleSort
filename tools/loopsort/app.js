@@ -54,8 +54,8 @@ const BOOSTERS = [
   { id: "Shuffle", l: "Trộn", cost: 300, free: 3, name: "Trộn kẹo", target: true,
     hint: "Chạm khay để trộn thứ tự các hộp kẹo",
     can: (g) => g.trucks.some((t) => !t.gone && t.blocks.length > 1) },
-  { id: "ConveyorCapacity", l: "Kẹo +4", cost: 800, free: 3, name: "Thêm 4 chỗ kẹo",
-    hint: "Băng chuyền chứa thêm 4 viên kẹo",
+  { id: "ConveyorCapacity", l: "Kẹo +8", cost: 800, free: 3, name: "Thêm 8 chỗ kẹo",
+    hint: "Băng chuyền chứa thêm 8 viên kẹo",
     // ⚠ Khi ban co da chet thi mot cho khong chac du. Hoi dung cau ma ban co se hoi:
     // them mot cho co lam noi mot vali nao cham duoc tro lai khong? Neu khong thi de nut
     // mo, dung de nguoi choi tra tien roi nhin the RAY TAC van con do.
@@ -204,7 +204,7 @@ function startLevel(n) {
   drawTools();
   syncChrome(true);
   coins(); dev();
-  if (n === 1) hint("Chạm khay: thả các hộp cùng màu liền nhau, mỗi hộp 4 viên kẹo", 6500);
+  if (n === 1) hint("Chạm một hộp để thả đủ 8 viên kẹo lên băng chuyền", 6500);
 }
 
 // ---------------------------------------------------------------- booster
@@ -410,7 +410,7 @@ function onLose() {
 function jammed(g) {
   if (g.state !== "play") return false;
   if (!g.trucks.some((t) => !t.gone && t.blocks.length)) return false;
-  if (g.trucks.some((t) => g.canTap(t))) return false;
+  if (g.trucks.some((t) => g.canTapAny(t))) return false;
   // ⚠ Hang dang tuon ra hoac dang bay vao xe thi chua duoc tinh: no chua co co hoi nao ca.
   if (g.pending.length || g.flying.length) return false;
   // ⚠ Dieu kien that su cua "tac", va no KHONG phai "ray day": moi mieng hang tren ray phai
@@ -509,7 +509,10 @@ function frame(now) {
       }
     } else if (!carded && g.state !== "play") {
       carded = true;
-      setTimeout(g.state === "win" ? onWin : onLose, g.state === "win" ? 700 : 450);
+      // Let the final tray close, travel through the SHOP gate and clear the board
+      // before the result card covers it. Reduced-motion users keep the short delay.
+      const winDelay = reducedMotion.matches ? 700 : 3500;
+      setTimeout(g.state === "win" ? onWin : onLose, g.state === "win" ? winDelay : 450);
     } else if (!carded) {
       if (!jammed(g)) {
         if (jamTold) { jamTold = false; if (jamOpen) closeJam(); }
@@ -592,12 +595,14 @@ cv.addEventListener("pointerdown", (e) => {
   // ⚠ Raycast cua bo 3D, KHONG phai E.pick: duoi camera phoi canh mot diem man hinh ung
   // voi mot tia, con E.pick nghich dao mot phep bien doi affine cua ban 2D. Dung E.pick o
   // day thi cham vao dau cung ra sai ben.
-  const t = three.pick(e.clientX, e.clientY);
-  if (!t) return;
+  const hit = three.pick(e.clientX, e.clientY);
+  if (!hit) return;
+  const t = hit.truck;
+  const slot = hit.slot;
   if (armed) return applyArmed(t);
   const g = E.getGame();
-  const load = g.tapLoad(t) * g.perBlock;
-  if (g.tap(t)) { sound.play("pour", load); return; }
+  const load = g.tapLoad(t, slot) * g.perBlock;
+  if (g.tap(t, slot)) { sound.play("pour", load); return; }
   sound.play("blocked");
   // ⚠ Het cho tren ray khong phai thua, chi la khoa tam: vali da mo san (drawBlocked),
   // day chi la cau tra loi cho nguoi van cham vao. Noi cai DIEU KIEN go khoa - "cho ben

@@ -28,19 +28,19 @@
   "slot": 8,
   "shape": [
    "ab",
-   "abab",
-   "ab"
+   "abba",
+   "ba"
   ],
   "shuffled": true,
   "changed": 0.5,
-  "donorSpline": 197,
+  "donorSpline": 714,
   "recolor": {
    "R": "PNK",
    "Y": "W"
   },
   "bbox": [
-   27.8,
-   38.3
+   27.7,
+   31
   ]
  },
  {
@@ -50,12 +50,12 @@
   "blocks": 12,
   "slot": 8,
   "shape": [
-   "abba",
-   "cacc",
-   "abbc"
+   "abaa",
+   "ccbc",
+   "acbb"
   ],
   "shuffled": true,
-  "changed": 0.83,
+  "changed": 0.5,
   "donorSpline": 264,
   "recolor": {
    "R": "LB",
@@ -80,15 +80,15 @@
   ],
   "shuffled": true,
   "changed": 0.67,
-  "donorSpline": 307,
+  "donorSpline": 388,
   "recolor": {
    "Y": "P",
    "B": "W",
    "R": "Y"
   },
   "bbox": [
-   27.8,
-   38.3
+   28.5,
+   32.8
   ]
  },
  {
@@ -98,14 +98,14 @@
   "blocks": 16,
   "slot": 10,
   "shape": [
-   "abaa",
-   "cddc",
-   "bbdc",
-   "dbac"
+   "abca",
+   "baad",
+   "ccdb",
+   "ddcb"
   ],
   "shuffled": true,
-  "changed": 0.75,
-  "donorSpline": 692,
+  "changed": 0.88,
+  "donorSpline": 712,
   "recolor": {
    "R": "O",
    "G": "P",
@@ -113,8 +113,3400 @@
    "Y": "G"
   },
   "bbox": [
+   28.8,
+   33.1
+  ]
+ },
+ {
+  "level": 6,
+  "lanes": 5,
+  "colors": 5,
+  "blocks": 20,
+  "slot": 11,
+  "shape": [
+   "aabb",
+   "cdae",
+   "ebcd",
+   "deda",
+   "bcce"
+  ],
+  "shuffled": true,
+  "changed": 0.9,
+  "donorSpline": 555,
+  "recolor": {
+   "R": "G",
+   "Y": "DPNK",
+   "B": "LPNK",
+   "G": "LB",
+   "P": "PNK"
+  },
+  "bbox": [
+   29.1,
+   39.7
+  ]
+ },
+ {
+  "level": 7,
+  "lanes": 6,
+  "colors": 6,
+  "blocks": 24,
+  "slot": 12,
+  "shape": [
+   "abac",
+   "dcee",
+   "afdd",
+   "faec",
+   "f?f?b?b",
+   "d?c?b?e"
+  ],
+  "shuffled": true,
+  "changed": 0.83,
+  "donorSpline": 629,
+  "recolor": {
+   "R": "G",
+   "Y": "LB",
+   "B": "DG",
+   "G": "DPNK",
+   "P": "LPNK",
+   "O": "PNK"
+  },
+  "bbox": [
    27.5,
    33.4
+  ]
+ },
+ {
+  "level": 8,
+  "lanes": 6,
+  "colors": 6,
+  "blocks": 24,
+  "slot": 7,
+  "shape": [
+   "a?b?c?b",
+   "a?d?b?a",
+   "e?e?f?c",
+   "d?c?f?c",
+   "bdfe",
+   "faed"
+  ],
+  "shuffled": true,
+  "changed": 0.96,
+  "donorSpline": 92,
+  "recolor": {
+   "R": "P",
+   "Y": "G",
+   "B": "LB",
+   "G": "BR",
+   "P": "PNK",
+   "O": "O"
+  },
+  "bbox": [
+   28,
+   39.7
+  ]
+ },
+ {
+  "level": 9,
+  "lanes": 6,
+  "colors": 6,
+  "blocks": 24,
+  "slot": 7,
+  "shape": [
+   "ab?c?b",
+   "dc?a?e",
+   "ce?a?d",
+   "da?f?b",
+   "df?b?e",
+   "ef?c?f"
+  ],
+  "shuffled": true,
+  "changed": 0.88,
+  "donorSpline": 204,
+  "recolor": {
+   "R": "O",
+   "Y": "P",
+   "B": "Y",
+   "G": "DPNK",
+   "P": "DG",
+   "O": "W"
+  },
+  "bbox": [
+   27.5,
+   33.4
+  ]
+ },
+ {
+  "level": 10,
+  "lanes": 7,
+  "colors": 7,
+  "blocks": 28,
+  "slot": 12,
+  "shape": [
+   "abcb",
+   "bdef",
+   "cdaf",
+   "geed",
+   "fcga",
+   "d?a?e?b",
+   "g?f?c?g"
+  ],
+  "shuffled": true,
+  "changed": 0.71,
+  "donorSpline": 349,
+  "recolor": {
+   "R": "BR",
+   "Y": "LB",
+   "B": "Y",
+   "G": "R",
+   "P": "LPNK",
+   "O": "O",
+   "Pnk": "B"
+  },
+  "bbox": [
+   27.8,
+   38.3
+  ]
+ },
+ {
+  "level": 11,
+  "lanes": 7,
+  "colors": 7,
+  "blocks": 28,
+  "slot": 14,
+  "shape": [
+   "abcd",
+   "efda",
+   "f?g?f?b",
+   "e?a?e?a",
+   "d?c?c?b",
+   "fgge",
+   "gbdc"
+  ],
+  "shuffled": true,
+  "changed": 0.79,
+  "donorSpline": 272,
+  "recolor": {
+   "R": "DPNK",
+   "Y": "LB",
+   "B": "DG",
+   "G": "LPNK",
+   "P": "G",
+   "O": "B",
+   "Pnk": "P"
+  },
+  "bbox": [
+   27.5,
+   37.4
+  ]
+ },
+ {
+  "level": 12,
+  "lanes": 8,
+  "colors": 8,
+  "blocks": 32,
+  "slot": 9,
+  "shape": [
+   "abcd",
+   "eefg",
+   "ghah",
+   "bdac",
+   "fhhf",
+   "d?c?f?d",
+   "e?b?c?e",
+   "b?g?g?a"
+  ],
+  "shuffled": true,
+  "changed": 0.94,
+  "donorSpline": 692,
+  "recolor": {
+   "R": "G",
+   "Y": "DG",
+   "B": "BL",
+   "G": "PNK",
+   "P": "LPNK",
+   "O": "O",
+   "PNK": "P",
+   "GR": "B"
+  },
+  "bbox": [
+   27.5,
+   33.4
+  ]
+ },
+ {
+  "level": 13,
+  "lanes": 8,
+  "colors": 8,
+  "blocks": 32,
+  "slot": 13,
+  "shape": [
+   "ab?c?d",
+   "cd?e?e",
+   "ac?a?f",
+   "gd?b?f",
+   "cb?h?h",
+   "gdhf",
+   "gabe",
+   "fhge"
+  ],
+  "shuffled": true,
+  "changed": 0.88,
+  "donorSpline": 335,
+  "recolor": {
+   "R": "G",
+   "Y": "R",
+   "B": "PNK",
+   "G": "LPNK",
+   "P": "Y",
+   "O": "W",
+   "PNK": "P",
+   "GR": "BL"
+  },
+  "bbox": [
+   27.5,
+   37.4
+  ]
+ },
+ {
+  "level": 14,
+  "lanes": 8,
+  "colors": 8,
+  "blocks": 32,
+  "slot": 6,
+  "shape": [
+   "a?b?c?d",
+   "a?e?b?b",
+   "f?a?g?c",
+   "efdf",
+   "hghe",
+   "e?g?g?d",
+   "c?f?a?d",
+   "b?h?h?c"
+  ],
+  "shuffled": true,
+  "changed": 0.97,
+  "donorSpline": 183,
+  "recolor": {
+   "R": "G",
+   "Y": "DG",
+   "B": "LB",
+   "G": "PNK",
+   "P": "W",
+   "O": "O",
+   "PNK": "LPNK",
+   "GR": "DPNK"
+  },
+  "bbox": [
+   27.8,
+   37.7
+  ]
+ },
+ {
+  "level": 15,
+  "lanes": 7,
+  "colors": 7,
+  "blocks": 28,
+  "slot": 8,
+  "shape": [
+   "a?b?c?d",
+   "eeff",
+   "gacg",
+   "dbcf",
+   "d?g?e?f",
+   "d?g?a?e",
+   "b?b?a?c"
+  ],
+  "shuffled": true,
+  "changed": 0.96,
+  "donorSpline": 706,
+  "recolor": {
+   "R": "W",
+   "Y": "DPNK",
+   "B": "R",
+   "G": "B",
+   "P": "LB",
+   "O": "PNK",
+   "PNK": "BR"
+  },
+  "bbox": [
+   28.8,
+   38.3
+  ]
+ },
+ {
+  "level": 16,
+  "lanes": 8,
+  "colors": 8,
+  "blocks": 32,
+  "slot": 11,
+  "shape": [
+   "a?b?c?b",
+   "d?e?f?f",
+   "g?g?g?e",
+   "c?b?a?c",
+   "e?b?h?h",
+   "dgdf",
+   "ahcf",
+   "ahed"
+  ],
+  "shuffled": true,
+  "changed": 0.81,
+  "donorSpline": 204,
+  "recolor": {
+   "R": "G",
+   "Y": "DPNK",
+   "B": "BR",
+   "G": "PNK",
+   "P": "O",
+   "O": "LB",
+   "PNK": "P",
+   "GR": "R"
+  },
+  "bbox": [
+   27.5,
+   33.4
+  ]
+ },
+ {
+  "level": 17,
+  "lanes": 8,
+  "colors": 8,
+  "blocks": 32,
+  "slot": 8,
+  "shape": [
+   "a?b?c?b",
+   "d?e?fc",
+   "c?afg",
+   "e?e?hf",
+   "d?c?h?e",
+   "g?a?g?d",
+   "a?h?fd",
+   "b?hgb"
+  ],
+  "shuffled": true,
+  "changed": 0.94,
+  "donorSpline": 223,
+  "recolor": {
+   "R": "BL",
+   "Y": "DG",
+   "B": "R",
+   "G": "W",
+   "P": "O",
+   "O": "PNK",
+   "PNK": "DPNK",
+   "GR": "LB"
+  },
+  "bbox": [
+   27.8,
+   38.3
+  ]
+ },
+ {
+  "level": 18,
+  "lanes": 9,
+  "colors": 9,
+  "blocks": 36,
+  "slot": 10,
+  "shape": [
+   "ab?c?d",
+   "ef?c?g",
+   "ah?i?g",
+   "ea?d?i",
+   "ai?e?b",
+   "gb?e?c",
+   "ifgh",
+   "dcdh",
+   "hfbf"
+  ],
+  "shuffled": true,
+  "changed": 0.94,
+  "donorSpline": 370,
+  "recolor": {
+   "R": "O",
+   "Y": "G",
+   "B": "LB",
+   "G": "LPNK",
+   "P": "R",
+   "O": "Y",
+   "PNK": "BL",
+   "GR": "DPNK",
+   "BR": "DG"
+  },
+  "bbox": [
+   27.8,
+   38.3
+  ]
+ },
+ {
+  "level": 19,
+  "lanes": 12,
+  "colors": 9,
+  "blocks": 36,
+  "slot": 10,
+  "shape": [
+   "a?b?c",
+   "d?e?b",
+   "f?a?g",
+   "d?h?e",
+   "i?b?a",
+   "i?i?g",
+   "g?b?d",
+   "h?f?h",
+   "e?f?g",
+   "h?i?e",
+   "f?d?a",
+   "c?c?c"
+  ],
+  "shuffled": true,
+  "changed": 0.97,
+  "donorSpline": 197,
+  "recolor": {
+   "R": "G",
+   "Y": "LPNK",
+   "B": "B",
+   "G": "DG",
+   "P": "R",
+   "O": "LB",
+   "PNK": "P",
+   "GR": "O",
+   "BR": "PNK"
+  },
+  "bbox": [
+   27.8,
+   38.3
+  ]
+ },
+ {
+  "level": 20,
+  "lanes": 5,
+  "colors": 5,
+  "blocks": 20,
+  "slot": 10,
+  "shape": [
+   "abac",
+   "bdca",
+   "eceb",
+   "adde",
+   "dbec"
+  ],
+  "shuffled": true,
+  "changed": 0.75,
+  "donorSpline": 417,
+  "recolor": {
+   "R": "PNK",
+   "Y": "LPNK",
+   "B": "BL",
+   "G": "G",
+   "P": "R"
+  },
+  "bbox": [
+   27.2,
+   33.4
+  ]
+ },
+ {
+  "level": 21,
+  "lanes": 6,
+  "colors": 6,
+  "blocks": 24,
+  "slot": 9,
+  "shape": [
+   "abcc",
+   "cdea",
+   "dbfd",
+   "bcee",
+   "bfde",
+   "afaf"
+  ],
+  "shuffled": true,
+  "changed": 0.75,
+  "donorSpline": 335,
+  "recolor": {
+   "R": "O",
+   "Y": "Y",
+   "B": "W",
+   "G": "G",
+   "P": "B",
+   "O": "LPNK"
+  },
+  "bbox": [
+   27.5,
+   37.4
+  ]
+ },
+ {
+  "level": 22,
+  "lanes": 7,
+  "colors": 7,
+  "blocks": 28,
+  "slot": 9,
+  "shape": [
+   "abbc",
+   "defd",
+   "faee",
+   "afeg",
+   "gcga",
+   "dbcc",
+   "dbgf"
+  ],
+  "shuffled": true,
+  "changed": 0.93,
+  "donorSpline": 428,
+  "recolor": {
+   "R": "O",
+   "Y": "P",
+   "B": "LPNK",
+   "G": "G",
+   "P": "DG",
+   "O": "BR",
+   "PNK": "PNK"
+  },
+  "bbox": [
+   28.8,
+   39.3
+  ]
+ },
+ {
+  "level": 23,
+  "lanes": 8,
+  "colors": 8,
+  "blocks": 32,
+  "slot": 9,
+  "shape": [
+   "abca",
+   "daef",
+   "dbbg",
+   "cegf",
+   "ecfh",
+   "bdhh",
+   "gfgc",
+   "dhae"
+  ],
+  "shuffled": true,
+  "changed": 0.88,
+  "donorSpline": 433,
+  "recolor": {
+   "R": "DG",
+   "Y": "LB",
+   "B": "R",
+   "G": "G",
+   "P": "B",
+   "O": "BR",
+   "PNK": "PNK",
+   "GR": "DPNK"
+  },
+  "bbox": [
+   27.8,
+   36.3
+  ]
+ },
+ {
+  "level": 24,
+  "lanes": 8,
+  "colors": 8,
+  "blocks": 32,
+  "slot": 6,
+  "shape": [
+   "abcd",
+   "efag",
+   "eefc",
+   "dhbf",
+   "g?c?h?a",
+   "gbgf",
+   "ebha",
+   "c?d?d?h"
+  ],
+  "shuffled": true,
+  "changed": 0.91,
+  "donorSpline": 332,
+  "recolor": {
+   "R": "P",
+   "Y": "O",
+   "B": "W",
+   "G": "B",
+   "P": "BL",
+   "O": "LB",
+   "PNK": "PNK",
+   "GR": "R"
+  },
+  "bbox": [
+   28.8,
+   33.1
+  ]
+ },
+ {
+  "level": 25,
+  "lanes": 8,
+  "colors": 8,
+  "blocks": 32,
+  "slot": 9,
+  "shape": [
+   "abcd",
+   "beaf",
+   "fghg",
+   "hdae",
+   "fhac",
+   "bdeg",
+   "fhce",
+   "bdgc"
+  ],
+  "shuffled": true,
+  "changed": 0.91,
+  "donorSpline": 250,
+  "recolor": {
+   "R": "O",
+   "Y": "Y",
+   "B": "DG",
+   "G": "R",
+   "P": "LB",
+   "O": "W",
+   "PNK": "LPNK",
+   "GR": "B"
+  },
+  "bbox": [
+   28.6,
+   31.1
+  ]
+ },
+ {
+  "level": 26,
+  "lanes": 8,
+  "colors": 8,
+  "blocks": 32,
+  "slot": 7,
+  "shape": [
+   "abcd",
+   "eadf",
+   "bffg",
+   "bbhg",
+   "gceh",
+   "eacg",
+   "ahch",
+   "dfde"
+  ],
+  "shuffled": true,
+  "changed": 0.84,
+  "donorSpline": 307,
+  "recolor": {
+   "R": "Y",
+   "Y": "LB",
+   "B": "O",
+   "G": "W",
+   "P": "P",
+   "O": "G",
+   "GR": "LPNK",
+   "BR": "BR"
+  },
+  "bbox": [
+   27.8,
+   38.3
+  ]
+ },
+ {
+  "level": 27,
+  "lanes": 8,
+  "colors": 8,
+  "blocks": 32,
+  "slot": 9,
+  "shape": [
+   "abcd",
+   "eefc",
+   "gegb",
+   "aehg",
+   "bghd",
+   "abff",
+   "hcdd",
+   "afch"
+  ],
+  "shuffled": true,
+  "changed": 0.78,
+  "donorSpline": 204,
+  "recolor": {
+   "R": "W",
+   "Y": "B",
+   "B": "DG",
+   "G": "BL",
+   "P": "BR",
+   "O": "R",
+   "PNK": "PNK",
+   "GR": "Y"
+  },
+  "bbox": [
+   27.5,
+   33.4
+  ]
+ },
+ {
+  "level": 28,
+  "lanes": 8,
+  "colors": 8,
+  "blocks": 32,
+  "slot": 6,
+  "shape": [
+   "abcb",
+   "cdef",
+   "afge",
+   "bfgd",
+   "hfhh",
+   "eaga",
+   "gcdd",
+   "cebh"
+  ],
+  "shuffled": true,
+  "changed": 0.81,
+  "donorSpline": 522,
+  "recolor": {
+   "R": "BR",
+   "Y": "B",
+   "B": "O",
+   "G": "R",
+   "P": "DPNK",
+   "O": "G",
+   "PNK": "LB",
+   "GR": "W"
+  },
+  "bbox": [
+   28.8,
+   33.1
+  ]
+ },
+ {
+  "level": 29,
+  "lanes": 9,
+  "colors": 9,
+  "blocks": 36,
+  "slot": 8,
+  "shape": [
+   "a?b?a?c",
+   "c?d?b?e",
+   "f?c?a?g",
+   "g?c?e?h",
+   "i?i?f?h",
+   "i?d?a?d",
+   "b?b?h?e",
+   "f?e?g?d",
+   "f?h?g?i"
+  ],
+  "shuffled": true,
+  "changed": 0.92,
+  "donorSpline": 593,
+  "recolor": {
+   "O": "B",
+   "B": "DPNK",
+   "GR": "O",
+   "P": "P",
+   "R": "Y",
+   "Y": "W",
+   "PNK": "DG",
+   "BR": "R",
+   "G": "LPNK"
+  },
+  "bbox": [
+   29.1,
+   39.7
+  ]
+ },
+ {
+  "level": 30,
+  "lanes": 9,
+  "colors": 8,
+  "blocks": 32,
+  "slot": 8,
+  "shape": [
+   "ab?c?d",
+   "ef?g?g",
+   "dg?e?c",
+   "hd?a?b",
+   "bf?a?f",
+   "ca?e",
+   "eh?g",
+   "hb?f",
+   "hc?d"
+  ],
+  "shuffled": true,
+  "changed": 0.81,
+  "donorSpline": 183,
+  "recolor": {
+   "R": "Y",
+   "Y": "PNK",
+   "B": "P",
+   "G": "DG",
+   "P": "W",
+   "O": "BR",
+   "PNK": "LB",
+   "GR": "G"
+  },
+  "bbox": [
+   27.8,
+   37.7
+  ]
+ },
+ {
+  "level": 31,
+  "lanes": 8,
+  "colors": 8,
+  "blocks": 32,
+  "slot": 9,
+  "shape": [
+   "a?b?a?c",
+   "d?ef?d",
+   "c?ge?g",
+   "g?dh?d",
+   "h?ff?b",
+   "a?ea?h",
+   "b?fg?e",
+   "b?ch?c"
+  ],
+  "shuffled": true,
+  "changed": 0.88,
+  "donorSpline": 727,
+  "recolor": {
+   "PNK": "BL",
+   "GR": "DPNK",
+   "B": "LPNK",
+   "O": "B",
+   "G": "LB",
+   "R": "BR",
+   "Y": "W",
+   "P": "PNK"
+  },
+  "bbox": [
+   27.8,
+   38.3
+  ]
+ },
+ {
+  "level": 32,
+  "lanes": 8,
+  "colors": 8,
+  "blocks": 32,
+  "slot": 8,
+  "shape": [
+   "abcd",
+   "b?e?d?f",
+   "c?e?e?g",
+   "h?g?f?h",
+   "efaa",
+   "b?c?g?a",
+   "h?d?h?b",
+   "f?d?g?c"
+  ],
+  "shuffled": true,
+  "changed": 0.97,
+  "donorSpline": 419,
+  "recolor": {
+   "P": "LPNK",
+   "Y": "LB",
+   "GR": "P",
+   "R": "BL",
+   "O": "BR",
+   "PNK": "W",
+   "G": "R",
+   "B": "O"
+  },
+  "bbox": [
+   27.5,
+   36.4
+  ]
+ },
+ {
+  "level": 33,
+  "lanes": 9,
+  "colors": 9,
+  "blocks": 36,
+  "slot": 9,
+  "shape": [
+   "a?b?c?d",
+   "a?b?c?e",
+   "d?b?a?f",
+   "g?e?h?h",
+   "e?d?i?f",
+   "i?d?c?h",
+   "cegh",
+   "bgif",
+   "afgi"
+  ],
+  "shuffled": true,
+  "changed": 0.89,
+  "donorSpline": 569,
+  "recolor": {
+   "B": "DPNK",
+   "Y": "Y",
+   "BR": "LB",
+   "R": "O",
+   "PNK": "LPNK",
+   "G": "DG",
+   "P": "R",
+   "O": "B",
+   "GR": "G"
+  },
+  "bbox": [
+   28.3,
+   37.7
+  ]
+ },
+ {
+  "level": 34,
+  "lanes": 9,
+  "colors": 9,
+  "blocks": 36,
+  "slot": 7,
+  "shape": [
+   "aa?b?c",
+   "de?d?f",
+   "e?c?b?g",
+   "h?h?g?c",
+   "hi?e?i",
+   "gf?c?d",
+   "d?a?g?b",
+   "h?e?f?i",
+   "b?i?f?a"
+  ],
+  "shuffled": true,
+  "changed": 0.89,
+  "donorSpline": 459,
+  "recolor": {
+   "G": "P",
+   "Y": "W",
+   "B": "LPNK",
+   "GR": "Y",
+   "R": "PNK",
+   "PNK": "G",
+   "O": "R",
+   "P": "BL",
+   "BR": "DG"
+  },
+  "bbox": [
+   27.7,
+   35.4
+  ]
+ },
+ {
+  "level": 35,
+  "lanes": 9,
+  "colors": 9,
+  "blocks": 36,
+  "slot": 8,
+  "shape": [
+   "a?bac",
+   "d?e?af",
+   "g?e?d?b",
+   "h?a?e?g",
+   "b?e?ic",
+   "d?cii",
+   "h?hgb",
+   "h?f?gc",
+   "d?f?i?f"
+  ],
+  "shuffled": true,
+  "changed": 0.89,
+  "donorSpline": 356,
+  "recolor": {
+   "R": "G",
+   "B": "LPNK",
+   "PNK": "DPNK",
+   "BR": "BR",
+   "P": "W",
+   "O": "PNK",
+   "Y": "R",
+   "G": "Y",
+   "GR": "P"
+  },
+  "bbox": [
+   27.5,
+   33.4
+  ]
+ },
+ {
+  "level": 36,
+  "lanes": 9,
+  "colors": 9,
+  "blocks": 36,
+  "slot": 9,
+  "shape": [
+   "ab?c?d",
+   "ed?e?b",
+   "fa?c?e",
+   "fd?g?e",
+   "fa?h?f",
+   "hg?b?c",
+   "hi?c?a",
+   "hb?g?i",
+   "gd?i?i"
+  ],
+  "shuffled": true,
+  "changed": 0.83,
+  "donorSpline": 648,
+  "recolor": {
+   "BR": "LPNK",
+   "GR": "BR",
+   "PNK": "W",
+   "R": "Y",
+   "O": "B",
+   "G": "G",
+   "P": "R",
+   "Y": "P",
+   "B": "PNK"
+  },
+  "bbox": [
+   27.5,
+   33.4
+  ]
+ },
+ {
+  "level": 37,
+  "lanes": 9,
+  "colors": 8,
+  "blocks": 32,
+  "slot": 7,
+  "shape": [
+   "a?b?c?d",
+   "e?f?d",
+   "f?c?f",
+   "c?g?a",
+   "h?e?f",
+   "d?d?h?e",
+   "acgg",
+   "bbgh",
+   "aebh"
+  ],
+  "shuffled": true,
+  "changed": 0.84,
+  "donorSpline": 470,
+  "recolor": {
+   "O": "DG",
+   "B": "DPNK",
+   "Y": "P",
+   "P": "Y",
+   "R": "B",
+   "GR": "O",
+   "PNK": "LB",
+   "G": "BL"
+  },
+  "bbox": [
+   28.8,
+   39.3
+  ]
+ },
+ {
+  "level": 38,
+  "lanes": 10,
+  "colors": 10,
+  "blocks": 40,
+  "slot": 9,
+  "shape": [
+   "a?b?c?d",
+   "d?e?a?f",
+   "g?f?h?i",
+   "h?g?i?h",
+   "beja",
+   "ijca",
+   "cg?g?e",
+   "ih?f?d",
+   "bj?f?j",
+   "dc?e?b"
+  ],
+  "shuffled": true,
+  "changed": 0.85,
+  "donorSpline": 215,
+  "recolor": {
+   "O": "O",
+   "GR": "W",
+   "G": "BR",
+   "BR": "BL",
+   "W": "P",
+   "B": "DG",
+   "R": "R",
+   "Y": "G",
+   "P": "LB",
+   "PNK": "B"
+  },
+  "bbox": [
+   27.5,
+   33.4
+  ]
+ },
+ {
+  "level": 39,
+  "lanes": 9,
+  "colors": 9,
+  "blocks": 36,
+  "slot": 6,
+  "shape": [
+   "a?b?c?d",
+   "e?f?b?c",
+   "e?f?e?c",
+   "a?g?b?h",
+   "f?g?e?d",
+   "h?b?d?c",
+   "diag",
+   "ahif",
+   "gihi"
+  ],
+  "shuffled": true,
+  "changed": 0.92,
+  "donorSpline": 249,
+  "recolor": {
+   "R": "P",
+   "G": "R",
+   "GR": "Y",
+   "O": "B",
+   "Y": "BL",
+   "PNK": "BR",
+   "P": "W",
+   "BR": "LPNK",
+   "B": "DG"
+  },
+  "bbox": [
+   27.5,
+   33.4
+  ]
+ },
+ {
+  "level": 40,
+  "lanes": 8,
+  "colors": 8,
+  "blocks": 32,
+  "slot": 7,
+  "shape": [
+   "abca",
+   "debf",
+   "gcfd",
+   "h?b?d?e",
+   "g?h?e?c",
+   "f?f?a?c",
+   "e?g?h?d",
+   "gahb"
+  ],
+  "shuffled": true,
+  "changed": 0.88,
+  "donorSpline": 537,
+  "recolor": {
+   "O": "DPNK",
+   "GR": "PNK",
+   "P": "DG",
+   "R": "P",
+   "PNK": "G",
+   "B": "W",
+   "G": "BR",
+   "Y": "O"
+  },
+  "bbox": [
+   29.1,
+   37.7
+  ]
+ },
+ {
+  "level": 41,
+  "lanes": 10,
+  "colors": 8,
+  "blocks": 32,
+  "slot": 5,
+  "shape": [
+   "a?b?c?b",
+   "d?b?d",
+   "a?e",
+   "c?f?g",
+   "c?f?b?h",
+   "h?c?h?g",
+   "g?d?e",
+   "e?h",
+   "g?f?d",
+   "e?f?a?a"
+  ],
+  "shuffled": true,
+  "changed": 0.94,
+  "donorSpline": 398,
+  "recolor": {
+   "GR": "LPNK",
+   "R": "P",
+   "P": "Y",
+   "Y": "BR",
+   "G": "LB",
+   "B": "DG",
+   "PNK": "W",
+   "O": "B"
+  },
+  "bbox": [
+   27.5,
+   33.4
+  ]
+ },
+ {
+  "level": 42,
+  "lanes": 7,
+  "colors": 7,
+  "blocks": 28,
+  "slot": 8,
+  "shape": [
+   "a?b?c?d",
+   "e?f?b?c",
+   "a?gd?g",
+   "f?g?g?c",
+   "edfb",
+   "eceb",
+   "faad"
+  ],
+  "shuffled": true,
+  "changed": 0.79,
+  "donorSpline": 249,
+  "recolor": {
+   "Y": "PNK",
+   "PNK": "BL",
+   "B": "P",
+   "O": "DG",
+   "GR": "Y",
+   "R": "LB",
+   "P": "DPNK"
+  },
+  "bbox": [
+   27.5,
+   33.4
+  ]
+ },
+ {
+  "level": 43,
+  "lanes": 10,
+  "colors": 10,
+  "blocks": 40,
+  "slot": 12,
+  "shape": [
+   "abcd",
+   "e?a?c?f",
+   "ghae",
+   "fiji",
+   "cgeb",
+   "difh",
+   "a?g?j?h",
+   "jdbg",
+   "jf?d?i",
+   "eh?c?b"
+  ],
+  "shuffled": true,
+  "changed": 0.93,
+  "donorSpline": 512,
+  "recolor": {
+   "GR": "LPNK",
+   "Y": "R",
+   "B": "B",
+   "PNK": "BR",
+   "W": "DPNK",
+   "G": "W",
+   "P": "BL",
+   "BR": "G",
+   "O": "P",
+   "R": "O"
+  },
+  "bbox": [
+   28.8,
+   39.3
+  ]
+ },
+ {
+  "level": 44,
+  "lanes": 10,
+  "colors": 10,
+  "blocks": 40,
+  "slot": 7,
+  "shape": [
+   "a?b?c?d",
+   "e?f?g?a",
+   "h?i?a?g",
+   "b?d?j?i",
+   "j?e?b?c",
+   "e?g?c?g",
+   "j?d?f?e",
+   "j?h?h?f",
+   "ad?ic",
+   "fibh"
+  ],
+  "shuffled": true,
+  "changed": 0.9,
+  "donorSpline": 207,
+  "recolor": {
+   "R": "DPNK",
+   "W": "BR",
+   "GR": "P",
+   "G": "R",
+   "P": "Y",
+   "B": "B",
+   "O": "O",
+   "Y": "DG",
+   "PNK": "PNK",
+   "BR": "LPNK"
+  },
+  "bbox": [
+   27.1,
+   33.3
+  ]
+ },
+ {
+  "level": 45,
+  "lanes": 9,
+  "colors": 9,
+  "blocks": 36,
+  "slot": 8,
+  "shape": [
+   "a?b?c?d",
+   "a?e?e?f",
+   "d?e?f?d",
+   "g?b?f?h",
+   "fgha",
+   "ihdc",
+   "g?b?c?h",
+   "a?i?gc",
+   "i?bie"
+  ],
+  "shuffled": true,
+  "changed": 0.83,
+  "donorSpline": 750,
+  "recolor": {
+   "R": "G",
+   "B": "DPNK",
+   "GR": "LPNK",
+   "PNK": "R",
+   "O": "P",
+   "P": "DG",
+   "BR": "LB",
+   "G": "BL",
+   "Y": "BR"
+  },
+  "bbox": [
+   28.8,
+   33.1
+  ]
+ },
+ {
+  "level": 46,
+  "lanes": 10,
+  "colors": 9,
+  "blocks": 36,
+  "slot": 7,
+  "shape": [
+   "abbc",
+   "bada",
+   "effg",
+   "h?c?h?f",
+   "i?e?i?h",
+   "f?a?d?e",
+   "ge?g",
+   "db?c",
+   "ci?d",
+   "hi?g"
+  ],
+  "shuffled": true,
+  "changed": 0.83,
+  "donorSpline": 470,
+  "recolor": {
+   "B": "DPNK",
+   "R": "DG",
+   "G": "BL",
+   "O": "R",
+   "P": "LPNK",
+   "BR": "BR",
+   "PNK": "W",
+   "Y": "B",
+   "GR": "LB"
+  },
+  "bbox": [
+   28.8,
+   39.3
+  ]
+ },
+ {
+  "level": 47,
+  "lanes": 9,
+  "colors": 9,
+  "blocks": 36,
+  "slot": 7,
+  "shape": [
+   "a?b?c?c",
+   "d?e?a?f",
+   "g?h?e?b",
+   "c?f?h?d",
+   "d?i?e?g",
+   "d?e?c?b",
+   "aigb",
+   "ihih",
+   "gaff"
+  ],
+  "shuffled": true,
+  "changed": 0.89,
+  "donorSpline": 635,
+  "recolor": {
+   "GR": "BL",
+   "Y": "G",
+   "P": "Y",
+   "G": "LB",
+   "O": "P",
+   "PNK": "DPNK",
+   "B": "LPNK",
+   "BR": "BR",
+   "R": "R"
+  },
+  "bbox": [
+   28.9,
+   39.7
+  ]
+ },
+ {
+  "level": 48,
+  "lanes": 9,
+  "colors": 9,
+  "blocks": 36,
+  "slot": 10,
+  "shape": [
+   "abac",
+   "dadd",
+   "defg",
+   "g?h?e?g",
+   "c?f?h?i",
+   "b?g?c?i",
+   "hceb",
+   "f?i?e?f",
+   "b?i?a?h"
+  ],
+  "shuffled": true,
+  "changed": 0.97,
+  "donorSpline": 522,
+  "recolor": {
+   "BR": "B",
+   "PNK": "G",
+   "G": "DPNK",
+   "R": "W",
+   "P": "LPNK",
+   "O": "BL",
+   "B": "DG",
+   "Y": "Y",
+   "GR": "O"
+  },
+  "bbox": [
+   28.8,
+   33.1
+  ]
+ },
+ {
+  "level": 49,
+  "lanes": 10,
+  "colors": 10,
+  "blocks": 40,
+  "slot": 7,
+  "shape": [
+   "a?b?c?d",
+   "c?a?e?f",
+   "g?b?h?i",
+   "ee?d?c",
+   "if?j?a",
+   "dd?j?b",
+   "ib?h?g",
+   "ef?a?j",
+   "fc?i?h",
+   "jhgg"
+  ],
+  "shuffled": true,
+  "changed": 0.9,
+  "donorSpline": 398,
+  "recolor": {
+   "BR": "LPNK",
+   "PNK": "DPNK",
+   "W": "BL",
+   "P": "O",
+   "B": "R",
+   "R": "W",
+   "G": "Y",
+   "GR": "P",
+   "O": "G",
+   "Y": "PNK"
+  },
+  "bbox": [
+   27.5,
+   33.4
+  ]
+ },
+ {
+  "level": 50,
+  "lanes": 8,
+  "colors": 8,
+  "blocks": 32,
+  "slot": 8,
+  "shape": [
+   "a?bcc",
+   "d?e?fd",
+   "b?e?g?h",
+   "d?b?ah",
+   "f?afd",
+   "gfga",
+   "heeh",
+   "ccbg"
+  ],
+  "shuffled": true,
+  "changed": 0.91,
+  "donorSpline": 398,
+  "recolor": {
+   "R": "PNK",
+   "B": "DPNK",
+   "P": "BL",
+   "PNK": "O",
+   "G": "LPNK",
+   "GR": "P",
+   "Y": "Y",
+   "O": "R"
+  },
+  "bbox": [
+   27.5,
+   33.4
+  ]
+ },
+ {
+  "level": 51,
+  "lanes": 8,
+  "colors": 8,
+  "blocks": 32,
+  "slot": 9,
+  "shape": [
+   "a?b?c?d",
+   "e?f?d?g",
+   "e?e?g?h",
+   "a?f?f?f",
+   "g?a?b?a",
+   "c?h?e?c",
+   "g?c?h?b",
+   "d?b?h?d"
+  ],
+  "shuffled": true,
+  "changed": 0.84,
+  "donorSpline": 512,
+  "recolor": {
+   "P": "BR",
+   "Y": "LB",
+   "GR": "R",
+   "O": "DG",
+   "B": "B",
+   "G": "PNK",
+   "PNK": "Y",
+   "R": "G"
+  },
+  "bbox": [
+   28.8,
+   39.3
+  ]
+ },
+ {
+  "level": 52,
+  "lanes": 12,
+  "colors": 9,
+  "blocks": 36,
+  "slot": 4,
+  "shape": [
+   "abc",
+   "def",
+   "gda",
+   "fah",
+   "cif",
+   "bie",
+   "bcg",
+   "aid",
+   "hhg",
+   "ced",
+   "fhg",
+   "ebi"
+  ],
+  "shuffled": true,
+  "changed": 0.89,
+  "donorSpline": 574,
+  "recolor": {
+   "O": "G",
+   "BR": "BR",
+   "GR": "BL",
+   "P": "O",
+   "G": "DPNK",
+   "R": "P",
+   "Y": "LPNK",
+   "PNK": "DG",
+   "B": "PNK"
+  },
+  "bbox": [
+   29.1,
+   39.7
+  ]
+ },
+ {
+  "level": 53,
+  "lanes": 9,
+  "colors": 9,
+  "blocks": 36,
+  "slot": 10,
+  "shape": [
+   "abcd",
+   "c?a?e?e",
+   "cfag",
+   "h?i?f?i",
+   "cfdg",
+   "d?a?e?b",
+   "bbdh",
+   "hhgi",
+   "efgi"
+  ],
+  "shuffled": true,
+  "changed": 0.92,
+  "donorSpline": 207,
+  "recolor": {
+   "GR": "G",
+   "Y": "LB",
+   "P": "R",
+   "B": "P",
+   "PNK": "B",
+   "G": "DG",
+   "R": "Y",
+   "O": "BL",
+   "BR": "BR"
+  },
+  "bbox": [
+   27.1,
+   33.3
+  ]
+ },
+ {
+  "level": 54,
+  "lanes": 8,
+  "colors": 8,
+  "blocks": 32,
+  "slot": 6,
+  "shape": [
+   "a?b?a?b",
+   "c?d?e?d",
+   "f?f?c?g",
+   "dhed",
+   "abfe",
+   "c?e?b?f",
+   "g?c?g?h",
+   "h?g?a?h"
+  ],
+  "shuffled": true,
+  "changed": 0.88,
+  "donorSpline": 544,
+  "recolor": {
+   "O": "BR",
+   "GR": "O",
+   "R": "R",
+   "G": "PNK",
+   "Y": "W",
+   "PNK": "P",
+   "P": "Y",
+   "B": "B"
+  },
+  "bbox": [
+   28.7,
+   33.1
+  ]
+ },
+ {
+  "level": 55,
+  "lanes": 10,
+  "colors": 10,
+  "blocks": 40,
+  "slot": 9,
+  "shape": [
+   "abcd",
+   "eacf",
+   "bghg",
+   "agii",
+   "jdbb",
+   "jfhj",
+   "eidd",
+   "fjic",
+   "hcfg",
+   "eeah"
+  ],
+  "shuffled": true,
+  "changed": 0.85,
+  "donorSpline": 579,
+  "recolor": {
+   "R": "O",
+   "G": "BL",
+   "W": "LB",
+   "BR": "P",
+   "O": "G",
+   "PNK": "PNK",
+   "Y": "Y",
+   "GR": "BR",
+   "B": "DG",
+   "P": "LPNK"
+  },
+  "bbox": [
+   29.1,
+   36.1
+  ]
+ },
+ {
+  "level": 56,
+  "lanes": 9,
+  "colors": 9,
+  "blocks": 36,
+  "slot": 7,
+  "shape": [
+   "abcd",
+   "efgf",
+   "hbcd",
+   "i?d?g?b",
+   "ha?a?e",
+   "ig?h?e",
+   "d?c?i?c",
+   "h?i?e?f",
+   "b?a?g?f"
+  ],
+  "shuffled": true,
+  "changed": 0.86,
+  "donorSpline": 207,
+  "recolor": {
+   "Y": "DG",
+   "B": "LPNK",
+   "P": "R",
+   "PNK": "BL",
+   "R": "G",
+   "O": "P",
+   "GR": "BR",
+   "G": "W",
+   "BR": "DPNK"
+  },
+  "bbox": [
+   27.1,
+   33.3
+  ]
+ },
+ {
+  "level": 57,
+  "lanes": 8,
+  "colors": 8,
+  "blocks": 32,
+  "slot": 8,
+  "shape": [
+   "a?b?c?d",
+   "e?f?g?b",
+   "c?d?ha",
+   "b?a?b?c",
+   "e?f?ch",
+   "a?d?h?f",
+   "gdef",
+   "gghe"
+  ],
+  "shuffled": true,
+  "changed": 0.97,
+  "donorSpline": 239,
+  "recolor": {
+   "PNK": "W",
+   "P": "O",
+   "G": "R",
+   "R": "BL",
+   "BR": "G",
+   "Y": "PNK",
+   "GR": "LB",
+   "B": "DG"
+  },
+  "bbox": [
+   28,
+   39.7
+  ]
+ },
+ {
+  "level": 58,
+  "lanes": 10,
+  "colors": 10,
+  "blocks": 40,
+  "slot": 8,
+  "shape": [
+   "a?bc?d",
+   "e?fb?e",
+   "g?ae?h",
+   "a?f?gd",
+   "d?g?ei",
+   "h?j?ch",
+   "c?j?i?c",
+   "f?a?i?b",
+   "j?j?d?i",
+   "h?g?b?f"
+  ],
+  "shuffled": true,
+  "changed": 0.88,
+  "donorSpline": 386,
+  "recolor": {
+   "G": "B",
+   "BR": "O",
+   "R": "LPNK",
+   "P": "PNK",
+   "O": "Y",
+   "B": "P",
+   "GR": "LB",
+   "W": "R",
+   "Y": "BL",
+   "PNK": "DPNK"
+  },
+  "bbox": [
+   28.8,
+   39.3
+  ]
+ },
+ {
+  "level": 59,
+  "lanes": 11,
+  "colors": 11,
+  "blocks": 44,
+  "slot": 6,
+  "shape": [
+   "a?a?b?c",
+   "d?c?e?a",
+   "f?f?g?d",
+   "c?h?i?b",
+   "j?i?a?k",
+   "k?g?d?g",
+   "e?g?j?j",
+   "hedb",
+   "kffh",
+   "biik",
+   "ehcj"
+  ],
+  "shuffled": true,
+  "changed": 0.89,
+  "donorSpline": 281,
+  "recolor": {
+   "O": "O",
+   "Y": "BR",
+   "BR": "W",
+   "LB": "LB",
+   "DG": "LPNK",
+   "GR": "PNK",
+   "B": "G",
+   "R": "DPNK",
+   "G": "P",
+   "P": "R",
+   "PNK": "BL"
+  },
+  "bbox": [
+   28.8,
+   39.3
+  ]
+ },
+ {
+  "level": 60,
+  "lanes": 11,
+  "colors": 10,
+  "blocks": 40,
+  "slot": 5,
+  "shape": [
+   "ab",
+   "cdef",
+   "gdgh",
+   "giaf",
+   "jb",
+   "fbce",
+   "gedj",
+   "ihfi",
+   "baac",
+   "dhih",
+   "cjej"
+  ],
+  "shuffled": true,
+  "changed": 0.85,
+  "donorSpline": 272,
+  "recolor": {
+   "Y": "BL",
+   "PNK": "B",
+   "BR": "LPNK",
+   "O": "DG",
+   "W": "Y",
+   "P": "W",
+   "G": "G",
+   "R": "BR",
+   "B": "PNK",
+   "GR": "LB"
+  },
+  "bbox": [
+   27.5,
+   37.4
+  ]
+ },
+ {
+  "level": 61,
+  "lanes": 8,
+  "colors": 8,
+  "blocks": 32,
+  "slot": 6,
+  "shape": [
+   "a?b?c?d",
+   "c?e?e?f",
+   "e?g?f?a",
+   "d?b?c?h",
+   "h?d?h?b",
+   "fhga",
+   "dcgb",
+   "aefg"
+  ],
+  "shuffled": true,
+  "changed": 0.97,
+  "donorSpline": 727,
+  "recolor": {
+   "GR": "LB",
+   "R": "B",
+   "O": "R",
+   "P": "LPNK",
+   "B": "O",
+   "G": "DPNK",
+   "Y": "G",
+   "PNK": "BL"
+  },
+  "bbox": [
+   27.8,
+   38.3
+  ]
+ },
+ {
+  "level": 62,
+  "lanes": 10,
+  "colors": 9,
+  "blocks": 36,
+  "slot": 6,
+  "shape": [
+   "abcd",
+   "efgh",
+   "ecif",
+   "dccf",
+   "hibb",
+   "bgea",
+   "figg",
+   "hiah",
+   "a",
+   "dde"
+  ],
+  "shuffled": true,
+  "changed": 0.89,
+  "donorSpline": 433,
+  "recolor": {
+   "B": "PNK",
+   "GR": "Y",
+   "PNK": "BL",
+   "P": "DPNK",
+   "O": "O",
+   "G": "LPNK",
+   "Y": "DG",
+   "R": "W",
+   "W": "LB"
+  },
+  "bbox": [
+   27.8,
+   36.3
+  ]
+ },
+ {
+  "level": 63,
+  "lanes": 10,
+  "colors": 9,
+  "blocks": 36,
+  "slot": 6,
+  "shape": [
+   "abcd",
+   "beaf",
+   "gaec",
+   "ebga",
+   "bhgf",
+   "cdfh",
+   "he",
+   "if",
+   "ddii",
+   "hicg"
+  ],
+  "shuffled": true,
+  "changed": 0.94,
+  "donorSpline": 459,
+  "recolor": {
+   "O": "Y",
+   "B": "BL",
+   "R": "B",
+   "BR": "W",
+   "P": "O",
+   "PNK": "PNK",
+   "GR": "LPNK",
+   "G": "DPNK",
+   "Y": "DG"
+  },
+  "bbox": [
+   27.7,
+   35.4
+  ]
+ },
+ {
+  "level": 64,
+  "lanes": 10,
+  "colors": 9,
+  "blocks": 36,
+  "slot": 4,
+  "shape": [
+   "a?b?cd",
+   "e?d?ba",
+   "fe",
+   "gh?fd",
+   "i?i?hh",
+   "f?c?fd",
+   "h?b?gi",
+   "ec",
+   "g?g?ic",
+   "a?e?ba"
+  ],
+  "shuffled": true,
+  "changed": 0.94,
+  "donorSpline": 496,
+  "recolor": {
+   "PNK": "Y",
+   "G": "BL",
+   "Y": "W",
+   "W": "B",
+   "B": "P",
+   "R": "R",
+   "P": "LPNK",
+   "GR": "G",
+   "O": "O"
+  },
+  "bbox": [
+   27.8,
+   38.3
+  ]
+ },
+ {
+  "level": 65,
+  "lanes": 9,
+  "colors": 8,
+  "blocks": 32,
+  "slot": 4,
+  "shape": [
+   "ab",
+   "acdd",
+   "ecca",
+   "efbb",
+   "gbhh",
+   "gf",
+   "ggee",
+   "ddcf",
+   "ahhf"
+  ],
+  "shuffled": true,
+  "changed": 0.88,
+  "donorSpline": 272,
+  "recolor": {
+   "O": "DG",
+   "P": "DPNK",
+   "B": "O",
+   "PNK": "B",
+   "Y": "LPNK",
+   "GR": "BR",
+   "G": "G",
+   "R": "PNK"
+  },
+  "bbox": [
+   27.5,
+   37.4
+  ]
+ },
+ {
+  "level": 66,
+  "lanes": 8,
+  "colors": 8,
+  "blocks": 32,
+  "slot": 4,
+  "shape": [
+   "a?abc",
+   "d?eaf",
+   "f?ggc",
+   "c?dch",
+   "d?bfd",
+   "h?eeb",
+   "e?bfh",
+   "g?agh"
+  ],
+  "shuffled": true,
+  "changed": 0.78,
+  "winnable": true,
+  "donorSpline": 249,
+  "recolor": {
+   "G": "PNK",
+   "PNK": "DPNK",
+   "R": "BR",
+   "GR": "B",
+   "P": "P",
+   "B": "R",
+   "Y": "LB",
+   "O": "LPNK"
+  },
+  "bbox": [
+   27.5,
+   33.4
+  ]
+ },
+ {
+  "level": 67,
+  "lanes": 8,
+  "colors": 8,
+  "blocks": 32,
+  "slot": 6,
+  "shape": [
+   "a?b?b?c",
+   "c?d?d?e",
+   "f?c?f?b",
+   "g?h?e?g",
+   "e?c?a?g",
+   "d?f?f?a",
+   "dhhh",
+   "abeg"
+  ],
+  "shuffled": true,
+  "changed": 0.97,
+  "donorSpline": 365,
+  "recolor": {
+   "P": "DG",
+   "PNK": "Y",
+   "B": "W",
+   "Y": "O",
+   "R": "PNK",
+   "GR": "G",
+   "O": "BR",
+   "G": "LB"
+  },
+  "bbox": [
+   28.9,
+   39.7
+  ]
+ },
+ {
+  "level": 68,
+  "lanes": 11,
+  "colors": 10,
+  "blocks": 40,
+  "slot": 7,
+  "shape": [
+   "a?b?bc",
+   "d?e?ca",
+   "afd",
+   "bgh",
+   "b?a?i?i",
+   "i?f?jd",
+   "h?e?g",
+   "j?g?jf",
+   "h?e?i?g",
+   "e?c?c",
+   "h?f?jd"
+  ],
+  "shuffled": true,
+  "changed": 0.95,
+  "donorSpline": 209,
+  "recolor": {
+   "P": "Y",
+   "R": "LB",
+   "O": "G",
+   "W": "BL",
+   "G": "PNK",
+   "BR": "R",
+   "PNK": "B",
+   "GR": "LPNK",
+   "B": "P",
+   "Y": "W"
+  },
+  "bbox": [
+   27.5,
+   37.4
+  ]
+ },
+ {
+  "level": 69,
+  "lanes": 9,
+  "colors": 9,
+  "blocks": 36,
+  "slot": 5,
+  "shape": [
+   "abcd",
+   "aeca",
+   "fghg",
+   "h?f?i?f",
+   "b?a?c?d",
+   "i?i?e?h",
+   "g?d?c?f",
+   "i?b?b?h",
+   "d?e?e?g"
+  ],
+  "shuffled": true,
+  "changed": 0.89,
+  "donorSpline": 496,
+  "recolor": {
+   "O": "LB",
+   "R": "DPNK",
+   "GR": "DG",
+   "BR": "O",
+   "G": "PNK",
+   "B": "W",
+   "Y": "B",
+   "PNK": "Y",
+   "P": "BR"
+  },
+  "bbox": [
+   27.8,
+   38.3
+  ]
+ },
+ {
+  "level": 70,
+  "lanes": 9,
+  "colors": 8,
+  "blocks": 32,
+  "slot": 5,
+  "shape": [
+   "a?b?c?d",
+   "a?e?f?g",
+   "ee",
+   "c?h?h?f",
+   "d?g?c?g",
+   "h?d?b",
+   "d?b?a?f",
+   "g?h?f?a",
+   "e?b?c"
+  ],
+  "shuffled": true,
+  "changed": 0.84,
+  "donorSpline": 518,
+  "recolor": {
+   "PNK": "W",
+   "B": "DG",
+   "P": "PNK",
+   "GR": "BR",
+   "G": "LPNK",
+   "O": "DPNK",
+   "Y": "BL",
+   "R": "P"
+  },
+  "bbox": [
+   29.1,
+   37.7
+  ]
+ },
+ {
+  "level": 71,
+  "lanes": 9,
+  "colors": 9,
+  "blocks": 36,
+  "slot": 7,
+  "shape": [
+   "a?b?c?d",
+   "b?e?fb",
+   "d?ggf",
+   "h?gai",
+   "d?a?ed",
+   "f?i?h?c",
+   "h?e?e?g",
+   "b?i?ih",
+   "c?a?f?c"
+  ],
+  "shuffled": true,
+  "changed": 0.94,
+  "donorSpline": 249,
+  "recolor": {
+   "PNK": "LPNK",
+   "B": "Y",
+   "Y": "P",
+   "G": "DPNK",
+   "O": "W",
+   "GR": "BL",
+   "R": "B",
+   "W": "LB",
+   "P": "DG"
+  },
+  "bbox": [
+   27.5,
+   33.4
+  ]
+ },
+ {
+  "level": 72,
+  "lanes": 10,
+  "colors": 9,
+  "blocks": 36,
+  "slot": 5,
+  "shape": [
+   "abcd",
+   "ef",
+   "gfcd",
+   "hh",
+   "gefi",
+   "c?h?g?b",
+   "c?g?a?a",
+   "h?e?e?a",
+   "d?i?i?i",
+   "b?b?f?d"
+  ],
+  "shuffled": true,
+  "changed": 0.89,
+  "donorSpline": 356,
+  "recolor": {
+   "O": "PNK",
+   "B": "R",
+   "PNK": "W",
+   "W": "DPNK",
+   "R": "DG",
+   "Y": "LB",
+   "P": "B",
+   "G": "G",
+   "GR": "O"
+  },
+  "bbox": [
+   27.5,
+   33.4
+  ]
+ },
+ {
+  "level": 73,
+  "lanes": 9,
+  "colors": 9,
+  "blocks": 36,
+  "slot": 7,
+  "shape": [
+   "a?b?c?a",
+   "b?d?e?f",
+   "b?b?df",
+   "c?g?he",
+   "i?h?g?e",
+   "e?f?c?d",
+   "icdg",
+   "iafi",
+   "ghha"
+  ],
+  "shuffled": true,
+  "changed": 0.83,
+  "donorSpline": 183,
+  "recolor": {
+   "PNK": "DPNK",
+   "Y": "R",
+   "O": "LPNK",
+   "GR": "BL",
+   "G": "W",
+   "BR": "BR",
+   "P": "B",
+   "R": "PNK",
+   "B": "Y"
+  },
+  "bbox": [
+   27.8,
+   37.7
+  ]
+ },
+ {
+  "level": 74,
+  "lanes": 10,
+  "colors": 10,
+  "blocks": 40,
+  "slot": 5,
+  "shape": [
+   "a?b?c?b",
+   "c?d?e?a",
+   "a?f?a?c",
+   "f?g?g?h",
+   "i?b?j?e",
+   "f?j?d?d",
+   "i?d?i?e",
+   "g?c?h?g",
+   "j?j?i?e",
+   "b?h?f?h"
+  ],
+  "shuffled": true,
+  "changed": 0.82,
+  "winnable": true,
+  "donorSpline": 465,
+  "recolor": {
+   "GR": "R",
+   "R": "LPNK",
+   "W": "LB",
+   "P": "PNK",
+   "BR": "DG",
+   "Y": "BR",
+   "O": "DPNK",
+   "B": "O",
+   "G": "G",
+   "PNK": "Y"
+  },
+  "bbox": [
+   28.8,
+   33.1
+  ]
+ },
+ {
+  "level": 75,
+  "lanes": 10,
+  "colors": 10,
+  "blocks": 40,
+  "slot": 8,
+  "shape": [
+   "abcd",
+   "ef?g?d",
+   "cf?c?g",
+   "ha?i?h",
+   "jj?f?j",
+   "bdbf",
+   "cg?h?e",
+   "ie?a?b",
+   "ed?i?h",
+   "ij?a?g"
+  ],
+  "shuffled": true,
+  "changed": 0.85,
+  "donorSpline": 465,
+  "recolor": {
+   "GR": "DG",
+   "B": "BL",
+   "R": "G",
+   "G": "DPNK",
+   "O": "Y",
+   "Y": "PNK",
+   "BR": "BR",
+   "PNK": "LPNK",
+   "P": "B",
+   "W": "W"
+  },
+  "bbox": [
+   28.8,
+   33.1
+  ]
+ },
+ {
+  "level": 76,
+  "lanes": 9,
+  "colors": 9,
+  "blocks": 36,
+  "slot": 7,
+  "shape": [
+   "ab?c?d",
+   "ee?c?f",
+   "gf?h?h",
+   "ac?h?b",
+   "ci?a?e",
+   "gi?d?g",
+   "iide",
+   "afbb",
+   "dgfh"
+  ],
+  "shuffled": true,
+  "changed": 0.97,
+  "donorSpline": 653,
+  "recolor": {
+   "PNK": "DPNK",
+   "B": "R",
+   "P": "BL",
+   "Y": "W",
+   "G": "LB",
+   "R": "O",
+   "GR": "B",
+   "BR": "DG",
+   "O": "P"
+  },
+  "bbox": [
+   28,
+   39.7
+  ]
+ },
+ {
+  "level": 77,
+  "lanes": 12,
+  "colors": 10,
+  "blocks": 40,
+  "slot": 4,
+  "shape": [
+   "ab",
+   "a?b?c?d",
+   "eb",
+   "ef",
+   "gd",
+   "h?h?h?f",
+   "i?i?e?f",
+   "g?c?h?d",
+   "a?e?jc",
+   "d?f?ca",
+   "i?g?j?i",
+   "j?j?g?b"
+  ],
+  "shuffled": true,
+  "changed": 0.97,
+  "donorSpline": 731,
+  "recolor": {
+   "P": "LB",
+   "PNK": "R",
+   "W": "Y",
+   "O": "DPNK",
+   "B": "O",
+   "BR": "B",
+   "R": "DG",
+   "Y": "BL",
+   "GR": "PNK",
+   "G": "W"
+  },
+  "bbox": [
+   28.8,
+   33.1
+  ]
+ },
+ {
+  "level": 78,
+  "lanes": 12,
+  "colors": 11,
+  "blocks": 44,
+  "slot": 7,
+  "shape": [
+   "abc",
+   "d?e?f?g",
+   "g?a?b?a",
+   "f?f?h?b",
+   "i?d?j?c",
+   "jcf",
+   "kia",
+   "j?i?e?h",
+   "d?c?j?k",
+   "gbd",
+   "k?h?k?g",
+   "e?i?h?e"
+  ],
+  "shuffled": true,
+  "changed": 0.93,
+  "donorSpline": 524,
+  "recolor": {
+   "GR": "R",
+   "BR": "B",
+   "R": "DG",
+   "PNK": "G",
+   "Y": "W",
+   "P": "O",
+   "O": "BL",
+   "G": "PNK",
+   "B": "LPNK",
+   "BL": "Y",
+   "W": "P"
+  },
+  "bbox": [
+   27.5,
+   36.4
+  ]
+ },
+ {
+  "level": 79,
+  "lanes": 12,
+  "colors": 11,
+  "blocks": 44,
+  "slot": 6,
+  "shape": [
+   "abc",
+   "def",
+   "ebd",
+   "agh",
+   "b?ig?a",
+   "j?dk?h",
+   "e?jhi",
+   "f?jhe",
+   "i?aff",
+   "gikg",
+   "cbcj",
+   "kckd"
+  ],
+  "shuffled": true,
+  "changed": 0.89,
+  "donorSpline": 727,
+  "recolor": {
+   "G": "W",
+   "R": "BR",
+   "Y": "Y",
+   "W": "G",
+   "LB": "LB",
+   "BR": "B",
+   "B": "P",
+   "GR": "O",
+   "PNK": "DPNK",
+   "P": "R",
+   "O": "PNK"
+  },
+  "bbox": [
+   27.8,
+   38.3
+  ]
+ },
+ {
+  "level": 80,
+  "lanes": 8,
+  "colors": 7,
+  "blocks": 28,
+  "slot": 4,
+  "shape": [
+   "abc",
+   "dbd",
+   "efg",
+   "cdb",
+   "dgca",
+   "eeag",
+   "afgb",
+   "fcfe"
+  ],
+  "shuffled": true,
+  "changed": 1,
+  "donorSpline": 482,
+  "recolor": {
+   "Y": "PNK",
+   "R": "DG",
+   "PNK": "Y",
+   "P": "G",
+   "B": "R",
+   "O": "DPNK",
+   "G": "P"
+  },
+  "bbox": [
+   27.3,
+   33.4
+  ]
+ },
+ {
+  "level": 81,
+  "lanes": 8,
+  "colors": 8,
+  "blocks": 32,
+  "slot": 7,
+  "shape": [
+   "abcd",
+   "beed",
+   "feag",
+   "cghf",
+   "hdbh",
+   "fhad",
+   "gcbg",
+   "face"
+  ],
+  "shuffled": true,
+  "changed": 0.81,
+  "donorSpline": 758,
+  "recolor": {
+   "Y": "O",
+   "G": "DPNK",
+   "O": "LB",
+   "PNK": "BL",
+   "R": "R",
+   "P": "PNK",
+   "GR": "LPNK",
+   "B": "BR"
+  },
+  "bbox": [
+   27.4,
+   37.7
+  ]
+ },
+ {
+  "level": 82,
+  "lanes": 9,
+  "colors": 9,
+  "blocks": 36,
+  "slot": 8,
+  "shape": [
+   "a?b?a?c",
+   "d?d?e?b",
+   "f?f?g?e",
+   "h?e?i?h",
+   "d?h?g?c",
+   "f?d?i?a",
+   "e?i?b?b",
+   "i?a?g?g",
+   "f?c?h?c"
+  ],
+  "shuffled": true,
+  "changed": 0.86,
+  "donorSpline": 191,
+  "recolor": {
+   "O": "DPNK",
+   "B": "O",
+   "GR": "W",
+   "P": "BL",
+   "R": "B",
+   "Y": "BR",
+   "PNK": "P",
+   "BR": "DG",
+   "G": "G"
+  },
+  "bbox": [
+   28.8,
+   39.3
+  ]
+ },
+ {
+  "level": 83,
+  "lanes": 8,
+  "colors": 8,
+  "blocks": 32,
+  "slot": 8,
+  "shape": [
+   "a?b?c?d",
+   "b?e?f?g",
+   "c?f?f?f",
+   "h?a?a?c",
+   "b?b?d?a",
+   "e?h?d?d",
+   "ecgg",
+   "ehgh"
+  ],
+  "shuffled": true,
+  "changed": 0.88,
+  "donorSpline": 204,
+  "recolor": {
+   "B": "G",
+   "PNK": "BL",
+   "P": "Y",
+   "O": "R",
+   "R": "W",
+   "GR": "PNK",
+   "Y": "BR",
+   "G": "P"
+  },
+  "bbox": [
+   27.5,
+   33.4
+  ]
+ },
+ {
+  "level": 84,
+  "lanes": 10,
+  "colors": 10,
+  "blocks": 40,
+  "slot": 6,
+  "shape": [
+   "a?ba?c",
+   "d?ee?f",
+   "a?eg?h",
+   "g?fb?g",
+   "i?ah?c",
+   "b?id?j",
+   "d?bj?j",
+   "i?cg?j",
+   "c?hf?d",
+   "i?ef?h"
+  ],
+  "shuffled": true,
+  "changed": 0.9,
+  "donorSpline": 569,
+  "recolor": {
+   "Y": "BL",
+   "P": "O",
+   "BR": "PNK",
+   "B": "DG",
+   "W": "B",
+   "O": "Y",
+   "PNK": "LB",
+   "G": "DPNK",
+   "GR": "P",
+   "R": "BR"
+  },
+  "bbox": [
+   28.3,
+   37.7
+  ]
+ },
+ {
+  "level": 85,
+  "lanes": 11,
+  "colors": 11,
+  "blocks": 44,
+  "slot": 5,
+  "shape": [
+   "ab?cd",
+   "bd?ce",
+   "fd?gg",
+   "gf?hf",
+   "fh?hi",
+   "ec?ci",
+   "b?ji?b",
+   "e?jh?g",
+   "j?ak?d",
+   "k?ak?i",
+   "jeka"
+  ],
+  "shuffled": true,
+  "changed": 0.91,
+  "winnable": true,
+  "donorSpline": 337,
+  "recolor": {
+   "G": "W",
+   "R": "DG",
+   "P": "Y",
+   "BL": "R",
+   "PNK": "BR",
+   "GR": "LB",
+   "W": "P",
+   "B": "G",
+   "BR": "LPNK",
+   "Y": "BL",
+   "O": "B"
+  },
+  "bbox": [
+   26,
+   41.7
+  ]
+ },
+ {
+  "level": 86,
+  "lanes": 9,
+  "colors": 9,
+  "blocks": 36,
+  "slot": 7,
+  "shape": [
+   "abcd",
+   "e?f?a?e",
+   "ggbc",
+   "h?b?h?i",
+   "cgfi",
+   "h?b?i?e",
+   "ihfg",
+   "c?e?d?d",
+   "aadf"
+  ],
+  "shuffled": true,
+  "changed": 0.89,
+  "donorSpline": 365,
+  "recolor": {
+   "BR": "W",
+   "P": "P",
+   "PNK": "R",
+   "R": "O",
+   "Y": "G",
+   "GR": "DG",
+   "B": "LB",
+   "O": "LPNK",
+   "G": "BR"
+  },
+  "bbox": [
+   28.9,
+   39.7
+  ]
+ },
+ {
+  "level": 87,
+  "lanes": 10,
+  "colors": 9,
+  "blocks": 36,
+  "slot": 5,
+  "shape": [
+   "a?b?c?d",
+   "e?f?g?h",
+   "c?d?c?a",
+   "bgdf",
+   "beaf",
+   "hiif",
+   "g?h?h?i",
+   "cg",
+   "i?b?d?a",
+   "ee"
+  ],
+  "shuffled": true,
+  "changed": 0.86,
+  "donorSpline": 215,
+  "recolor": {
+   "BR": "Y",
+   "B": "B",
+   "R": "R",
+   "GR": "BL",
+   "Y": "DPNK",
+   "P": "P",
+   "G": "W",
+   "PNK": "LPNK",
+   "O": "LB"
+  },
+  "bbox": [
+   27.5,
+   33.4
+  ]
+ },
+ {
+  "level": 88,
+  "lanes": 9,
+  "colors": 9,
+  "blocks": 36,
+  "slot": 8,
+  "shape": [
+   "ab?c?d",
+   "e?c?a?d",
+   "f?e?g?f",
+   "h?i?e?g",
+   "h?e?h?h",
+   "b?c?c?i",
+   "bbgi",
+   "fgfa",
+   "daid"
+  ],
+  "shuffled": true,
+  "changed": 0.94,
+  "donorSpline": 569,
+  "recolor": {
+   "B": "DG",
+   "R": "G",
+   "P": "BL",
+   "Y": "O",
+   "O": "P",
+   "GR": "Y",
+   "PNK": "PNK",
+   "BR": "LPNK",
+   "G": "R"
+  },
+  "bbox": [
+   28.3,
+   37.7
+  ]
+ },
+ {
+  "level": 89,
+  "lanes": 12,
+  "colors": 12,
+  "blocks": 48,
+  "slot": 7,
+  "shape": [
+   "ab?c?d",
+   "de?f?e",
+   "ecea",
+   "bghi",
+   "h?dji",
+   "d?kfk",
+   "b?fja",
+   "c?cki",
+   "k?a?l?g",
+   "h?h?f?i",
+   "j?l?l?j",
+   "g?b?g?l"
+  ],
+  "shuffled": true,
+  "changed": 0.94,
+  "donorSpline": 270,
+  "recolor": {
+   "DG": "G",
+   "R": "DG",
+   "P": "R",
+   "Y": "O",
+   "BR": "LPNK",
+   "O": "DPNK",
+   "PNK": "PNK",
+   "G": "BR",
+   "B": "Y",
+   "LB": "B",
+   "W": "BL",
+   "GR": "W"
+  },
+  "bbox": [
+   27.1,
+   33.3
+  ]
+ },
+ {
+  "level": 90,
+  "lanes": 10,
+  "colors": 9,
+  "blocks": 36,
+  "slot": 5,
+  "shape": [
+   "a?a?b?c",
+   "a?d?e?f",
+   "gh",
+   "c?i?c?b",
+   "f?e?b?i",
+   "h?g?i?c",
+   "d?b?f?d",
+   "gd",
+   "f?e?h?i",
+   "e?h?a?g"
+  ],
+  "shuffled": true,
+  "changed": 0.86,
+  "donorSpline": 796,
+  "recolor": {
+   "P": "W",
+   "B": "LB",
+   "O": "BL",
+   "G": "B",
+   "Y": "P",
+   "W": "BR",
+   "R": "DPNK",
+   "PNK": "DG",
+   "GR": "G"
+  },
+  "bbox": [
+   28.8,
+   35
+  ]
+ },
+ {
+  "level": 91,
+  "lanes": 8,
+  "colors": 8,
+  "blocks": 32,
+  "slot": 9,
+  "shape": [
+   "abcb",
+   "adde",
+   "bfcf",
+   "aghb",
+   "ghhe",
+   "c?f?e?d",
+   "a?g?g?c",
+   "d?f?h?e"
+  ],
+  "shuffled": true,
+  "changed": 0.94,
+  "donorSpline": 797,
+  "recolor": {
+   "GR": "G",
+   "G": "LB",
+   "O": "R",
+   "P": "BL",
+   "PNK": "O",
+   "Y": "DPNK",
+   "R": "PNK",
+   "B": "P"
+  },
+  "bbox": [
+   27.5,
+   33.4
+  ]
+ },
+ {
+  "level": 92,
+  "lanes": 11,
+  "colors": 10,
+  "blocks": 40,
+  "slot": 5,
+  "shape": [
+   "a?b?c?d",
+   "e?f?g?h",
+   "b?g?i?d",
+   "jfae",
+   "cjge",
+   "bdfh",
+   "e?j?a?f",
+   "c?j?i?d",
+   "i?a?b?c",
+   "hh",
+   "gi"
+  ],
+  "shuffled": true,
+  "changed": 0.9,
+  "donorSpline": 731,
+  "recolor": {
+   "W": "DPNK",
+   "O": "B",
+   "BR": "DG",
+   "G": "Y",
+   "P": "O",
+   "R": "BL",
+   "B": "W",
+   "Y": "R",
+   "GR": "P",
+   "PNK": "BR"
+  },
+  "bbox": [
+   28.8,
+   33.1
+  ]
+ },
+ {
+  "level": 93,
+  "lanes": 10,
+  "colors": 9,
+  "blocks": 36,
+  "slot": 6,
+  "shape": [
+   "a?b?c?d",
+   "ecfd",
+   "c?g?h?i",
+   "f?d?a?g",
+   "f?g?i?e",
+   "a?c?h?e",
+   "fha",
+   "ieb",
+   "bbd",
+   "hig"
+  ],
+  "shuffled": true,
+  "changed": 0.83,
+  "donorSpline": 617,
+  "recolor": {
+   "B": "W",
+   "R": "BR",
+   "P": "LPNK",
+   "BR": "Y",
+   "PNK": "O",
+   "G": "R",
+   "GR": "LB",
+   "O": "G",
+   "Y": "PNK"
+  },
+  "bbox": [
+   28.8,
+   33.1
+  ]
+ },
+ {
+  "level": 94,
+  "lanes": 12,
+  "colors": 12,
+  "blocks": 48,
+  "slot": 6,
+  "shape": [
+   "abcd",
+   "efgc",
+   "ddhi",
+   "fgdj",
+   "ekii",
+   "cgbf",
+   "h?j?l?l",
+   "c?k?k?j",
+   "a?a?h?g",
+   "b?e?li",
+   "l?j?he",
+   "a?k?bf"
+  ],
+  "shuffled": true,
+  "changed": 0.88,
+  "donorSpline": 539,
+  "recolor": {
+   "BR": "DG",
+   "BL": "P",
+   "Y": "B",
+   "W": "Y",
+   "LB": "LPNK",
+   "PNK": "G",
+   "B": "DPNK",
+   "G": "LB",
+   "O": "BR",
+   "GR": "O",
+   "P": "PNK",
+   "R": "W"
+  },
+  "bbox": [
+   29.1,
+   39.7
+  ]
+ },
+ {
+  "level": 95,
+  "lanes": 10,
+  "colors": 9,
+  "blocks": 36,
+  "slot": 4,
+  "shape": [
+   "ab",
+   "cdef",
+   "bced",
+   "ageh",
+   "bfdg",
+   "hd",
+   "i?e?a?c",
+   "g?i?g?a",
+   "h?h?f?c",
+   "b?i?i?f"
+  ],
+  "shuffled": true,
+  "changed": 0.92,
+  "donorSpline": 154,
+  "recolor": {
+   "R": "BR",
+   "B": "O",
+   "BR": "LPNK",
+   "Y": "G",
+   "P": "P",
+   "O": "PNK",
+   "GR": "R",
+   "PNK": "DPNK",
+   "G": "BL"
+  },
+  "bbox": [
+   29.1,
+   39.7
+  ]
+ },
+ {
+  "level": 96,
+  "lanes": 10,
+  "colors": 9,
+  "blocks": 36,
+  "slot": 5,
+  "shape": [
+   "abca",
+   "db?e?c",
+   "fg?c?g",
+   "ed?b?e",
+   "gg?h?i",
+   "hhca",
+   "eif",
+   "fih",
+   "iab",
+   "fdd"
+  ],
+  "shuffled": true,
+  "changed": 0.94,
+  "donorSpline": 197,
+  "recolor": {
+   "G": "Y",
+   "R": "O",
+   "GR": "W",
+   "Y": "BR",
+   "PNK": "BL",
+   "B": "G",
+   "O": "DPNK",
+   "P": "P",
+   "BR": "R"
+  },
+  "bbox": [
+   27.8,
+   38.3
+  ]
+ },
+ {
+  "level": 97,
+  "lanes": 9,
+  "colors": 9,
+  "blocks": 36,
+  "slot": 5,
+  "shape": [
+   "a?a?b?c",
+   "d?ef?g",
+   "h?c?i?f",
+   "e?b?g?c",
+   "i?bb?g",
+   "d?e?i?d",
+   "cdfh",
+   "ifha",
+   "ahge"
+  ],
+  "shuffled": true,
+  "changed": 0.89,
+  "donorSpline": 745,
+  "recolor": {
+   "Y": "LB",
+   "R": "Y",
+   "B": "P",
+   "BR": "G",
+   "O": "DG",
+   "PNK": "PNK",
+   "GR": "LPNK",
+   "G": "BL",
+   "P": "O"
+  },
+  "bbox": [
+   29.1,
+   39.7
+  ]
+ },
+ {
+  "level": 98,
+  "lanes": 10,
+  "colors": 10,
+  "blocks": 40,
+  "slot": 9,
+  "shape": [
+   "a?b?c?d",
+   "decf",
+   "afgh",
+   "i?h?e?i",
+   "jjjd",
+   "a?e?h?j",
+   "b?cc?e",
+   "bfgb",
+   "g?i?f?i",
+   "ghad"
+  ],
+  "shuffled": true,
+  "changed": 1,
+  "donorSpline": 674,
+  "recolor": {
+   "R": "LB",
+   "PNK": "PNK",
+   "B": "W",
+   "O": "P",
+   "Y": "B",
+   "P": "BR",
+   "GR": "DPNK",
+   "BR": "G",
+   "W": "LPNK",
+   "G": "BL"
+  },
+  "bbox": [
+   28.3,
+   37.7
+  ]
+ },
+ {
+  "level": 99,
+  "lanes": 11,
+  "colors": 11,
+  "blocks": 44,
+  "slot": 6,
+  "shape": [
+   "abcd",
+   "eaac",
+   "fegb",
+   "hhhi",
+   "jbgj",
+   "ekfi",
+   "dhgi",
+   "fkdk",
+   "icgk",
+   "bacj",
+   "fedj"
+  ],
+  "shuffled": true,
+  "changed": 0.98,
+  "donorSpline": 207,
+  "recolor": {
+   "P": "P",
+   "PNK": "Y",
+   "G": "DPNK",
+   "W": "BL",
+   "Y": "LB",
+   "R": "BR",
+   "O": "R",
+   "BR": "LPNK",
+   "B": "B",
+   "GR": "DG",
+   "LB": "G"
+  },
+  "bbox": [
+   27.1,
+   33.3
+  ]
+ },
+ {
+  "level": 100,
+  "lanes": 10,
+  "colors": 9,
+  "blocks": 36,
+  "slot": 6,
+  "shape": [
+   "abcd",
+   "effb",
+   "ddd",
+   "geg",
+   "haie",
+   "cggc",
+   "ci",
+   "afie",
+   "haih",
+   "bhfb"
+  ],
+  "shuffled": true,
+  "changed": 0.89,
+  "donorSpline": 569,
+  "recolor": {
+   "B": "LPNK",
+   "P": "W",
+   "GR": "BR",
+   "Y": "DG",
+   "W": "LB",
+   "R": "G",
+   "G": "R",
+   "O": "O",
+   "PNK": "P"
+  },
+  "bbox": [
+   28.3,
+   37.7
   ]
  }
 ]

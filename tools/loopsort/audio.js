@@ -5,6 +5,7 @@ let enabled = localStorage.getItem(STORE_KEY) !== "0";
 let audio = null;
 let bus = null;
 let lastCatch = -Infinity;
+let lastBelt = -Infinity;
 
 function context() {
   if (!audio) {
@@ -55,12 +56,16 @@ export const sound = {
     switch (name) {
       case "ui": melody([740, 988], 0.045, 0.075, 0.035); break;
       case "pour":
-        note(250, 0, 0.14, "triangle", 0.055, 145);
-        melody([523, 659, 784, 988].slice(0, Math.max(1, Math.min(4, amount))), 0.075, 0.12, 0.045);
+        // Wrapper opens, then four bright candy pieces spill out in sequence.
+        note(310, 0, 0.11, "triangle", 0.045, 190);
+        melody([587, 698, 880, 1047].slice(0, Math.max(1, Math.min(4, amount))), 0.068, 0.10, 0.04);
         break;
       case "belt": {
+        const now = performance.now();
+        if (now - lastBelt < 90) return;
+        lastBelt = now;
         const n = Math.max(1, Math.min(2, amount));
-        for (let i = 0; i < n; i++) note(i ? 820 : 690, i * 0.045, 0.055, "triangle", 0.026, i ? 690 : 560);
+        for (let i = 0; i < n; i++) note(i ? 920 : 760, i * 0.038, 0.048, "sine", 0.022, i ? 780 : 630);
         break;
       }
       case "catch": {
@@ -79,7 +84,11 @@ export const sound = {
         melody([659, 784], 0.07, 0.12, 0.04);
         break;
       case "revive": melody([392, 523, 659, 784], 0.09, 0.18, 0.045); break;
-      case "deliver": melody([659, 784, 988], 0.075, 0.19, 0.05); break;
+      case "deliver":
+        // Soft carton close followed by a small confectionery sparkle.
+        note(190, 0, 0.09, "triangle", 0.04, 115);
+        melody([659, 831, 1047, 1319], 0.055, 0.15, 0.045);
+        break;
       case "win": melody([523, 659, 784, 1047, 1319], 0.13, 0.28, 0.055); break;
       case "lose": melody([494, 392, 330], 0.16, 0.28, 0.04); break;
       case "blocked": note(180, 0, 0.07, "triangle", 0.025, 125); break;
