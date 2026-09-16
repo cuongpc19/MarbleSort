@@ -1,0 +1,120 @@
+[
+ {
+  "level": 1,
+  "lanes": 2,
+  "colors": 1,
+  "blocks": 4,
+  "slot": 7,
+  "shape": [
+   "aaa",
+   "a"
+  ],
+  "shuffled": true,
+  "changed": 0,
+  "donorSpline": 759,
+  "recolor": {
+   "R": "LB"
+  },
+  "bbox": [
+   27.7,
+   20.4
+  ]
+ },
+ {
+  "level": 2,
+  "lanes": 3,
+  "colors": 2,
+  "blocks": 8,
+  "slot": 8,
+  "shape": [
+   "ab",
+   "abab",
+   "ab"
+  ],
+  "shuffled": true,
+  "changed": 0.5,
+  "donorSpline": 197,
+  "recolor": {
+   "R": "PNK",
+   "Y": "W"
+  },
+  "bbox": [
+   27.8,
+   38.3
+  ]
+ },
+ {
+  "level": 3,
+  "lanes": 3,
+  "colors": 3,
+  "blocks": 12,
+  "slot": 8,
+  "shape": [
+   "abba",
+   "cacc",
+   "abbc"
+  ],
+  "shuffled": true,
+  "changed": 0.83,
+  "donorSpline": 264,
+  "recolor": {
+   "R": "LB",
+   "Y": "O",
+   "B": "DG"
+  },
+  "bbox": [
+   27.7,
+   31
+  ]
+ },
+ {
+  "level": 4,
+  "lanes": 3,
+  "colors": 3,
+  "blocks": 12,
+  "slot": 8,
+  "shape": [
+   "abbc",
+   "abba",
+   "accc"
+  ],
+  "shuffled": true,
+  "changed": 0.67,
+  "donorSpline": 307,
+  "recolor": {
+   "Y": "P",
+   "B": "W",
+   "R": "Y"
+  },
+  "bbox": [
+   27.8,
+   38.3
+  ]
+ },
+ {
+  "level": 5,
+  "lanes": 4,
+  "colors": 4,
+  "blocks": 16,
+  "slot": 10,
+  "shape": [
+   "abaa",
+   "cddc",
+   "bbdc",
+   "dbac"
+  ],
+  "shuffled": true,
+  "changed": 0.75,
+  "donorSpline": 692,
+  "recolor": {
+   "R": "O",
+   "G": "P",
+   "B": "Y",
+   "Y": "G"
+  },
+  "bbox": [
+   27.5,
+   33.4
+  ]
+ }
+]
