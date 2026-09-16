@@ -200,6 +200,9 @@ function run(id, { trace = false } = {}) {
         // voi mot thuoc do. Nen da chung minh no VAN BAN: co y bo sot mot nua so vali du dieu
         // kien trong absorb() thi bang do vao 3/8 level truot o 62.5%. Khong phai cua bi cut.
         if (c.src === t) continue;
+        // Cung the loai voi dong tren: luat canStart() cam khay nay bat dau hop mau nay khi
+        // khay khac dang do dang hop cung mau, nen vien do khong phai mot co hoi bo lo.
+        if (g.canStart && !g.canStart(t, c.color)) continue;
         const dx = c.x - t.px, dy = c.y - t.py;
         if (dx * dx + dy * dy > MOUTH(g) * MOUTH(g)) continue;
         if (!g.accepts(t, c.color)) continue;
