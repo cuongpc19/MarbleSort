@@ -54,8 +54,8 @@ const BOOSTERS = [
   { id: "Shuffle", l: "Trộn", cost: 300, free: 3, name: "Trộn kẹo", target: true,
     hint: "Chạm khay để trộn thứ tự các hộp kẹo",
     can: (g) => g.trucks.some((t) => !t.gone && t.blocks.length > 1) },
-  { id: "ConveyorCapacity", l: "Kẹo +8", cost: 800, free: 3, name: "Thêm 8 chỗ kẹo",
-    hint: "Băng chuyền chứa thêm 8 viên kẹo",
+  { id: "ConveyorCapacity", l: "Ray +1", cost: 800, free: 3, name: "Thêm 1 chỗ hộp trên ray",
+    hint: "Băng chuyền chứa thêm 1 hộp kẹo",
     // ⚠ Khi ban co da chet thi mot cho khong chac du. Hoi dung cau ma ban co se hoi:
     // them mot cho co lam noi mot vali nao cham duoc tro lai khong? Neu khong thi de nut
     // mo, dung de nguoi choi tra tien roi nhin the RAY TAC van con do.
@@ -343,7 +343,7 @@ function onWin() {
     ${TAG[theme] ? '<p class="rwhy' + (theme === "SuperHard" ? " sh" : "") + '">' +
         "THƯỞNG MÀN " + TAG[theme] + "</p>" : '<div style="height:10px"></div>'}
     <div class="stat"><span>Số lượt chạm</span><b>${g.taps}</b></div>
-    <div class="stat"><span>Kẹo trên băng chuyền</span><b>${g.candyCount()}/${g.capCubes}</b></div>
+    <div class="stat"><span>Hộp trên băng chuyền</span><b>${g.counter()}/${g.slotCount}</b></div>
     ${newArea ? '<div class="banner">Mở khoá mẻ kẹo mới!</div>' : ""}
     <button class="btn" id="cNext">LEVEL ${Math.min(MAX_LEVEL, g.id + 1)}</button>
     <button class="btn ghost" id="cHome">Về nhà</button>`);
@@ -376,7 +376,7 @@ function onLose() {
     <h2>KẸO KẸT RỒI!</h2>
     <div class="sub">Level ${g.id} · Không còn khay nhận được kẹo</div>
     <div class="stat"><span>Số lượt chạm</span><b>${g.taps}</b></div>
-    <div class="stat"><span>Kẹo trên băng chuyền</span><b>${g.candyCount()}/${g.capCubes}</b></div>
+    <div class="stat"><span>Hộp trên băng chuyền</span><b>${g.counter()}/${g.slotCount}</b></div>
     <p class="waysLbl">Cách gỡ</p>
     <div class="ways">${ways}</div>
     <button class="btn gold" id="cRev" ${can ? "" : "disabled"}>
@@ -438,7 +438,7 @@ function showJam(g) {
   card(`
     <h2>KẸO KẸT RỒI!</h2>
     <div class="sub">Chưa đủ chỗ để thả mẻ kẹo tiếp theo</div>
-    <div class="stat"><span>Kẹo trên băng chuyền</span><b>${g.candyCount()}/${g.capCubes}</b></div>
+    <div class="stat"><span>Hộp trên băng chuyền</span><b>${g.counter()}/${g.slotCount}</b></div>
     <div class="jamRail"><div class="jamRun">${jamStrip(g)}</div><span class="jamStop"></span></div>
     <p class="waysLbl">Cách gỡ</p>
     <div class="ways">
@@ -483,7 +483,9 @@ function frame(now) {
       audioGone = gone;
     }
     const gauge = $("levelPill");
-    $("hudBags").textContent = g.candyCount() + " / " + g.capCubes;
+    // ⚠ O dem la SO HOP tren ray / suc chua (chu du an 2026-09-17: "o dem o tren cung, la dem so
+    // hop, k phai dem limit so keo"). counter() lam tron LEN theo hop, dung cai canTap() hoi.
+    $("hudBags").textContent = g.counter() + " / " + g.slotCount;
     // ⚠ Nguong canh bao la VUOT QUA 2/3 suc chua ray — con so chu du an chot. Truoc day no la
     // `slotCount - 2`, tuc mot khoang cach CO DINH tinh tu tran: tren ray 7 cho thi la 71%,
     // tren ray 12 cho thi la 83%. Cung mot cai nhan lai co nghia khac nhau tuy level, va tren
@@ -494,7 +496,7 @@ function frame(now) {
     // doc mot dang khac.
     const tran = g.counter() > g.slotCount * 2 / 3;
     gauge.classList.toggle("warning", tran);
-    gauge.setAttribute("aria-label", "Level " + g.id + ", kẹo: " + g.candyCount() + "/" + g.capCubes + (tran ? ", sắp tràn" : ""));
+    gauge.setAttribute("aria-label", "Level " + g.id + ", hộp trên ray: " + g.counter() + "/" + g.slotCount + (tran ? ", sắp tràn" : ""));
     // ⚠ Khong goi E.draw: bo 3D tu chay vong lap rieng cua no.
     if (demo) {
       // van nen tu choi: cham mot ben con hang, mien la ray con cho
@@ -503,7 +505,7 @@ function frame(now) {
         const live = g.trucks.filter((t) => !t.gone && t.blocks.length);
         if (!live.length || g.state !== "play") goHome();
         else {
-          const ok = live.filter(() => g.counter() < g.slotCount - 1);
+          const ok = live.filter((t) => g.canTap(t) && g.counter() < g.slotCount - 1);
           if (ok.length) g.tap(ok[(Math.random() * ok.length) | 0]);
         }
       }
@@ -597,11 +599,10 @@ cv.addEventListener("pointerdown", (e) => {
   const hit = three.pick(e.clientX, e.clientY);
   if (!hit) return;
   const t = hit.truck;
-  const slot = hit.slot;
   if (armed) return applyArmed(t);
   const g = E.getGame();
-  const load = g.tapLoad(t, slot) * g.perBlock;
-  if (g.tap(t, slot)) { sound.play("pour", load); return; }
+  const load = Math.max(1, g.tapLoad(t)) * g.perBlock;
+  if (g.tap(t)) { sound.play("pour", load); return; }
   sound.play("blocked");
   // ⚠ Het cho tren ray khong phai thua, chi la khoa tam: vali da mo san (drawBlocked),
   // day chi la cau tra loi cho nguoi van cham vao. Noi cai DIEU KIEN go khoa - "cho ben

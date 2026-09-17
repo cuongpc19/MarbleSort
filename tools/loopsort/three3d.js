@@ -53,20 +53,15 @@ const ATE_MS = 180;    // cua so "nhun nhe" khi xe vua nuot duoc mot mieng hang
 const LID_DELAY_MS = 910;
 const LID_CLOSE_MS = 520;
 const LID_LIFT = 1.15;
-const BRIDGE_RETRACT_MS = 310;
 const LID_SETTLE_MS = ATE_MS + 340;
 const BOX_SEAL_MS = 460;
 const STACK_HOLD_MS = 380;
 const SOURCE_LID_OPEN_MS = 300;
 const SOURCE_PULSE_MS = 380;
-const PACK_HOLD_MS = 320;
-const PACK_DISMISS_MS = 520;
 const lidStart = (t) => Number.isFinite(t.arriveAt)
   ? t.arriveAt + LID_SETTLE_MS
   : t.drain + LID_DELAY_MS;
 const lidEnd = (t) => lidStart(t) + LID_CLOSE_MS;
-const exitStart = (t) => lidEnd(t) + PACK_HOLD_MS;
-const exitEnd = (t) => exitStart(t) + PACK_DISMISS_MS;
 
 const col = (c) => new THREE.Color(c);
 
@@ -781,7 +776,8 @@ export function mountThree(frameEl, getGameFn) {
     clear(cargo);
     for(const t of game.trucks){
       if(t.gone){
-        if(game.now>=exitEnd(t))continue;
+        // ⚠ Khay da du 4 hop thi DE NGUYEN hop da dong nap tai cho, khong co hoat anh bien mat
+        // (chu du an 2026-09-17: "khi ca khay hoan thanh 4 hop, thi k can animation bien mat").
         const sequencing=!reducedMotion.matches&&t.drain>=0&&game.now<lidEnd(t);
         const showStack=game.now<lidStart(t);
         if(sequencing&&buildDrainGhost(game,t,!showStack)){
@@ -828,7 +824,7 @@ export function mountThree(frameEl, getGameFn) {
   function cargoSig(game){
     let s="";
     for(const t of game.trucks){
-      if(t.gone)s+=t.drain<0?"x":game.now<lidStart(t)?"s":game.now<lidEnd(t)?"c":game.now<exitEnd(t)?"e":"o";
+      if(t.gone)s+=t.drain<0?"x":game.now<lidStart(t)?"s":game.now<lidEnd(t)?"c":"o";
       else s+=t.blocks.map(b=>(b.hidden&&!b.seen?"?":b.color)+
         (b.flying?"~":b.packedAt&&game.now<b.packedAt+STACK_HOLD_MS?"^":"")).join("");
       s+="|"+t.cap+":"+(t.claim||"")+":"+t.fill+";";
@@ -1056,17 +1052,6 @@ export function mountThree(frameEl, getGameFn) {
               m.position.y=m.userData.closeBaseY-LID_LIFT*eased;
             }
           }
-        }else if(game.now>=exitStart(t)){
-          // Once sealed, the parcel simply settles into its own station. No second
-          // destination competes with the playable board for attention.
-          const k=Math.max(0,Math.min(1,(game.now-exitStart(t))/PACK_DISMISS_MS));
-          const eased=k*k*(3-2*k),pulse=Math.sin(k*Math.PI);
-          for(const m of cargo.children){
-            if(m.userData.exitTruck!==t)continue;
-            const base=m.userData.basePos,s=m.userData.baseScale;
-            m.position.set(base.x,base.y+pulse*.12-eased*.48,base.z);
-            m.scale.set(s.x*(1-.10*eased),s.y*Math.max(.02,1-eased),s.z*(1-.10*eased));
-          }
         }
       }else if(t.ate>0){
         const k=Math.max(0,Math.min(1,(game.now-t.ate)/ATE_MS)),pulse=Math.sin(k*Math.PI);
@@ -1080,18 +1065,11 @@ export function mountThree(frameEl, getGameFn) {
   }
 
   function animateBridges(game) {
-    const now=game.now;
     for(const group of statics.children){
       const t=group.userData.bridgeTruck;
       if(!t)continue;
-      if(!t.gone){group.visible=true;group.scale.x=1;continue;}
-      const k=reducedMotion.matches ? 1 : Math.max(0,Math.min(1,
-        (now-exitStart(t))/BRIDGE_RETRACT_MS));
-      const eased=k*k*(3-2*k);
-      // Local X runs from the rail (0) back to the tray (-reach), so this folds the
-      // connector into its rail collar instead of shrinking around its centre.
-      group.scale.x=Math.max(.015,1-eased);
-      group.visible=k<.995;
+      // Cau o lai ca khi khay da giao xong - khong con hoat anh thu cau.
+      group.visible=true;group.scale.x=1;
     }
   }
 
@@ -1129,13 +1107,7 @@ export function mountThree(frameEl, getGameFn) {
       const packed=m.userData.tintWhenPacked&&t.gone&&game.now>=lidEnd(t);
       const color=t.claim||lastCargo.get(t)?.find(b=>b?.color)?.color;
       m.material=packed?mat(PALETTE[color]||"#ff83aa",true):locked?dimOf(m.userData.litMat):m.userData.litMat;
-      if(t.gone&&game.now>=exitStart(t)){
-        const k=Math.max(0,Math.min(1,(game.now-exitStart(t))/BRIDGE_RETRACT_MS));
-        m.scale.y=Math.max(.02,1-k*k*(3-2*k));
-        m.visible=k<.995;
-      }else{
-        m.scale.y=1;m.visible=true;
-      }
+      m.scale.y=1;m.visible=true;
     }
   }
 

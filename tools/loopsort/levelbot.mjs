@@ -66,11 +66,22 @@ function pickTap(g, desperate) {
   const onRail = {};
   for (const c of g.cubes) onRail[c.color] = (onRail[c.color] || 0) + 1;
   let best = null, bestScore = -1e9, fallback = null;
+  // "Ket that": khong vien nao tren ray co khay nhan, va khong con keo dang bay vao khay nao.
+  // Chi luc do moi do hop dang do do ra - o dem tinh theo HOP nen dung yen suot luc mot hop
+  // dang lap, va doc no la "ket" thi bot tu pha hop cua chinh minh (level 1: 153 cu cham).
+  const dead = () => !g.flying.length && !g.cubes.some((c) =>
+    g.trucks.some((o) => g.accepts(o, c.color) && g.canStart(o, c.color)));
   for (const t of g.trucks) {
-    for (let slot = 0; slot < t.blocks.length; slot++) {
-    if (!g.canTap(t, slot)) continue;
-    const n = g.tapLoad(t, slot);
-    const c = t.blocks[slot].color;
+    if (!g.canTap(t)) continue;
+    const run = g.tapRun(t);
+    const c = run.color;
+    // ⚠ Hop dang do do: chi do ra khi het cach (desperate). Do no la bo cong gom - nhung khong
+    // co nuoc nay thi hai khay do do cung mau co the ket nhau mai mai.
+    if (run.partial) {
+      if (desperate && !fallback && dead()) fallback = { t, after: t.blocks.length, partial: true };
+      continue;
+    }
+    const n = run.boxes;
     let score = 0;
     for (const o of g.trucks) {
       if (o === t || o.gone || !g.accepts(o, c)) continue;
@@ -79,7 +90,7 @@ function pickTap(g, desperate) {
       else score += 1;                                                 // ben rong: nhan tuot
     }
     // do xong thi ben nay mo ra mau gi, va tren ray dang co bao nhieu mieng mau do
-    // ⚠ Ben "thuan mau" (ca đong cung mot mau) la ben DANG GOM, khong phai ben can do di.
+    // ⚠ Ben "thuan mau" (ca dong cung mot mau) la ben DANG GOM, khong phai ben can do di.
     // Do no ra la pha chinh viec no dang lam. Chi duoc do khi co mot ben khac cung mau ma
     // DONG HON - tuc la don nho ve lon. Thieu luat nay bot danh bong ban vinh vien: tren
     // level 1 (bon mieng do, hai ben) no do qua do lai 131 lan, ca hai ben khong bao gio
@@ -89,12 +100,12 @@ function pickTap(g, desperate) {
         o.blocks.length < o.cap && o.blocks.every((b) => b.color === c));
       if (!bigger) score = 0;
     }
-    const next = t.blocks.filter((_, i) => i !== slot).at(-1);
-    if (slot === t.blocks.length - 1 && next && next.color !== c && onRail[next.color])
+    const next = t.blocks[t.blocks.length - 1 - n];
+    if (next && next.color !== c && onRail[next.color])
       score += 4 * Math.min(onRail[next.color], t.cap - (t.blocks.length - n));
     if (score > 0) {
       score -= n * 0.5;
-      if (score > bestScore) { bestScore = score; best = { t, slot }; }
+      if (score > bestScore) { bestScore = score; best = { t }; }
     } else {
       // ⚠ Nuoc "khong co ai nhan" phai la nuoc DON TRONG MOT BEN, khong phai nuoc do bua cai
       // dong to nhat. Mot ben RONG nhan moi mau, nen no la cho gom duy nhat cho nhung mau
@@ -103,8 +114,7 @@ function pickTap(g, desperate) {
       // tren level 65, ray ket lai voi LB LB LB O O Y trong khi khong ben nao nhan mot mau
       // nao trong ba mau do - het cham duoc, ban chet sau 12 cu cham.
       const after = t.blocks.length - n;      // con lai bao nhieu sau khi do
-      if (!fallback || after < fallback.after) fallback = { t, slot, after };
-    }
+      if (!fallback || (!fallback.partial && after < fallback.after)) fallback = { t, after };
     }
   }
   return best || (desperate || !g.cubes.length ? fallback : null);
@@ -141,11 +151,10 @@ export function playOnce(E, id, s, slip = 0, gap = 700) {
     if (now >= nextTap && (n <= g.slotCount * 0.6 || flat > 24)) {
       let move = pickTap(g, flat > 60);
       if (slip && move && Math.random() < slip) {
-        const any = g.trucks.flatMap((t) => t.blocks.map((_, slot) => ({ t, slot })))
-          .filter((m) => g.canTap(m.t, m.slot));
+        const any = g.trucks.filter((t) => g.canTap(t) && !t.fill).map((t) => ({ t }));
         if (any.length) move = any[Math.floor(Math.random() * any.length)];
       }
-      if (move && g.tap(move.t, move.slot)) { taps++; nextTap = now + gap; flat = 0; }
+      if (move && g.tap(move.t)) { taps++; nextTap = now + gap; flat = 0; }
       else nextTap = now + 250;
     }
   }

@@ -60,7 +60,9 @@ function audit(g, expected) {
   for (const t of g.trucks) {
     assert.ok(t.fill >= 0 && t.fill < g.perBlock && Number.isInteger(t.fill));
     assert.ok(t.blocks.length <= t.cap);
-    if (t.fill || g.flying.some(f => f.truck === t)) assert.equal(g.canTap(t), false);
+    // A half-filled box is always the way out; otherwise a tray waits for its landing flights.
+    if (t.fill && g.state === 'play' && t.drain < 0) assert.equal(g.canTap(t), true);
+    else if (g.flying.some(f => f.truck === t)) assert.equal(g.canTap(t), false);
     if (t.gone) assert.ok(!g.flying.some(f => f.truck === t));
   }
   if (g.state === 'win') {
@@ -95,11 +97,8 @@ function pourTo(g, source, target, count, color) {
   while (count > 0) {
     const waiting = g.pending.filter(p => !color || p.color === color).length;
     if (!waiting) {
-      const slot = color
-        ? source.blocks.findIndex(b => b.color === color && (!b.hidden || b.seen))
-        : source.blocks.findLastIndex(b => !b.hidden || b.seen);
-      assert.ok(slot >= 0, 'source has a selectable box of the requested colour');
-      assert.ok(g.tap(source, slot), 'one source box opens');
+      if (color) assert.equal(g.tapRun(source).color, color, 'source has the requested colour outermost');
+      assert.ok(g.tap(source), 'the outermost run opens');
     }
     const take = Math.min(count, g.pending.filter(p => !color || p.color === color).length);
     feed(g, target, take, color);
@@ -143,48 +142,73 @@ test('64 real candies per box; palette and pocket coordinates', () => {
   }
 });
 
-test('clicking one selected box pours exactly its B real candies', () => {
-  const { g, check } = fixture(2);
-  const t = g.trucks.find(t => new Set(t.blocks.map(b => b.color)).size > 1);
-  const before = [...t.blocks], slot = 1, selected = before[slot];
-  before[0].hidden = true; before[0].seen = false;
-  assert.equal(g.canTap(t, 0), false, 'a hidden box is not selectable');
-  before[0].hidden = false; before[0].seen = true;
-  assert.equal(g.tapLoad(t, slot), 1); assert.ok(g.tap(t, slot));
-  assert.equal(t.blocks.length, before.length - 1);
-  assert.equal(t.blocks.includes(selected), false);
-  assert.equal(g.pending.length, B); assert.equal(g.counter(), 1);
-  assert.deepEqual(g.pending.map(p => p.slot), Array(B).fill(slot));
-  assert.deepEqual(g.pending.map(p => p.piece), [...Array(B).keys()]);
-  assert.ok(g.pending.every(p => p.color === selected.color));
-  assert.equal(g.canTap(t), g.counter() + 1 <= g.slotCount, 'a pouring box does not lock its tray');
+test('a tap pours the outermost box and every same-colour box right behind it', () => {
+  const { g, check, initial } = fixture(2);
+  const boxes = g.trucks.flatMap(t => t.blocks);
+  const pink = boxes.filter(b => b.color === 'PNK'), white = boxes.filter(b => b.color === 'W');
+  const [t, o1, o2] = g.trucks;
+  t.blocks = [white[0], pink[0], pink[1]]; o1.blocks = [...pink.slice(2), white[1]];
+  o2.blocks = white.slice(2);
+  check();
+  assert.equal(g.tapLoad(t), 2);
+  // An inner box cannot leave first: whatever box is touched, the outermost run goes.
+  assert.ok(g.tap(t, 0));
+  assert.deepEqual(t.blocks, [white[0]], 'both pink boxes left, the white one stayed');
+  assert.equal(g.pending.length, 2 * B); assert.equal(g.counter(), 2);
+  assert.deepEqual(g.pending.map(p => p.slot), [...Array(B).fill(2), ...Array(B).fill(1)]);
+  assert.ok(g.pending.every(p => p.color === 'PNK'));
   const first = g.pending[0], origin = g.candyPos(first.truck, first.slot, first.piece);
   assert.equal(first.at, g.now, 'candy leaves on the tap itself, no opening delay');
   g.step(0, first.at);
   assert.equal(g.cubes[0].x, origin.x); assert.equal(g.cubes[0].y, origin.y);
   assert.ok(g.undo());
-  assert.deepEqual(t.blocks, before, 'undo restores the selected box to its exact slot');
+  assert.deepEqual(t.blocks.map(b => b.color), ['W', 'PNK', 'PNK'], 'undo puts both boxes back');
   check();
+  // A hidden outermost box cannot be tapped at all.
+  t.blocks[2].hidden = true; t.blocks[2].seen = false;
+  assert.equal(g.canTap(t), false, 'a hidden box is not selectable');
+  void initial;
 });
 
-test('tapping the same tray again releases the earlier box at once, from its own pockets', () => {
+test('tapping the same tray again releases the earlier pour at once, from its own pockets', () => {
   const { g, check } = fixture(2);
-  const t = g.trucks.find(t => t.blocks.filter(b => !b.hidden || b.seen).length >= 2);
+  const boxes = g.trucks.flatMap(t => t.blocks);
+  const pink = boxes.filter(b => b.color === 'PNK'), white = boxes.filter(b => b.color === 'W');
+  const [t, o1, o2] = g.trucks;
+  t.blocks = [white[0], pink[0]]; o1.blocks = pink.slice(1); o2.blocks = white.slice(1);
   g.slotCount += 4; g.capCubes = g.slotCount * g.perBlock;
-  const top = t.blocks.length - 1;
-  assert.ok(g.tap(t, top)); g.step(0, g.now + 1); check();
+  assert.ok(g.tap(t)); g.step(0, g.now + 1); check();
   const left = g.pending.filter(p => p.truck === t);
   assert.ok(left.length > 0, 'first box is still pouring');
   const pockets = left.map(p => g.candyPos(t, p.slot, p.piece));
   const before = g.cubes.length;
-  assert.ok(g.canTap(t, 0), 'the next box is tappable straight away');
-  assert.ok(g.tap(t, 0)); check();
+  assert.ok(g.canTap(t), 'the next box is tappable straight away');
+  assert.ok(g.tap(t)); check();
   const out = g.cubes.slice(before, before + left.length);
   assert.equal(out.length, left.length, 'every remaining candy of the first box left on the second tap');
   out.forEach((c, i) => assert.ok(Math.hypot(c.x - pockets[i].x, c.y - pockets[i].y) < 1e-9));
   assert.equal(g.pending.length, B, 'only the second box is still pouring');
   assert.ok(g.pending.every(p => p.at >= g.now && p.slot === 0));
   settle(g, 3000); check();
+});
+
+test('a half-filled box can always be poured back onto the belt, even with the belt full', () => {
+  const { g, check } = fixture();
+  const [source, target] = g.trucks;
+  assert.ok(g.tap(source));
+  feed(g, target, 5); check();
+  assert.equal(target.fill, 5); assert.ok(g.flying.some(f => f.truck === target));
+  g.slotCount = g.counter(); g.capCubes = g.slotCount * g.perBlock;   // nothing else fits
+  assert.equal(g.canTap(source), false, 'a full box does not fit on a full belt');
+  assert.ok(g.canTap(target), 'the half-filled box is the way out');
+  const lowerBoxes = target.blocks.length;
+  assert.ok(g.tap(target)); check();
+  assert.equal(target.fill, 0); assert.equal(target.claim, null);
+  assert.equal(target.blocks.length, lowerBoxes, 'the same-colour full box behind it does not fit, so it stays');
+  assert.equal(g.flying.filter(f => f.truck === target).length, 0, 'no candy still flying into it');
+  assert.equal(g.pending.filter(p => p.truck === target).length + g.cubes.filter(c => c.src === target).length,
+    5 + (lowerBoxes - target.blocks.length) * B);
+  settle(g, 1); check();
 });
 
 test('empty / partial / full / closed acceptance; partial arrival and tap lock', () => {
@@ -201,7 +225,7 @@ test('empty / partial / full / closed acceptance; partial arrival and tap lock',
   assert.equal(g.shuffle(target), false); assert.equal(g.addBaySlot(target), false);
   g.step(0, 1000); check();
   assert.equal(g.flying.length, 0); assert.equal(target.fill, 3);
-  assert.equal(g.canTap(target), false); assert.equal(g.tap(target), false);
+  assert.equal(g.canTap(target), true, 'a half-filled box can be poured back');
   pourTo(g, source, target, 3 * B - 3); check();
   assert.equal(target.blocks.length, 4); assert.equal(target.fill, 0);
   assert.equal(g.accepts(target, 'LB'), false);
@@ -296,7 +320,8 @@ test('revive reindexes surviving flights above removed boxes, preserving positio
   check(); assert.ok(g.tap(source));
   for (const p of g.pending) p.at = 0;
   g.step(0, 1);
-  assert.ok(g.tap(source)); assert.ok(g.tap(other));
+  assert.equal(g.canTap(source), false, "the first tap already poured every pink box");
+  assert.ok(g.tap(other));
   pourTo(g, other, target, B + 1, 'W'); check();
   const before = new Map(g.flying.map(f => [f, E.flyPos(f, 0)]));
   assert.equal(g.revive(), 'PNK'); check();

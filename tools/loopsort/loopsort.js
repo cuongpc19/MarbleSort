@@ -613,20 +613,34 @@ export class Game {
   }
   counter() { return Math.ceil(this.candyCount() / this.perBlock); }
 
-  // One click opens exactly one candy box. `slot` is optional so bots and old tools
-  // keep selecting the front box, while the 3D picker can address the box the player
-  // actually touched.
-  tapSlot(t, slot) {
+  // ⚠ Chu du an 2026-09-17: "hop keo phia trong k the ra ngoai neu hop keo ngoai chua ra" va
+  // "click vao hop keo ma hop sat no cung mau, thi 2 hop deu chay ra ray (logic truoc day)".
+  // Nen cham vao BAT KY hop nao cua khay cung la cham vao KHAY: luon do hop NGOAI CUNG (cuoi
+  // mang) cung ca day hop cung mau lien sau no. `slot` chi con de giu chu ky cu (bo chon 3D).
+  tapSlot(t) {
     if (!t || !t.blocks.length) return -1;
-    return Number.isInteger(slot) && slot >= 0 && slot < t.blocks.length
-      ? slot : t.blocks.length - 1;
+    return t.blocks.length - 1;
   }
 
-  tapLoad(t, slot) {
-    const i = this.tapSlot(t, slot);
-    if (i < 0) return 0;
-    const b = t.blocks[i];
-    return b.hidden && !b.seen ? 0 : 1;
+  // So HOP DAY do ra ray khi cham khay nay (day cung mau o ngoai cung). Hop dang do do (fill)
+  // khong tinh: keo cua no da nam trong o dem roi.
+  tapLoad(t) {
+    const run = this.tapRun(t);
+    return run.boxes;
+  }
+
+  // Day hop se do ra: `partial` = co hop dang do do o ngoai cung, `boxes` = so hop day ngay sau
+  // no (cung mau, da mo, da ha canh het). Hop an (`?`) chan day lai.
+  tapRun(t) {
+    const partial = t.fill > 0;
+    const color = partial ? t.claim : t.blocks.length ? t.blocks[t.blocks.length - 1].color : null;
+    let boxes = 0;
+    for (let i = t.blocks.length - 1; i >= 0; i--) {
+      const b = t.blocks[i];
+      if (b.color !== color || (b.hidden && !b.seen) || b.flying) break;
+      boxes++;
+    }
+    return { partial, boxes, color };
   }
 
   // ⚠ HET CHO TREN RAY KHONG PHAI LA THUA - chi la khong cham duoc vali nua, cho toi khi
@@ -634,8 +648,14 @@ export class Game {
   // ca ve luat lan ve cam giac: ray day la mot trang thai TAM THOI, no tu go khi hang chay
   // vao ben, con thua thi khong go duoc. Thua chi con dung mot nghia: ban co chet han
   // (isStuck).
-  canTap(t, slot) {
-    if (this.state !== "play" || t.gone || !t.blocks.length || t.drain >= 0) return false;
+  canTap(t) {
+    if (this.state !== "play" || t.gone || t.drain >= 0) return false;
+    // ⚠ HOP DANG DO DO LUON CHAM DUOC (chu du an 2026-09-17): "khi keo vao hop chua het thi co
+    // the click vao hop chua het do de me keo do co the ra ray. Neu k thi se co tinh huong k
+    // bao gio hoan thanh duoc level". Keo cua no da tinh trong o dem, nen do ra khong can them
+    // cho tren ray - day la loi thoat luon mo cho moi ban co ket vi hop do do.
+    if (t.fill > 0) return true;
+    if (!t.blocks.length) return false;
     // ⚠ Khay dang co vali BAY VAO thi khong cham duoc. Giao hang bi hoan toi luc vali cuoi
     // ha canh (xem vong deliver trong step), nen trong ~0.4-0.65 giay do mot khay da du bo van
     // nam do voi day hang - va ray thi trong tron vi moi vali dang tren khong. Cho cham luc do
@@ -643,18 +663,17 @@ export class Game {
     // cua ban goc, bot do qua do lai 49 lan trong 240 giay ma khong thang, va ca bo 20 level
     // tut tu 55% xuong 20%. Nguoi choi cung lam duoc dieu do, va no doc ra la vo ly: cham
     // vao mot khay sap dong nap thi hang tuon ra.
-    if (this.packing(t)) return false;
+    // Hop ngoai cung con cho keo bay vao (da du 64 nhung chua ha canh het) thi doi vai tram ms.
+    if (this.flying.some((f) => f.truck === t)) return false;
     // ⚠ Hop truoc con dang tuon keo KHONG chan cu cham tiep: tap() tha not ngay phan keo con
     // lai cua hop do (releaseDue) truoc khi rut hop moi ra, nen so o cua khay khong bi xo lech.
-    const load = this.tapLoad(t, slot);
-    return load === 1 && this.counter() + load <= this.slotCount;
+    const load = this.tapLoad(t);
+    return load >= 1 && this.counter() + load <= this.slotCount;
   }
 
+  // Giu ten cu: cham khay nao cung chi co MOT nuoc (do day ngoai cung), nen bang canTap.
   canTapAny(t) {
-    if (!t || !t.blocks.length) return false;
-    for (let slot = 0; slot < t.blocks.length; slot++)
-      if (this.canTap(t, slot)) return true;
-    return false;
+    return !!t && this.canTap(t);
   }
 
   // Ban co chet han: khong cham duoc vali nao, va khong mieng hang nao dang tren ray co
@@ -670,22 +689,35 @@ export class Game {
     return true;
   }
 
-  tap(t, slot) {
-    if (!this.canTap(t, slot)) return false;
+  tap(t) {
+    if (!this.canTap(t)) return false;
     const now = this.now;
     t.ripple = now;
-    // Hop truoc cua khay nay con keo cho tuon: tha het ngay bay gio, tu DUNG o cu cua no,
-    // truoc khi splice lam lech chi so o.
+    // Hop truoc cua khay nay con keo cho tuon: tha het ngay bay gio, tu DUNG o cu cua no.
     if (this.pending.some((p) => p.truck === t)) {
       for (const p of this.pending) if (p.truck === t) p.at = now;
       this.releaseDue(now, t);
     }
-    const selected = this.tapSlot(t, slot);
-    t.rippleSlot = selected;
-    const [box] = t.blocks.splice(selected, 1);
-    const c = box.color;
-    const n = 1;
-    t.fill = 0;
+    const run = this.tapRun(t);
+    const c = run.color;
+    // Hop dang do do + cac hop day cung mau sau no. Neu ray khong du cho cho cac hop day thi
+    // van do rieng hop do do - loi thoat khong bao gio duoc dong.
+    const n = run.partial && this.counter() + run.boxes > this.slotCount ? 0 : run.boxes;
+    t.rippleSlot = t.blocks.length - 1 + (run.partial ? 1 : 0);
+    const out = [];   // [{slot, piece}] theo thu tu roi hop: ngoai cung truoc
+    if (run.partial) {
+      const slot = t.blocks.length;
+      // Keo con dang bay vao hop do do: coi nhu da toi o cua no, va tuon ra ngay cung luc.
+      const moving = this.flying.filter((f) => f.truck === t && f.slot === slot);
+      this.flying = this.flying.filter((f) => !moving.includes(f));
+      const pieces = Array.from({ length: t.fill }, (_, i) => i);
+      for (const piece of pieces) out.push({ slot, piece });
+      t.fill = 0;
+    }
+    const top = t.blocks.length;
+    t.blocks.length -= n;
+    for (let k = 0; k < n; k++)
+      for (let piece = 0; piece < this.perBlock; piece++) out.push({ slot: top - 1 - k, piece });
     t.claim = null;
     // ⚠ KHONG con gan t.lastDump nua - xem chu thich o accepts(). Truong nay de nguyen
     // null mai mai: phan VE con doc no de ve dau gach cheo, de null thi dau do tu bien
@@ -693,13 +725,12 @@ export class Game {
     this.reveal(t);
     this.taps++;
     const pour = ++this.pourSeq;
-    this.history.push({ truck: t, color: c, n, slot: selected, box, pour });
-    // All eight pieces retain the selected box's pocket. The renderer leaves a
-    // temporary gap there until the last piece starts moving, then compacts the row.
-    for (let piece = 0; piece < this.perBlock; piece++)
-      this.pending.push({ color: c, truck: t, slot: selected, piece, pour,
-                          tapAt: now,
-                          at: now + CRUMBLE_MS + piece * POUR_STAGGER });
+    // Hoan tac chi cho luot do toan hop day - mot hop do do khong dung lai duoc nhu cu.
+    if (run.partial) this.history = [];
+    else this.history.push({ truck: t, color: c, n, pour });
+    out.forEach(({ slot, piece }, i) =>
+      this.pending.push({ color: c, truck: t, slot, piece, pour, tapAt: now,
+                          at: now + CRUMBLE_MS + i * POUR_STAGGER }));
     this.peak = Math.max(this.peak, this.counter());
     return true;
   }
@@ -1259,9 +1290,8 @@ export class Game {
       const drop = new Set(same);
       this.cubes = this.cubes.filter((c) => !drop.has(c));
     }
-    const box = last.box || { color: last.color, hidden: false, key: null, seen: true };
-    last.truck.blocks.splice(Math.min(last.slot ?? last.truck.blocks.length,
-      last.truck.blocks.length), 0, box);
+    for (let i = 0; i < last.n; i++)
+      last.truck.blocks.push({ color: last.color, hidden: false, key: null, seen: true });
     last.truck.lastDump = null;
     this.reveal(last.truck);
     this.history.pop();
