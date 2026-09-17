@@ -93,12 +93,10 @@ export const CUBE_SCALE = 1.45;
 const SLOT_LEN = 1.68 * SCALE;    // Full carton pitch; loose candy size must not change this.
 const TRUCK_W = 2.6 * WIDE;   // rong than xe, cung do tu clip
 const SPEED = 9.0;        // Whole candies travel slowly enough to follow by eye.
-// ⚠ 0, khong phai 110. Vali bien mat khoi khay NGAY khi cham (tap() tru blocks lien), nen bao
-// nhieu mili giay o day la bay nhieu mili giay no khong ton tai o dau ca - roi moi hien ra. Do
-// la nua con lai cua cai "nhay coc" ma chu du an bao (nua kia la sinh sai o, da sua). Gio cham
-// phat nao la no roi cho ngay phat do. Gian cach giua cac vali trong mot luot do van la
-// POUR_STAGGER, khong doi.
-const CRUMBLE_MS = 0;
+// Give the carton lid one readable beat before the first batch leaves. The renderer now keeps
+// the selected carton and all pending candies visible in their real pocket during this delay,
+// so this no longer creates the old empty-frame blink described by the previous zero value.
+const CRUMBLE_MS = 200;
 // ⚠ 160, KHONG PHAI 0 - va day la mot hang so LUAT CHOI, khong chi la hang so hinh.
 // Tu khi moi vali ra tu DUNG O CUA NO (xem tap()), khoang cach giua cac vali tren cau la
 // (gian cach + mot o duong trong long xe), tuc DEU NHAU voi bat ky gian cach co dinh nao - nen
@@ -108,7 +106,7 @@ const CRUMBLE_MS = 0;
 //     0 -> 25%     60 -> 30%     120 -> 55%     160 -> 65%     210 -> 60%
 // (bot tat dinh, nen 3 hay 6 van moi level cho dung mot ket qua - chenh lech la that). Duoi
 // ~100ms la vung hong; 160 ra gan nhau hon ban cu 210 ma van cach xa vung do.
-const POUR_STAGGER = 95;
+const POUR_STAGGER = 155;
 const EAT_MS = 30;        // nhip hut mot cube (~850ms/khoi, khop clip)
 const POUR_GUARD = 900;   // ben khong hut lai cat cua chinh no trong ngan nay - xem absorb()
 const ABSORB_MS = 190;    // thoi gian bay tu ray len khoang hang (chi con lam tran duoi)
@@ -662,6 +660,7 @@ export class Game {
     const now = this.now;
     t.ripple = now;
     const selected = this.tapSlot(t, slot);
+    t.rippleSlot = selected;
     const [box] = t.blocks.splice(selected, 1);
     const c = box.color;
     const n = 1;
@@ -1012,7 +1011,7 @@ export class Game {
         vx: (wx / wd) * sp, vy: (wy / wd) * sp,
         rot: Math.atan2(wy, wx), vrot: 0,
         way,
-        sz: 1, color: p.color, seg: undefined,
+        sz: 1, color: p.color, piece: p.piece, slot: p.slot, seg: undefined,
         // ⚠ Nho ben nao vua tuon hat nay ra, va tuon luc nao. absorb() dung hai truong
         // nay de mot ben khong hut lai chinh dong cat dang ra khoi mieng no.
         src: t, born: now,

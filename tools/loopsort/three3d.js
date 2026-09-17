@@ -39,7 +39,7 @@ const TRUCK_W = 2.65;
 const RAIL_Y = 0.38;
 const BODY_H = 0.74;    // raised tray deck; enough side face remains visible under cargo
 const CARGO_H = 0.50;   // chunkier candy/box silhouettes at phone size
-const BELT_CANDY_VISUAL_SCALE = 1.18; // visual only; boxed candy remains smaller
+const BELT_CANDY_VISUAL_SCALE = 1.28; // visual only; boxed candy remains smaller
 const MINI_GRID = 4;
 const MINI_LAYER_SIZE = MINI_GRID * MINI_GRID;
 if (MINI_CANDIES_PER_BOX !== MINI_GRID ** 3)
@@ -57,7 +57,8 @@ const BRIDGE_RETRACT_MS = 310;
 const LID_SETTLE_MS = ATE_MS + 340;
 const BOX_SEAL_MS = 460;
 const STACK_HOLD_MS = 380;
-const SOURCE_LID_MS = 330;
+const SOURCE_LID_OPEN_MS = 300;
+const SOURCE_PULSE_MS = 380;
 const BATCH_SPLIT_START = .58;
 const BATCH_SPLIT_END = .73;
 const PACK_HOLD_MS = 320;
@@ -624,7 +625,15 @@ export function mountThree(frameEl, getGameFn) {
     const SL=slotLen(game,t),p=game.slotPos(t,slot,.5),r=rotOf(t);
     pieces=pieces||Array.from({length:game.perBlock},(_,i)=>i);
     const hex=PALETTE[color]||"#ff79a6";
-    const tag=m=>{m.userData.truck=t;m.userData.slot=slot;if(ghost)m.userData.drainTruck=t;return m;};
+    const tag=m=>{
+      m.userData.truck=t;m.userData.slot=slot;
+      if(ghost)m.userData.drainTruck=t;
+      if(sourceOpenAt!==null){
+        m.userData.sourcePulseAt=sourceOpenAt;
+        m.userData.sourcePulseTruck=t;
+      }
+      return m;
+    };
     // Preserve a square silhouette on screen for any tray direction. The camera projects
     // world X and Z at different scales, so one hard-coded depth can only look square on
     // horizontal OR vertical trays. Fit the largest projected square inside this slot.
@@ -678,13 +687,20 @@ export function mountThree(frameEl, getGameFn) {
         .11,closedWid-.16,wallH,wallBase,"#ffd28a",r,true,.045));
     }
     // A selected source carton keeps its real lid for one beat. It pops upward and
-    // slides back while the first batch leaves, giving the tap a physical cause instead
-    // of replacing a closed box with an open cavity in one frame.
+    // opens as two paper flaps, leaving the centre clear for the candy stream.
     if(sourceOpenAt!==null){
-      const lid=tag(trayBox(cargo,p.x,p.y,closedLen+.05,closedWid+.05,.18,
-        BODY_H+.77,hex,r,true,.12));
-      lid.userData.sourceLidAt=sourceOpenAt;
-      lid.userData.sourceLidTruck=t;
+      const fullWid=closedWid+.05,flapWid=fullWid/2-.035;
+      for(const side of [-1,1]){
+        const across=side*(flapWid/2+.018);
+        const lid=tag(trayBox(cargo,p.x-t.my*across,p.y+t.mx*across,
+          closedLen+.05,flapWid,.16,BODY_H+.78,hex,r,true,.10));
+        delete lid.userData.sourcePulseAt;
+        delete lid.userData.sourcePulseTruck;
+        lid.userData.sourceLidAt=sourceOpenAt;
+        lid.userData.sourceLidTruck=t;
+        lid.userData.sourceLidSide=side;
+        lid.userData.sourceLidHalf=flapWid/2;
+      }
     }
     const present=new Set(pieces);
     for(let piece=0;piece<game.perBlock;piece++){
@@ -811,6 +827,8 @@ export function mountThree(frameEl, getGameFn) {
   // khung. Nen chung phai ve lai moi khung, khong the di qua buildCargo.
   const sealGeo = keep(new THREE.RingGeometry(.62,.78,32));
   const sealPool = [];
+  const tapRingGeo = keep(new THREE.RingGeometry(.90,1.08,32));
+  const tapRingPool = [];
   const paperGeo = keep(new THREE.PlaneGeometry(0.36, 0.14));
   const confettiPool = [];
   const fxMat = () => keep(new THREE.MeshBasicMaterial({
@@ -823,6 +841,9 @@ export function mountThree(frameEl, getGameFn) {
   }
   function sealMesh(){
     const m=new THREE.Mesh(sealGeo,fxMat());m.rotation.x=-Math.PI/2;fx.add(m);return m;
+  }
+  function tapRingMesh(){
+    const m=new THREE.Mesh(tapRingGeo,fxMat());m.rotation.x=-Math.PI/2;fx.add(m);return m;
   }
 
   function animateFx(game) {
@@ -839,6 +860,20 @@ export function mountThree(frameEl, getGameFn) {
       m.visible=true;m.position.set(p.x,BODY_H+CARGO_H+.30,p.y);
       const s=.55+k*.95;m.scale.set(s,s,s);
       m.material.color.set(PALETTE[o.b.color]||"#ff7b9e");m.material.opacity=(1-k)*.72;
+    }
+
+    // A quick cream halo makes the selected carton answer the finger before its lid moves.
+    // It stays on the touched slot instead of flashing the whole tray.
+    const taps=still?[]:game.trucks.filter(t=>t.ripple&&now-t.ripple>=0&&now-t.ripple<430);
+    while(tapRingPool.length<taps.length)tapRingPool.push(tapRingMesh());
+    for(let i=0;i<tapRingPool.length;i++){
+      const m=tapRingPool[i],t=taps[i];
+      if(!t){m.visible=false;continue;}
+      const k=Math.min(1,(now-t.ripple)/430);
+      const p=game.slotPos(t,Number.isInteger(t.rippleSlot)?t.rippleSlot:Math.max(0,t.blocks.length-1),.5);
+      const eased=1-Math.pow(1-k,3),s=.72+eased*.82;
+      m.visible=true;m.position.set(p.x,BODY_H+1.03+k*.10,p.y);m.scale.set(s,s,s);
+      m.material.color.set("#ff5f91");m.material.opacity=(1-k)*.82;
     }
 
     // Confetti: engine da tinh x,y moi khung, chi dat vao dung cho va mo dan theo p.life.
@@ -863,13 +898,29 @@ export function mountThree(frameEl, getGameFn) {
     for(const m of cargo.children){
       const at=m.userData.sourceLidAt;
       if(at===undefined)continue;
-      const k=Math.max(0,Math.min(1,(game.now-at)/SOURCE_LID_MS));
-      const eased=1-Math.pow(1-k,3),pop=Math.sin(k*Math.PI);
+      const k=Math.max(0,Math.min(1,(game.now-at)/SOURCE_LID_OPEN_MS));
+      const eased=1-Math.pow(1-k,3),angle=eased*1.02+Math.sin(k*Math.PI)*.08;
       const base=m.userData.baseScale,pos=m.userData.basePos,t=m.userData.sourceLidTruck;
-      m.position.set(pos.x-t.mx*eased*.42,pos.y+pop*.46+eased*.12,pos.z-t.my*eased*.42);
-      m.rotation.y=m.userData.baseRotY+Math.sin(k*Math.PI*.72)*.22;
-      m.scale.set(base.x*(1-.18*eased),base.y*(1-.32*eased),base.z*(1-.18*eased));
-      m.visible=k<.995;
+      // Each half rotates around its outside long edge, opening away from the candy path.
+      const half=m.userData.sourceLidHalf||1;
+      const side=m.userData.sourceLidSide||1;
+      const out=side*half*(1-Math.cos(angle)),lift=half*Math.sin(angle);
+      m.position.set(pos.x-t.my*out,pos.y+lift,pos.z+t.mx*out);
+      m.rotation.x=side*angle;
+      m.rotation.y=m.userData.baseRotY;
+      m.rotation.z=0;
+      m.scale.set(base.x,base.y,base.z);
+      m.visible=true;
+    }
+    for(const m of cargo.children){
+      const at=m.userData.sourcePulseAt;
+      if(at===undefined)continue;
+      const k=Math.max(0,Math.min(1,(game.now-at)/SOURCE_PULSE_MS));
+      const press=Math.sin(Math.min(1,k/.42)*Math.PI);
+      const release=Math.sin(Math.max(0,(k-.18)/.82)*Math.PI);
+      const base=m.userData.baseScale,pos=m.userData.basePos;
+      m.position.y=pos.y-press*.045+release*.075;
+      m.scale.set(base.x*(1+release*.035),base.y*(1-press*.12+release*.05),base.z*(1+release*.035));
     }
     for(const m of cargo.children){
       const at=m.userData.miniPopAt;
@@ -999,6 +1050,7 @@ export function mountThree(frameEl, getGameFn) {
     const boxedFootprint=(t)=>Math.max(.5,Math.min(.8,
       slotLen(game,t)*.20/(game.r*2*BELT_CANDY_VISUAL_SCALE)));
     const list=game.cubes.map(c=>{
+      let x=c.x,y=c.y;
       let bottom=RAIL_Y+.025;
       let hop=0,tilt=0,squash=0,sizeFactor=1,heightFactor=1;
       if(!c.landed&&c.src){
@@ -1006,13 +1058,18 @@ export function mountThree(frameEl, getGameFn) {
         const f=Math.min(1,Math.hypot(c.x-t.px,c.y-t.py)/reach);
         const k=1-f,e=k*k*(3-2*k);
         hop=Math.sin(k*Math.PI);
-        bottom=(BODY_H+.14)*(1-e)+(RAIL_Y+.025)*e+hop*.36;
-        tilt=hop*.18;
+        // Fan neighbouring batches apart while they leave the carton, then bring them
+        // back to the bridge centre. This keeps eight candies from reading as one lump.
+        const launch=Math.max(0,Math.min(1,(game.now-c.born)/620));
+        const fan=Math.sin(launch*Math.PI),lane=((c.piece??0)%4-1.5)*.22;
+        x-=t.my*lane*fan;y+=t.mx*lane*fan;
+        bottom=(BODY_H+.14)*(1-e)+(RAIL_Y+.025)*e+hop*.58;
+        tilt=hop*.22+lane*fan*.18;
         const small=boxedFootprint(t);
         sizeFactor=small+(1-small)*e;
         heightFactor=boxedHeightFactor+(1-boxedHeightFactor)*e;
       }
-      return {...c,bottom,hop,tilt,squash,sizeFactor,heightFactor};
+      return {...c,x,y,bottom,hop,tilt,squash,sizeFactor,heightFactor};
     });
     for(const f of game.flying){
       const k=Math.max(0,Math.min(1,(game.now-f.at)/f.ms)),p=flyPos(f,k);
@@ -1162,7 +1219,11 @@ export function mountThree(frameEl, getGameFn) {
   // vi bam tay roi doan.
   function project(wx, wy, wh) {
     const r = canvas.getBoundingClientRect();
-    const v = new THREE.Vector3(wx, wh === undefined ? BODY_H + CARGO_H / 2 : wh, wy);
+    // Aim the round-trip pick check at the visible centre of a closed lid. At the
+    // 40-degree camera, projecting the old mid-body height sends the ray through the
+    // front face of the next carton first, which made every slot appear one position
+    // out even though its lid was individually clickable.
+    const v = new THREE.Vector3(wx, wh === undefined ? BODY_H + .92 : wh, wy);
     v.project(camera);
     return { x: r.left + ((v.x + 1) / 2) * r.width, y: r.top + ((1 - v.y) / 2) * r.height };
   }

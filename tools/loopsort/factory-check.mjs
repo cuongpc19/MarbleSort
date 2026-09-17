@@ -155,7 +155,9 @@ test('clicking one selected box pours exactly its eight real candies', () => {
   assert.ok(g.pending.every(p => p.color === selected.color));
   assert.equal(g.canTap(t), false, 'tray waits until all eight pieces leave the opened box');
   const first = g.pending[0], origin = g.candyPos(first.truck, first.slot, first.piece);
-  g.step(0, 0);
+  g.step(0, first.at - 1);
+  assert.equal(g.cubes.length, 0, 'the lid gets its opening beat before candy exits');
+  g.step(0, first.at);
   assert.equal(g.cubes[0].x, origin.x); assert.equal(g.cubes[0].y, origin.y);
   assert.ok(g.undo());
   assert.deepEqual(t.blocks, before, 'undo restores the selected box to its exact slot');
@@ -212,7 +214,7 @@ test('undo restores boxes from pending and physical candies; packing invalidates
   const t = g.trucks[1], n = t.blocks.length;
   assert.ok(g.tap(t)); check(); assert.ok(g.undo()); check();
   assert.equal(t.blocks.length, n); assert.equal(g.candyCount(), 0);
-  assert.ok(g.tap(t)); g.step(1 / 60, 17); check();
+  assert.ok(g.tap(t)); g.step(1 / 60, g.pending[0].at); check();
   assert.ok(g.cubes.length); assert.ok(g.pending.length); assert.ok(g.undo()); check();
   assert.equal(g.cubes.length + g.pending.length, 0);
   assert.ok(g.tap(t)); feed(g, g.trucks[0], 1); check();
