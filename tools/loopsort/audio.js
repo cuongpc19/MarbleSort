@@ -38,6 +38,33 @@ function note(freq, delay = 0, duration = 0.11, wave = "sine", volume = 0.065, e
   osc.stop(start + duration + 0.015);
 }
 
+// Firework sounds: filtered noise. One shared buffer of white noise, made on first use.
+let noiseBuf = null;
+function noise(delay, duration, volume, from, to, type = "lowpass") {
+  const ctx = context();
+  if (!ctx || !enabled) return;
+  if (!noiseBuf) {
+    noiseBuf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
+    const d = noiseBuf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  }
+  const start = ctx.currentTime + delay;
+  const src = ctx.createBufferSource();
+  src.buffer = noiseBuf;
+  const filter = ctx.createBiquadFilter();
+  filter.type = type;
+  filter.frequency.setValueAtTime(from, start);
+  filter.frequency.exponentialRampToValueAtTime(Math.max(20, to), start + duration);
+  const amp = ctx.createGain();
+  amp.gain.setValueAtTime(0.0001, start);
+  amp.gain.exponentialRampToValueAtTime(volume, start + 0.006);
+  amp.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+  src.connect(filter); filter.connect(amp); amp.connect(bus);
+  src.start(start, Math.random() * 0.5);
+  src.stop(start + duration + 0.02);
+}
+let lastBoom = -Infinity;
+
 function melody(notes, spacing = 0.085, duration = 0.16, volume = 0.055) {
   notes.forEach((freq, i) => note(freq, i * spacing, duration, "sine", volume));
 }
@@ -90,6 +117,19 @@ export const sound = {
         melody([659, 831, 1047, 1319], 0.055, 0.15, 0.045);
         break;
       case "win": melody([523, 659, 784, 1047, 1319], 0.13, 0.28, 0.055); break;
+      // Rocket going up: a rising hiss.
+      case "launch": noise(0, 0.42, 0.05 * amount, 900, 5200, "bandpass"); break;
+      // Firework burst: a deep thump, a noisy crack, then a tail of crackles.
+      case "boom": {
+        const now = performance.now();
+        if (now - lastBoom < 70) return;
+        lastBoom = now;
+        const k = Math.max(0.4, Math.min(1.4, amount));
+        note(95, 0, 0.5, "sine", 0.16 * k, 38);
+        noise(0, 0.55, 0.22 * k, 2600, 180);
+        for (let i = 0; i < 6; i++) noise(0.16 + i * 0.07 + Math.random() * 0.05, 0.05, 0.05 * k, 6000, 2500, "highpass");
+        break;
+      }
       case "lose": melody([494, 392, 330], 0.16, 0.28, 0.04); break;
       case "blocked": note(180, 0, 0.07, "triangle", 0.025, 125); break;
       default: break;

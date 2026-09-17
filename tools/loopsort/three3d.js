@@ -1284,7 +1284,7 @@ export function mountThree(frameEl, getGameFn) {
   }
 
   // ---------------------------------------------------------------- vong lap
-  let lastGame = null, lastSig = "", lastStatics = "", raf = 0, w = 0, h = 0;
+  let lastGame = null, lastSig = "", lastStatics = "", raf = 0, w = 0, h = 0, glide = null;
 
   function resize() {
     const r = frameEl.getBoundingClientRect();
@@ -1309,6 +1309,9 @@ export function mountThree(frameEl, getGameFn) {
 
     const staticKey=game.trucks.map(t=>t.cap).join(",");
     if (game !== lastGame || staticKey !== lastStatics) {
+      // Cung mot van ma ban co doi (vua them khay): camera TRUOT sang khung moi thay vi nhay.
+      const sameGame = game === lastGame && !reducedMotion.matches;
+      const fromPos = camera.position.clone(), fromQuat = camera.quaternion.clone();
       lastGame = game;
       lastStatics=staticKey;
       buildStatics(game);
@@ -1318,8 +1321,27 @@ export function mountThree(frameEl, getGameFn) {
       resize();
       placeCamera(game.bounds);
       fitCamera(game);
+      glide = sameGame ? { fromPos, fromQuat, toPos: camera.position.clone(),
+                           toQuat: camera.quaternion.clone(), t0: performance.now() } : null;
+      if (glide) { camera.position.copy(fromPos); camera.quaternion.copy(fromQuat); }
     }
     resize();
+    if (glide) {
+      const k = Math.min(1, (performance.now() - glide.t0) / 520), e = k * k * (3 - 2 * k);
+      camera.position.lerpVectors(glide.fromPos, glide.toPos, e);
+      camera.quaternion.slerpQuaternions(glide.fromQuat, glide.toQuat, e);
+      if (k >= 1) glide = null;
+    }
+    // Khay vua them bang booster: nay len tu mat san.
+    for (const m of statics.children) {
+      const t = m.userData.truck || m.userData.bridgeTruck;
+      if (!t || !t.extra) continue;
+      if (!m.userData.popBase) m.userData.popBase = m.scale.clone();
+      const k = reducedMotion.matches ? 1 : Math.max(0, Math.min(1, (game.now - t.addedAt) / 420));
+      const c1 = 1.7, c3 = c1 + 1, e = k >= 1 ? 1 : 1 + c3 * Math.pow(k - 1, 3) + c1 * Math.pow(k - 1, 2);
+      const b = m.userData.popBase;
+      if (!m.userData.bridgeTruck) m.scale.set(b.x * Math.max(.01, e), b.y * Math.max(.01, e), b.z * Math.max(.01, e));
+    }
 
     const sig = cargoSig(game);
     if (sig !== lastSig) { lastSig = sig; buildCargo(game); }

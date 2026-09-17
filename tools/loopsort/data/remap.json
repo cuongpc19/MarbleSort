@@ -2213,19 +2213,19 @@
   "blocks": 32,
   "slot": 4,
   "shape": [
-   "a?abc",
-   "d?eaf",
-   "f?ggc",
-   "c?dch",
-   "d?bfd",
-   "h?eeb",
-   "e?bfh",
-   "g?agh"
+   "a?bac",
+   "b?deb",
+   "f?ggf",
+   "e?cda",
+   "g?fde",
+   "e?hch",
+   "c?gbh",
+   "d?haf"
   ],
   "shuffled": true,
-  "changed": 0.78,
-  "winnable": true,
-  "donorSpline": 249,
+  "changed": 0.81,
+  "winnable": false,
+  "donorSpline": 179,
   "recolor": {
    "G": "PNK",
    "PNK": "DPNK",
@@ -2237,8 +2237,8 @@
    "O": "LPNK"
   },
   "bbox": [
-   27.5,
-   33.4
+   29.1,
+   40.4
   ]
  },
  {
@@ -3064,21 +3064,22 @@
   "slot": 7,
   "shape": [
    "ab?c?d",
-   "de?f?e",
-   "ecea",
-   "bghi",
-   "h?dji",
-   "d?kfk",
-   "b?fja",
-   "c?cki",
-   "k?a?l?g",
-   "h?h?f?i",
-   "j?l?l?j",
-   "g?b?g?l"
+   "ee?f?d",
+   "gfdh",
+   "ibij",
+   "a?fkj",
+   "g?clk",
+   "c?lgk",
+   "a?lhe",
+   "h?b?i?b",
+   "c?k?l?e",
+   "f?a?i?d",
+   "h?j?j?g"
   ],
   "shuffled": true,
-  "changed": 0.94,
-  "donorSpline": 270,
+  "changed": 0.88,
+  "winnable": true,
+  "donorSpline": 612,
   "recolor": {
    "DG": "G",
    "R": "DG",
@@ -3094,8 +3095,8 @@
    "GR": "W"
   },
   "bbox": [
-   27.1,
-   33.3
+   29.1,
+   42.4
   ]
  },
  {
@@ -3253,21 +3254,22 @@
   "slot": 6,
   "shape": [
    "abcd",
-   "efgc",
-   "ddhi",
-   "fgdj",
-   "ekii",
-   "cgbf",
-   "h?j?l?l",
-   "c?k?k?j",
-   "a?a?h?g",
-   "b?e?li",
-   "l?j?he",
-   "a?k?bf"
+   "eafg",
+   "fbbh",
+   "hgih",
+   "jgik",
+   "ihel",
+   "e?g?a?j",
+   "j?f?f?d",
+   "j?l?b?d",
+   "k?l?ca",
+   "c?e?ck",
+   "l?i?dk"
   ],
   "shuffled": true,
-  "changed": 0.88,
-  "donorSpline": 539,
+  "changed": 0.94,
+  "winnable": true,
+  "donorSpline": 76,
   "recolor": {
    "BR": "DG",
    "BL": "P",
@@ -3284,7 +3286,7 @@
   },
   "bbox": [
    29.1,
-   39.7
+   40.4
   ]
  },
  {

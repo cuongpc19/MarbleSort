@@ -7,6 +7,7 @@
 
 import * as E from "./loopsort.js";
 import { sound } from "./audio.js";
+import { celebrate, mascot } from "./celebrate.js";
 
 // ⚠ Doc tu chinh du lieu chu khong ghi cung mot con so. Bo level la do tools/loopsort/
 // levelgen.mjs sinh ra; sinh thu 40 level de xem hinh la chuyen binh thuong, va luc do mot
@@ -19,7 +20,7 @@ const REWARD = { Default: 10, Hard: 30, SuperHard: 50 };
 const REVIVE = [900, 1900];
 // (2.8) Nhan do kho: chi Hard/SuperHard moi co nhan. 1042/1299 level la Default va khong
 // deo gi ca - nhan dan len moi man thi khong con la thong tin.
-const TAG = { Hard: "KHÓ", SuperHard: "SIÊU KHÓ" };
+const TAG = { Hard: "HARD", SuperHard: "SUPER HARD" };
 
 // ⚠ Mot dinh nghia artwork cho ca hai noi dung no: thanh booster duoi man choi va bang
 // "cach go" tren the RAY TAC (3.4 - panel phai tro vao dung nhung nut nguoi choi da
@@ -28,6 +29,7 @@ const SVG = (d) => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" '
   'aria-hidden="true" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + d + "</svg>";
 const TOY = (d) => '<svg viewBox="0 0 48 48" aria-hidden="true" fill="none" stroke-linecap="round" stroke-linejoin="round">' + d + '</svg>';
 const ICON = {
+  gear: SVG('<circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v2.6M12 18.6v2.6M2.8 12h2.6M18.6 12h2.6M5.5 5.5l1.8 1.8M16.7 16.7l1.8 1.8M5.5 18.5l1.8-1.8M16.7 7.3l1.8-1.8"/><circle cx="12" cy="12" r="6.6"/>'),
   home: SVG('<path d="M3 11l9-7 9 7"/><path d="M5.5 10.2V19h13v-8.8"/><path d="M10 19v-5h4v5"/>'),
   retry: SVG('<polyline points="21 4 21 9.5 15.5 9.5"/>' +
              '<path d="M19.1 14.5A7.6 7.6 0 1 1 17.3 6.6L21 9.5"/>'),
@@ -48,28 +50,30 @@ const SOUND_OFF = SVG('<path d="M4 10v4h4l5 4V6l-5 4H4Z"/><path d="m17 9 5 6m0-6
 // de bam roi bao loi. No phai hoi DONG MOT luat ma engine dung khi tu choi, khong duoc
 // doan lai - vi the Undo hoi thang `g.canUndo()` chu khong chep lai dieu kien cua no.
 const BOOSTERS = [
-  { id: "Undo", l: "Hoàn tác", cost: 300, free: 3, name: "Hoàn tác",
-    hint: "Đưa mẻ kẹo vừa thả trở lại hộp",
+  { id: "Undo", l: "Undo", cost: 300, free: 3, name: "Undo",
+    hint: "Puts the last poured candy back in its box",
     can: (g) => g.canUndo() },
-  { id: "Shuffle", l: "Trộn", cost: 300, free: 3, name: "Trộn kẹo", target: true,
-    hint: "Chạm khay để trộn thứ tự các hộp kẹo",
+  { id: "Shuffle", l: "Shuffle", cost: 300, free: 3, name: "Shuffle", target: true,
+    hint: "Tap a tray to shuffle its boxes",
     can: (g) => g.trucks.some((t) => !t.gone && t.blocks.length > 1) },
-  { id: "ConveyorCapacity", l: "Ray +1", cost: 800, free: 3, name: "Thêm 1 chỗ hộp trên ray",
-    hint: "Băng chuyền chứa thêm 1 hộp kẹo",
+  { id: "ConveyorCapacity", l: "Belt +1", cost: 800, free: 3, name: "Bigger Belt",
+    hint: "The belt holds one more box of candy",
     // ⚠ Khi ban co da chet thi mot cho khong chac du. Hoi dung cau ma ban co se hoi:
     // them mot cho co lam noi mot vali nao cham duoc tro lai khong? Neu khong thi de nut
     // mo, dung de nguoi choi tra tien roi nhin the RAY TAC van con do.
     can: (g) => g.state !== "lose" ||
       g.trucks.some((t) => !t.gone && t.blocks.length && t.drain < 0 &&
         g.counter() + g.tapLoad(t) <= g.slotCount + 1) },
-  { id: "Capacity", l: "Hộp +1", cost: 900, free: 3, name: "Mở rộng khay kẹo", target: true,
-    hint: "Chạm khay để thêm chỗ cho một hộp kẹo",
-    can: (g) => g.trucks.some((t) => !t.gone) },
+  // ⚠ "Them mot KHAY", khong phai them mot o hop (chu du an 2026-09-17). Toi da MOT khay moi
+  // luot choi; cho dat da duoc engine tim san (Game.spare).
+  { id: "Capacity", l: "Tray +1", cost: 900, free: 3, name: "Extra Tray",
+    hint: "Adds one empty tray next to the belt",
+    can: (g) => g.canAddTray() },
 ];
 const BST = Object.fromEntries(BOOSTERS.map((b) => [b.id, b]));
 // Hai cai go duoc the RAY TAC - Tron va O xe khong lam giam tai tren ray nen khong co mat
 // trong bang "cach go" (3.3: goi y phai la thu that su go duoc, khong phai danh sach cho du).
-const WAYS = ["Undo", "ConveyorCapacity"];
+const WAYS = ["Undo", "ConveyorCapacity", "Capacity"];
 
 let armed = null;
 const DEMO_TAP_MS = 2100;
@@ -88,7 +92,7 @@ function fatal(e) {
   box.style.cssText = "position:fixed;left:12px;right:12px;bottom:12px;z-index:99;" +
     "background:#4a1030;border:1px solid #ff7ba3;color:#ffd6e2;padding:12px 14px;" +
     "border-radius:12px;font:12px/1.5 system-ui;white-space:pre-wrap";
-  box.textContent = "Lỗi: " + (e && e.message ? e.message : e);
+  box.textContent = "Error: " + (e && e.message ? e.message : e);
   document.body.appendChild(box);
 }
 addEventListener("error", (e) => fatal(e.error || e.message));
@@ -149,7 +153,7 @@ let audioGame = null, audioGone = 0;
 // ---------------------------------------------------------------- man hinh
 
 function coins() {
-  const t = save.coins.toLocaleString("vi-VN");
+  const t = save.coins.toLocaleString("en-US");
   $("homeCoins").textContent = t;
   $("gameCoins").textContent = t;
 }
@@ -159,7 +163,6 @@ function coins() {
 // ti le co dinh thi dung o may nay va sai o may co safe-area (2.7): tai tho cua dien
 // thoai an mat dai tren, va ban co chay xuong duoi gam hang booster.
 function syncChrome(on) {
-  $(on ? "gameSound" : "homeSound").appendChild($("btnSound"));
   if (!on) { E.setChrome(0, 0); return; }
   E.setChrome($("topbar").offsetHeight, $("toolDock").offsetHeight);
 }
@@ -204,7 +207,7 @@ function startLevel(n) {
   drawTools();
   syncChrome(true);
   coins(); dev();
-  if (n === 1) hint("Chạm hộp ngoài cùng để đổ kẹo lên băng chuyền", 6500);
+  if (n === 1) hint("Tap the outer box to pour its candy onto the belt", 6500);
 }
 
 // ---------------------------------------------------------------- booster
@@ -259,13 +262,14 @@ function onBooster(id) {
 
 function use(b) {
   const g = E.getGame();
-  if (!b.can(g)) { sound.play("blocked"); hint("Không dùng được lúc này", 1600); return; }
+  if (!b.can(g)) { sound.play("blocked"); hint("Can't use that right now", 1600); return; }
   if (b.target) { sound.play("ui"); armed = b.id; hint(b.hint); drawTools(); return; }
 
   let ok = false;
   if (b.id === "Undo") ok = g.undo();
   if (b.id === "ConveyorCapacity") ok = g.addConveyorSlot();
-  if (!ok) { sound.play("blocked"); hint("Không dùng được lúc này", 1600); return; }
+  if (b.id === "Capacity") ok = g.addTray();
+  if (!ok) { sound.play("blocked"); hint("Can't use that right now", 1600); return; }
   sound.play(b.id);
   save.setBst(b.id, save.bst(b.id) - 1);
   // Go duoc that thi the RAY TAC bien mat - no chi con dung khi van con tac.
@@ -278,8 +282,7 @@ function applyArmed(t) {
   const b = BST[armed];
   let ok = false;
   if (b.id === "Shuffle") ok = g.shuffle(t);
-  if (b.id === "Capacity") ok = g.addBaySlot(t);
-  if (!ok) { sound.play("blocked"); hint("Khay này không dùng được", 1400); return; }
+  if (!ok) { sound.play("blocked"); hint("Can't use that on this tray", 1400); return; }
   sound.play(b.id);
   save.setBst(b.id, save.bst(b.id) - 1);
   armed = null; hint(null); drawTools();
@@ -293,11 +296,13 @@ function askBuy(b) {
   card(`
     <h2>${b.name.toUpperCase()}</h2>
     <div class="sub">${b.hint}</div>
-    <div class="reward"><span class="price"></span>${b.cost.toLocaleString("vi-VN")}</div>
-    <div class="stat"><span>Ví của bạn</span><b>${save.coins.toLocaleString("vi-VN")}</b></div>
-    <div class="stat"><span>Còn lại sau khi mua</span><b>${(save.coins - b.cost).toLocaleString("vi-VN")}</b></div>
-    <button class="btn gold" id="aBuy">MUA VÀ DÙNG</button>
-    <button class="btn ghost" id="aNo">Thôi</button>`, "ask");
+    <div class="reward"><span class="price"></span>${b.cost.toLocaleString("en-US")}</div>
+    <div class="stat"><span>Your coins</span><b>${save.coins.toLocaleString("en-US")}</b></div>
+    ${save.coins >= b.cost
+      ? `<div class="stat"><span>Left after buying</span><b>${(save.coins - b.cost).toLocaleString("en-US")}</b></div>`
+      : `<div class="stat"><span>Not enough coins</span><b>need ${(b.cost - save.coins).toLocaleString("en-US")} more</b></div>`}
+    <button class="btn gold" id="aBuy" ${save.coins >= b.cost ? "" : "disabled"}>BUY AND USE</button>
+    <button class="btn ghost" id="aNo">No thanks</button>`, "ask");
   $("aNo").onclick = () => { sound.play("ui"); back ? $("cards").classList.add("hide") : onLose(); };
   $("aBuy").onclick = () => {
     if (save.coins < b.cost) return;
@@ -341,23 +346,29 @@ function onWin() {
   if (g.id + 1 > save.level) save.level = g.id + 1;
   const newArea = E.areaOf(g.id + 1) !== E.areaOf(g.id);
 
+  const praise = ["Sweet!", "Delicious!", "Yummy!", "Sugar rush!", "Tasty!"][g.id % 5];
   card(`
-    <div class="head"><h2>HOÀN THÀNH!</h2></div>
-    <div class="body">
-      <p class="lead">Level ${g.id}</p>
-      <div class="stars"><i>★</i><i>★</i><i>★</i></div>
-      <div class="reward"><span class="coin"></span>+${gain}</div>
-      ${TAG[theme] ? '<p class="rwhy' + (theme === "SuperHard" ? " sh" : "") + '">' +
-          "THƯỞNG MÀN " + TAG[theme] + "</p>" : ""}
-      ${newArea ? '<div class="banner">Mở khoá mẻ kẹo mới!</div>' : ""}
-    </div>
-    <button class="b3" id="cNext">LEVEL ${Math.min(MAX_LEVEL, g.id + 1)}</button>
-    <button class="b3 blue small" id="cHome">VỀ NHÀ</button>`, "res win");
+    ${mascot("happy")}
+    <div class="lvChip">Level ${g.id}</div>
+    <h2 class="bigTitle">COMPLETE!</h2>
+    <div class="praise">${praise}</div>
+    <div class="stars"><i>★</i><i>★</i><i>★</i></div>
+    <div class="reward"><span class="coin"></span>+${gain}</div>
+    ${TAG[theme] ? '<p class="rwhy' + (theme === "SuperHard" ? " sh" : "") + '">' +
+        TAG[theme] + " LEVEL BONUS</p>" : ""}
+    ${newArea ? '<div class="banner">New candy line unlocked!</div>' : ""}
+    <div class="winRow">
+      <button class="sq" id="cHome" title="Home" aria-label="Home">${ICON.home}</button>
+      <button class="sq" id="cReplay" title="Play again" aria-label="Play again">${ICON.retry}</button>
+      <button class="b3 grow" id="cNext">Next level →</button>
+    </div>`, "res win");
+  celebrate($("cards"), { sound, reduced: reducedMotion.matches });
 
   const ic = $("cards").querySelectorAll(".stars i");
   // Thu tu sang: trai, (giua), phai - ngoi sao GIUA to nhat sang sau cung khi du 3 sao.
   const lit = st === 3 ? [0, 2, 1] : st === 2 ? [0, 1] : [0];
-  lit.forEach((i, k) => setTimeout(() => ic[i].classList.add("on"), 260 + k * 230));
+  lit.forEach((i, k) => setTimeout(() => ic[i].classList.add("on"), 380 + k * 230));
+  $("cReplay").onclick = () => { sound.play("ui"); startLevel(g.id); };
   $("cNext").onclick = () => { sound.play("ui"); startLevel(g.id + 1); };
   $("cHome").onclick = () => { sound.play("ui"); goHome(); };
   coins();
@@ -382,20 +393,18 @@ function onLose() {
 
   const X = g.revivePlan();
   card(`
-    <div class="head"><h2>KẸO KẸT RỒI!</h2></div>
-    <div class="body">
-      <p class="lead">Không còn khay nào nhận kẹo trên băng chuyền.</p>
-      ${planStrip(g, X)}
-      ${X ? '<p class="planNote">Hồi sinh dọn hết kẹo màu <b style="background:' +
-          (E.PALETTE[X] || "#8590a6") + '"></b></p>' : ""}
-      <p class="waysLbl">Hoặc gỡ bằng</p>
-      <div class="ways">${ways}</div>
+    ${mascot("sad")}
+    <h2 class="bigTitle warm">Candy jam!</h2>
+    <p class="lead">No tray can take the candy on the belt.</p>
+    ${planStrip(g, X)}
+    ${X ? '<p class="planNote">Revive clears every <b style="background:' +
+        (E.PALETTE[X] || "#8590a6") + '"></b> candy</p>' : ""}
+    <div class="ways">${ways}
+      <button class="way" id="cRetry" title="Play again">${ICON.retry}<span class="l">Restart</span></button>
     </div>
-    <button class="b3" id="cRev" ${can && X ? "" : "disabled"}>HỒI SINH
-      <span class="tag"><span class="price"></span>${price.toLocaleString("vi-VN")}</span></button>
-    <button class="b3 blue small" id="cRetry">CHƠI LẠI</button>
-    <button class="link" id="cHome">Về nhà</button>`, "res lose");
-
+    <button class="b3" id="cRev" ${can && X ? "" : "disabled"}>Revive
+      <span class="tag"><span class="price"></span>${price.toLocaleString("en-US")}</span></button>
+    <button class="b3 ghost" id="cHome">Home</button>`, "res lose");
   for (const el of $("cards").querySelectorAll(".way"))
     el.onclick = () => onBooster(el.dataset.b);
   $("cRetry").onclick = () => { sound.play("ui"); startLevel(g.id); };
@@ -457,18 +466,19 @@ function showJam(g) {
   const b = BST.ConveyorCapacity;
   const dead = !b.can(g) || (save.bst(b.id) <= 0 && save.coins < b.cost);
   jamOpen = true;
+  const t2 = BST.Capacity, dead2 = !t2.can(g) || (save.bst(t2.id) <= 0 && save.coins < t2.cost);
   card(`
-    <div class="head"><h2>BĂNG CHUYỀN ĐẦY!</h2></div>
-    <div class="body">
-      <p class="lead">Chưa đủ chỗ để thả hộp kẹo tiếp theo · ${g.counter()}/${g.slotCount} hộp</p>
-      <div class="jamRail"><div class="jamRun">${jamStrip(g)}</div><span class="jamStop"></span></div>
-      <p class="waysLbl">Cách gỡ</p>
-      <div class="ways">
-        <button class="way" data-b="ConveyorCapacity"${dead ? " disabled" : ""}
-          title="${b.name} — ${b.hint}">${ICON.ConveyorCapacity}<span class="l">${b.l}</span>${stock(b.id)}</button>
-      </div>
+    ${mascot("sad")}
+    <h2 class="bigTitle warm">Belt full!</h2>
+    <p class="lead">No room for the next box yet · ${g.counter()}/${g.slotCount} boxes on the belt</p>
+    <div class="jamRail"><div class="jamRun">${jamStrip(g)}</div><span class="jamStop"></span></div>
+    <div class="ways">
+      <button class="way" data-b="ConveyorCapacity"${dead ? " disabled" : ""}
+        title="${b.name} — ${b.hint}">${ICON.ConveyorCapacity}<span class="l">${b.l}</span>${stock(b.id)}</button>
+      <button class="way" data-b="Capacity"${dead2 ? " disabled" : ""}
+        title="${t2.name} — ${t2.hint}">${ICON.Capacity}<span class="l">${t2.l}</span>${stock(t2.id)}</button>
     </div>
-    <button class="b3 blue" id="jWait">ĐỂ TÔI ĐỢI</button>`, "res jam");
+    <button class="b3" id="jWait">I'll wait</button>`, "res jam");
   for (const el of $("cards").querySelectorAll(".way"))
     el.onclick = () => onBooster(el.dataset.b);
   $("jWait").onclick = closeJam;
@@ -519,7 +529,7 @@ function frame(now) {
     // doc mot dang khac.
     const tran = g.counter() > g.slotCount * 2 / 3;
     gauge.classList.toggle("warning", tran);
-    gauge.setAttribute("aria-label", "Level " + g.id + ", hộp trên ray: " + g.counter() + "/" + g.slotCount + (tran ? ", sắp tràn" : ""));
+    gauge.setAttribute("aria-label", "Level " + g.id + ", boxes on belt: " + g.counter() + "/" + g.slotCount + (tran ? ", almost full" : ""));
     // ⚠ Khong goi E.draw: bo 3D tu chay vong lap rieng cua no.
     if (demo) {
       // van nen tu choi: cham mot ben con hang, mien la ray con cho
@@ -558,23 +568,23 @@ function dev() {
     <h3>Level ${g.id} · ${lv.Theme} · Candy Factory</h3>
     <div class="kv">
       <b>Khay</b><span>${g.trucks.length}</span>
-      <b>Màu</b><span>${cols.size}</span>
-      <b>Sức chứa ray</b><span>${g.slotCount} hộp = ${g.capCubes} viên kẹo</span>
-      <b>Ray</b><span>${g.closed ? "vòng kín" : "hở — Portal"} · ${g.len.toFixed(1)} đv</span>
-      <b>Kẹo/hộp</b><span>${g.perBlock}</span>
+      <b>Colours</b><span>${cols.size}</span>
+      <b>Belt capacity</b><span>${g.slotCount} boxes = ${g.capCubes} candies</span>
+      <b>Belt</b><span>${g.closed ? "closed loop" : "open — Portal"} · ${g.len.toFixed(1)} u</span>
+      <b>Candy/box</b><span>${g.perBlock}</span>
     </div>
     <h3 style="margin-top:10px">Carriers #${lv.Carriers}</h3>
     <code>${E.CARRIERS[lv.Carriers].ColorData}</code>
     <h3>Splines #${lv.Spline}</h3>
     <code>${E.SPLINES[lv.Spline].Spline.replace(/\n/g, "⏎")}</code>
     <div style="display:flex;gap:6px;flex-wrap:wrap">
-      <button id="dLv">Nhảy level…</button>
+      <button id="dLv">Go to level…</button>
       <button id="dCoin">+1000 xu</button>
-      <button id="dWin">Thắng ngay</button>
-      <button id="dReset">Xoá tiến độ</button>
+      <button id="dWin">Win now</button>
+      <button id="dReset">Reset progress</button>
       <button id="dBst">+9 booster</button>
       <label style="display:flex;gap:5px;align-items:center">
-        <input type="checkbox" id="eager"> Hút thoáng</label>
+        <input type="checkbox" id="eager"> Eager pickup</label>
     </div>`;
   $("dLv").onclick = () => {
     const n = prompt("Level (1-1299)", g.id);
@@ -591,11 +601,7 @@ function dev() {
   // (1.4) Nut xoa tien do chi ton tai o day, sau mot lan xac nhan - khong bao gio nam
   // tren Home noi ngon tay quet qua.
   $("dReset").onclick = () => {
-    if (confirm("Xoá toàn bộ tiến độ?")) {
-      for (const k of ["level", "coins", "stars", "eager"]) localStorage.removeItem(K + k);
-      for (const b of BOOSTERS) localStorage.removeItem(K + "b_" + b.id);
-      goHome();
-    }
+    if (confirm("Erase all progress?")) { resetProgress(); goHome(); }
   };
 }
 
@@ -627,34 +633,71 @@ cv.addEventListener("pointerdown", (e) => {
   const load = Math.max(1, g.tapLoad(t)) * g.perBlock;
   if (g.tap(t, hit.slot)) { sound.play("pour", load); return; }
   sound.play("blocked");
-  if (g.innerSlot(t, hit.slot)) { hint("Hộp bên trong — lấy hộp ngoài cùng ra trước", 1600); return; }
+  if (g.innerSlot(t, hit.slot)) { hint("Inner box — take the outer box out first", 1600); return; }
   // ⚠ Het cho tren ray khong phai thua, chi la khoa tam: vali da mo san (drawBlocked),
   // day chi la cau tra loi cho nguoi van cham vao. Noi cai DIEU KIEN go khoa - "cho ben
   // nuot bot" - chu khong phai "khong bam duoc", vi cai sau khong cho ho viec gi de lam.
   if (g.state === "play" && !t.gone && t.blocks.length && t.drain < 0)
-    hint("Chưa đủ chỗ — chờ khay đóng gói bớt kẹo", 1600);
+    hint("No room yet — wait for the trays to pack some candy", 1600);
 });
 
 // ⚠ Chi doi nhan ben trong <b id="homeLv"> va <small id="homeArea">, khong ghi de
 // innerHTML cua nut: lam the la xoa luon chinh hai the do, va goHome() sau nay se nem
 // loi vi null.
 $("btnPlay").disabled = true;
-$("homeArea").textContent = "đang tải dữ liệu…";
+$("homeArea").textContent = "loading…";
 $("btnPlay").onclick = () => { sound.unlock(); sound.play("ui"); startLevel(save.level); };
-$("btnHome").innerHTML = ICON.home;
+$("btnSet").innerHTML = ICON.gear;
+$("btnHomeSet").innerHTML = ICON.gear;
 $("btnRetry").innerHTML = ICON.retry;
-$("btnHome").onclick = () => { sound.play("ui"); goHome(); };
+$("btnSet").onclick = () => { sound.play("ui"); openSettings(true); };
+$("btnHomeSet").onclick = () => { sound.unlock(); sound.play("ui"); openSettings(false); };
 $("btnRetry").onclick = () => { sound.play("ui"); startLevel(E.getGame().id); };
-function syncSoundButton() {
-  const button = $("btnSound");
+// ⚠ SETTINGS (chu du an 2026-09-17: "design lai nut setting ... doc game khac de biet nut nay
+// co gi. ngoai ra them cho t phan reset choi lai tu dau"). Theo Tube Tangle / Block Away:
+// am thanh, nhay toi level, CHOI LAI TU DAU (sau mot lan xac nhan - luat 1.4 / 4.6: nut xoa
+// tien do khong bao gio nam tren Home), ve nha, dong. Nut ve nha cu tren thanh tren da doi
+// thanh nut nay (luat 2.1: toi da 4 vat the).
+function openSettings(inGame) {
+  const wasCarded = carded;
+  carded = true;
   const on = sound.isEnabled();
-  button.innerHTML = on ? SOUND_ON : SOUND_OFF;
-  button.setAttribute("aria-label", on ? "Tắt âm thanh" : "Bật âm thanh");
-  button.setAttribute("aria-pressed", String(on));
+  card(`
+    <h2 class="bigTitle">Settings</h2>
+    <label class="swRow"><span>${on ? SOUND_ON : SOUND_OFF} Sound</span>
+      <input type="checkbox" id="sSound" ${on ? "checked" : ""}><i></i></label>
+    <div class="swRow"><span>Go to level</span>
+      <input id="sLevel" type="number" min="1" max="${save.level}" value="${inGame ? E.getGame().id : save.level}"></div>
+    <button class="b3" id="sGo">Play this level</button>
+    ${inGame ? '<button class="b3 ghost" id="sHome">Back to home</button>' : ""}
+    <button class="b3 danger" id="sReset">Start over from level 1</button>
+    <button class="b3 ghost" id="sClose">Close</button>`, "res set");
+  const close = () => { carded = wasCarded; $("cards").classList.add("hide"); };
+  $("sSound").onchange = () => { sound.toggle(); openSettings(inGame); };
+  $("sGo").onclick = () => {
+    // Chi nhay toi level da mo: settings la cua nguoi choi, khong phai cua dev.
+    const n = Math.max(1, Math.min(save.level, Math.round(+$("sLevel").value || 1)));
+    sound.play("ui"); carded = false; startLevel(n);
+  };
+  if (inGame) $("sHome").onclick = () => { sound.play("ui"); carded = false; goHome(); };
+  $("sClose").onclick = () => { sound.play("ui"); close(); };
+  $("sReset").onclick = () => {
+    sound.play("ui");
+    card(`
+      <h2 class="bigTitle warm">Start over?</h2>
+      <p class="lead">All levels, stars, coins and boosters go back to the start. This can't be undone.</p>
+      <button class="b3 danger" id="rYes">Yes, start over</button>
+      <button class="b3 ghost" id="rNo">Cancel</button>`, "res set");
+    $("rNo").onclick = () => { sound.play("ui"); openSettings(inGame); };
+    $("rYes").onclick = () => { resetProgress(); carded = false; goHome(); };
+  };
 }
-$("btnSound").onclick = () => { sound.toggle(); syncSoundButton(); };
-syncSoundButton();
-$("homeSound").appendChild($("btnSound"));
+
+// Xoa tien do, GIU tuy chon (luat 4.5): co tat tieng khong bi dong vao.
+function resetProgress() {
+  for (const k of ["level", "coins", "stars", "eager"]) localStorage.removeItem(K + k);
+  for (const b of BOOSTERS) localStorage.removeItem(K + "b_" + b.id);
+}
 $("devBtn").onclick = () => { $("dev").classList.toggle("hide"); dev(); };
 addEventListener("resize", () => syncChrome(!demo));
 addEventListener("keydown", (e) => {
@@ -717,7 +760,7 @@ window.__ls = {
   try {
     await E.loadData();
   } catch (e) {
-    fatal(new Error("không tải được dữ liệu level (" + (e.message || e) + ")"));
+    fatal(new Error("could not load level data (" + (e.message || e) + ")"));
     throw e;
   }
   MAX_LEVEL = Math.max(1, Object.keys(E.LEVELS).length);
@@ -725,7 +768,14 @@ window.__ls = {
   $("btnPlay").disabled = false;
   E.setEager(save.eager);
   const q = new URLSearchParams(location.search);
-  if (q.get("dev")) $("dev").classList.remove("hide");
+  if (q.get("dev")) { $("dev").classList.remove("hide"); $("devBtn").hidden = false; }
+  // (4.2 / 4.3) `?reset` xoa tien do mot lan roi tu go khoi thanh dia chi, de F5 khong xoa lai.
+  if (q.has("reset")) {
+    resetProgress();
+    q.delete("reset");
+    history.replaceState(null, "", location.pathname + (q.toString() ? "?" + q : ""));
+    goHome();
+  }
 
   // ⚠ Tu kiem RAYCAST. Bo ve 3D thay E.pick bang mot phep ban tia, va mot ban co 3D khong bam
   // duoc thi vo dung — nen phai kiem duoc bang may chu khong phai bam tay roi doan. Chieu tam

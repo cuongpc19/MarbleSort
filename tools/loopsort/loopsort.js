@@ -101,6 +101,7 @@ export const WIDE = 1.38;
 // long ray 1.84 chua 4 vien mot hang ngang, nen ray dac nhu dong cat cua ban goc va du cho hon.
 export const CUBE_SCALE = 0.93;
 const SLOT_LEN = 1.68 * SCALE;    // Full carton pitch; loose candy size must not change this.
+const END_GAP = 1.0;      // khoang ho toi thieu giua hai dau cuoi khay doi dien
 const TRUCK_W = 2.6 * WIDE;   // rong than xe, cung do tu clip
 // ⚠ 14 (chu du an 2026-09-17): "ban goc co animation chuyen dong nhanh, va nhieu, nen thay no
 // chen chuc nhau". Do tren clip ban goc: ~20 dv/giay voi cube 0.58, tuc ~34 co vien/giay; vien
@@ -445,7 +446,11 @@ export class Game {
       // level 60 tu 29 cap chi xuong 8, level 52 va 333 khong nhuc nhich.
       const hits = (f) => {
         const bs = this.trucks.map((t) => {
-          const L = t.cap * SLOT_LEN * f, h = TRUCK_W * f / 2;
+          // ⚠ + END_GAP o DAU CUOI: hai khay dau cuoi vao nhau (hai ben doi dien qua long ray)
+          // ma cham sat thi doc thanh MOT khay doi 8 hop - chu du an hoi "level 10 ban goc co
+          // khay doi a?" (khong co). 43/100 level bi. Chi noi chieu DAI, khong noi be ngang,
+          // nen hai khay song song canh nhau khong bi co them.
+          const L = t.cap * SLOT_LEN * f + END_GAP / 2, h = TRUCK_W * f / 2;
           const nx = -t.my, ny = t.mx, pts = [];
           for (const k of [0, L]) for (const sg of [-1, 1])
             pts.push({ x: t.x - t.mx * k + nx * sg * h, y: t.y - t.my * k + ny * sg * h });
@@ -485,6 +490,113 @@ export class Game {
     this.revived = {};
     this.now = performance.now();
     this.bounds = this.computeBounds();
+    // Cho de dat THEM MOT KHAY (booster cuoi). Tinh luc vao level de moi level deu biet truoc
+    // no co cho hay khong - factory-check kiem ca bo.
+    this.extraTrays = 0;
+  }
+
+  // Tinh LUOI (~0.14s moi level): bot va cong cu khong bao gio cham toi booster nay.
+  get spare() {
+    if (this._spare === undefined) this._spare = this.findSpareDock();
+    return this._spare;
+  }
+  set spare(v) { this._spare = v; }
+
+  // ⚠ BOOSTER "THEM KHAY" (chu du an 2026-09-17): "booster cuoi la booster them 1 khay chu k
+  // phai 1 hop keo. Dam bao moi level co 1 cho de dat them khay. Moi luot choi toi da them 1
+  // khay". Tim mot cho sat ray du dat tron mot khay CAP o: than khay khong de len khay nao,
+  // khong cat ngang ray (ke ca vanh), cai cau tu mieng ra ray cung khong cat khay nao. Uu tien
+  // cho nam TRONG khung ban hien tai (camera khong phai lui), roi toi cho thoang nhat.
+  findSpareDock() {
+    const R = this.ring, n = R.length;
+    const L = CAP * this.slotLen, h = this.truckW / 2;
+    const band = CHANNEL + RIM + 0.35;          // mep ngoai cua vong ray, cong le
+    const gaps = this.trucks.map((t) => Math.hypot(t.x - t.px, t.y - t.py)).sort((a, b) => a - b);
+    const D = Math.max(2.2, Math.min(3.6, gaps.length ? gaps[gaps.length >> 1] : 2.8));
+    const rects = this.trucks.map((t) => ({ x: t.x, y: t.y, mx: t.mx, my: t.my, L: t.cap * this.slotLen, h }));
+    const inRect = (r, x, y, m) => {
+      const u = (r.x - x) * r.mx + (r.y - y) * r.my;          // doc than, 0 o mieng
+      const v = -(x - r.x) * r.my + (y - r.y) * r.mx;         // ngang than
+      return u > -m && u < r.L + m && Math.abs(v) < r.h + m;
+    };
+    // Diem ray thua 2 (cach ~0.36): sai so khoang cach < 0.02, du cho mot le 0.35.
+    const coarse = R.filter((_, i) => i % 2 === 0);
+    const ringDist = (x, y) => {
+      let bd = Infinity;
+      for (const q of coarse) { const d = (q.x - x) ** 2 + (q.y - y) ** 2; if (d < bd) bd = d; }
+      return Math.sqrt(bd);
+    };
+    const b = this.bounds, bw = b.x1 - b.x0, bh = b.y1 - b.y0;
+    const pad = CHANNEL + RIM + 0.5;
+    let best = null;
+    const step = Math.max(1, Math.round(0.5 / 0.18));
+    for (let i = 0; i < n; i += step) {
+      const a = R[this.closed ? (i - 1 + n) % n : Math.max(0, i - 1)];
+      const c = R[this.closed ? (i + 1) % n : Math.min(n - 1, i + 1)];
+      const dl = Math.hypot(c.x - a.x, c.y - a.y) || 1;
+      const nx = -(c.y - a.y) / dl, ny = (c.x - a.x) / dl;
+      for (const sg of [-1, 1]) for (const dd of [D, D * 0.85, D * 1.2]) {
+        // Huong tu ray ra khay: phap tuyen, lam tron ve truc gan nhat - moi khay cua level deu
+        // nam ngang/doc, va o doan ray luon song, khay theo dung phap tuyen se nghieng xeo.
+        const ang = Math.round(Math.atan2(ny * sg, nx * sg) / (Math.PI / 2)) * (Math.PI / 2);
+        const ox = Math.round(Math.cos(ang)), oy = Math.round(Math.sin(ang));
+        if (ox * nx * sg + oy * ny * sg < Math.cos(Math.PI / 6)) continue;   // lech qua 30 do
+        const x = R[i].x + ox * dd, y = R[i].y + oy * dd;
+        const tilt = 0;
+        const me = { x, y, mx: -ox, my: -oy, L, h };
+        let ok = true, clear = Infinity;
+        let x0 = b.x0, x1 = b.x1, y0 = b.y0, y1 = b.y1;
+        // Than khay: luoi diem, phai xa ray va khong nam trong khay nao.
+        for (let k = 0; ok && k <= L + 1e-6; k += 0.5)
+          for (const w of [-h - 0.15, 0, h + 0.15]) {
+            const px = x + ox * k - oy * w, py = y + oy * k + ox * w;
+            const rd = ringDist(px, py);
+            if (rd < band) { ok = false; break; }
+            clear = Math.min(clear, rd);
+            if (rects.some((r) => inRect(r, px, py, 0.35))) { ok = false; break; }
+            x0 = Math.min(x0, px - pad); x1 = Math.max(x1, px + pad);
+            y0 = Math.min(y0, py - pad); y1 = Math.max(y1, py + pad);
+          }
+        // Cau tu mieng ra ray khong duoc cat khay khac.
+        for (let k = 0; ok && k <= dd; k += 0.4)
+          if (rects.some((r) => inRect(r, x - ox * k, y - oy * k, 0.2))) ok = false;
+        // Va nguoc lai: khong khay cu nao lan vao than khay moi.
+        if (ok) for (const r of rects)
+          for (let k = 0; ok && k <= r.L; k += 0.5)
+            if (inRect(me, r.x - r.mx * k, r.y - r.my * k, 0.35)) ok = false;
+        if (!ok) continue;
+        // Diem: ban co PHINH ra bao nhieu (camera lui bay nhieu), roi toi do thoang.
+        const grow = Math.max((x1 - x0) / bw, (y1 - y0) / bh);
+        const score = grow * 20 - Math.min(clear, 6) * 0.05 + Math.abs(tilt);
+        if (!best || score < best.score) {
+          const near = this.railToward(x, y, -ox, -oy);
+          best = { x, y, mx: -ox, my: -oy, px: near.px, py: near.py, score, grow };
+        }
+      }
+    }
+    return best;
+  }
+
+  // Duoc dung ca khi ban co vua chet: mot khay rong nhan moi mau, nen no go duoc the tac.
+  canAddTray() {
+    return this.state !== "win" && this.extraTrays < 1 && !!this.spare;
+  }
+
+  // Them mot khay RONG tai cho du phong. Khay rong nhan moi mau (xem accepts), nen no la cho
+  // go cho ban co dang ket.
+  addTray() {
+    if (!this.canAddTray()) return false;
+    const s = this.spare;
+    this.trucks.push({
+      lane: "+", blocks: [], x: s.x, y: s.y, mx: s.mx, my: s.my, px: s.px, py: s.py,
+      cap: CAP, fill: 0, claim: null, lastDump: null, gone: false, ate: 0, ripple: -1, drain: -1, check: -1,
+      confetti: [], miniPops: [], extra: true, addedAt: this.now,
+    });
+    this.extraTrays++;
+    this.spare = null;
+    this.bounds = this.computeBounds();
+    this.state = "play";
+    return true;
   }
 
   // Diem ray gan nhat NAM VE PHIA mieng ben dang quay toi.
