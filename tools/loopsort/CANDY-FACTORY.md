@@ -1,17 +1,18 @@
 # Candy factory engine / renderer contract
 
 Shipped level files and their box counts remain unchanged. Each standard tray holds
-four boxes. A box pours eight large conveyor batches in a 2 x 4 source layout,
-radius `game.r = 0.312`. A tap still pours exactly one selected box. The 3D picker
+four boxes. A box pours eight logical conveyor batches, each rendered as eight mini
+candies, for 64 visible candies in total. The engine batch radius remains
+`game.r = 0.312`. A tap still pours exactly one selected box. The 3D picker
 returns its `slot`; callers that omit the slot keep selecting the front box for
 compatibility with bots and old tools.
 
-Each conveyor batch separates into eight mini candies when it reaches an open box.
-The box therefore fills as a 4 x 4 x 4 stack: two arriving batches complete one
-16-candy layer, and all eight complete the visible 64-candy carton. This expansion
-is presentation only. The engine still accounts for eight batches, preserving belt
-capacity, puzzle timing and all shipped level arithmetic. The final layer remains
-visible briefly before the taller coloured carton seals.
+Each batch stays visibly split into eight mini candies while leaving the source,
+riding the conveyor and flying into the destination. The destination fills as a
+4 x 4 x 4 stack: two arriving batches complete one 16-candy layer, and all eight
+complete the visible 64-candy carton. The engine still accounts for eight batches,
+preserving belt capacity, puzzle timing and all shipped level arithmetic. The final
+layer remains visible briefly before the taller coloured carton seals.
 
 - `slotCount`, `counter()` and `tapLoad()` use **box equivalents**.
 - `capCubes = slotCount * 8` uses candies.
@@ -57,16 +58,18 @@ locks taps and shuffle. Adding a tray slot waits for packing and pending pours;
 revive cancels the removed colour's flights and retargets survivors after reindexing.
 
 The shared `PALETTE` export supplies the bright candy colours. Renderer dimensions:
-the raised tray deck is `BODY_H=.74`; loose conveyor candy uses a 1.18 visual scale;
-and open-carton minis are laid out at `slotLen * .155` pitch. Their four layers rise
+the raised tray deck is `BODY_H=.74`; each loose batch uses a 1.28 footprint and shows
+eight mini candies in a compact grid; open-carton minis use `slotLen * .155` pitch.
+Their four layers rise
 inside real side walls, while a completed carton has a `.72`-high body and an opaque
 colour lid. Only opening and partial cartons expose their stacked minis. Source
 transfers use a small bridge hop; incoming flights use a higher arc and landing
-squash. Near the carton mouth each large batch contracts and separates into eight
-minis; they follow a staggered curved stream into their exact row positions. A
-selected source carton briefly retains its lid, which springs up and slides back
-before the outgoing batches clear. The landed minis settle row by row, then the lid
-closes.
+squash. The eight minis in each batch follow a staggered curved stream into their
+exact row positions. A selected source carton opens two side flaps before the 64
+candies spiral briefly and stream out with a short sugar-crumb burst. The landed
+minis settle row by row. A completed 4 x 4 x 4 stack sends a wave through its four
+layers; the coloured body then rises around the stack and the lid drops into place
+with a second colour burst.
 
 The play scene deliberately contains only the conveyor, trays, cartons and candies.
 There is no surrounding workbench slab, decorative corner machinery, sales hatch or
