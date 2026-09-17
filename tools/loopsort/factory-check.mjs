@@ -157,15 +157,34 @@ test('clicking one selected box pours exactly its B real candies', () => {
   assert.deepEqual(g.pending.map(p => p.slot), Array(B).fill(slot));
   assert.deepEqual(g.pending.map(p => p.piece), [...Array(B).keys()]);
   assert.ok(g.pending.every(p => p.color === selected.color));
-  assert.equal(g.canTap(t), false, 'tray waits until all pieces leave the opened box');
+  assert.equal(g.canTap(t), g.counter() + 1 <= g.slotCount, 'a pouring box does not lock its tray');
   const first = g.pending[0], origin = g.candyPos(first.truck, first.slot, first.piece);
-  g.step(0, first.at - 1);
-  assert.equal(g.cubes.length, 0, 'the lid gets its opening beat before candy exits');
+  assert.equal(first.at, g.now, 'candy leaves on the tap itself, no opening delay');
   g.step(0, first.at);
   assert.equal(g.cubes[0].x, origin.x); assert.equal(g.cubes[0].y, origin.y);
   assert.ok(g.undo());
   assert.deepEqual(t.blocks, before, 'undo restores the selected box to its exact slot');
   check();
+});
+
+test('tapping the same tray again releases the earlier box at once, from its own pockets', () => {
+  const { g, check } = fixture(2);
+  const t = g.trucks.find(t => t.blocks.filter(b => !b.hidden || b.seen).length >= 2);
+  g.slotCount += 4; g.capCubes = g.slotCount * g.perBlock;
+  const top = t.blocks.length - 1;
+  assert.ok(g.tap(t, top)); g.step(0, g.now + 1); check();
+  const left = g.pending.filter(p => p.truck === t);
+  assert.ok(left.length > 0, 'first box is still pouring');
+  const pockets = left.map(p => g.candyPos(t, p.slot, p.piece));
+  const before = g.cubes.length;
+  assert.ok(g.canTap(t, 0), 'the next box is tappable straight away');
+  assert.ok(g.tap(t, 0)); check();
+  const out = g.cubes.slice(before, before + left.length);
+  assert.equal(out.length, left.length, 'every remaining candy of the first box left on the second tap');
+  out.forEach((c, i) => assert.ok(Math.hypot(c.x - pockets[i].x, c.y - pockets[i].y) < 1e-9));
+  assert.equal(g.pending.length, B, 'only the second box is still pouring');
+  assert.ok(g.pending.every(p => p.at >= g.now && p.slot === 0));
+  settle(g, 3000); check();
 });
 
 test('empty / partial / full / closed acceptance; partial arrival and tap lock', () => {

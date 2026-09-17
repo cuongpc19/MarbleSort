@@ -106,8 +106,12 @@ const SPEED = 9.0;        // Whole candies travel slowly enough to follow by eye
 // Give the carton lid one readable beat before the first batch leaves. The renderer now keeps
 // the selected carton and all pending candies visible in their real pocket during this delay,
 // so this no longer creates the old empty-frame blink described by the previous zero value.
-const CRUMBLE_MS = 160;
-// ⚠ 160, KHONG PHAI 0 - va day la mot hang so LUAT CHOI, khong chi la hang so hinh.
+// ⚠ 0 (chu du an 2026-09-17): "khi click vao hop, thi no nhay keo ra luon, de trong truong hop
+// user thich click vao hop ngay sau do thi k bi delay". Nhip mo nap chi con la HINH (bo ve doc
+// `tapAt`); keo roi o ngay tu khung dau, va POUR_STAGGER van trai 64 vien ra thanh dong.
+const CRUMBLE_MS = 0;
+// ⚠ Ghi chep cu (thoi moi hop mot me, CRUMBLE_MS la khoang cach giua cac VALI) - con giu de
+// biet vi sao khong duoc tha ca hang cung luc; nay khoang cach giua cac vien la POUR_STAGGER.
 // Tu khi moi vali ra tu DUNG O CUA NO (xem tap()), khoang cach giua cac vali tren cau la
 // (gian cach + mot o duong trong long xe), tuc DEU NHAU voi bat ky gian cach co dinh nao - nen
 // cai "luc nhanh luc cham" chu du an bao khong den tu con so nay.
@@ -640,10 +644,8 @@ export class Game {
     // tut tu 55% xuong 20%. Nguoi choi cung lam duoc dieu do, va no doc ra la vo ly: cham
     // vao mot khay sap dong nap thi hang tuon ra.
     if (this.packing(t)) return false;
-    // Keep the eight source candies in their original pockets until all eight have
-    // started moving. This makes the clicked box read as one physical action and
-    // prevents another click from shifting a half-open carton underneath it.
-    if (this.pending.some((p) => p.truck === t)) return false;
+    // ⚠ Hop truoc con dang tuon keo KHONG chan cu cham tiep: tap() tha not ngay phan keo con
+    // lai cua hop do (releaseDue) truoc khi rut hop moi ra, nen so o cua khay khong bi xo lech.
     const load = this.tapLoad(t, slot);
     return load === 1 && this.counter() + load <= this.slotCount;
   }
@@ -672,6 +674,12 @@ export class Game {
     if (!this.canTap(t, slot)) return false;
     const now = this.now;
     t.ripple = now;
+    // Hop truoc cua khay nay con keo cho tuon: tha het ngay bay gio, tu DUNG o cu cua no,
+    // truoc khi splice lam lech chi so o.
+    if (this.pending.some((p) => p.truck === t)) {
+      for (const p of this.pending) if (p.truck === t) p.at = now;
+      this.releaseDue(now, t);
+    }
     const selected = this.tapSlot(t, slot);
     t.rippleSlot = selected;
     const [box] = t.blocks.splice(selected, 1);
@@ -956,46 +964,13 @@ export class Game {
     }
   }
 
-  step(dt, now) {
-    this.now = now;
-    for (const t of this.trucks) {
-      // Cosmetic packing milestones: one large conveyor piece becomes eight small
-      // candies in the 4x4x4 carton. They do not participate in game accounting.
-      t.miniPops = (t.miniPops || []).filter((p) => now - p.at < 700);
-      for (const p of t.confetti) {
-        p.life += dt; p.vy += 9 * dt;
-        p.x += p.vx * dt; p.y += p.vy * dt; p.rot += p.vr * dt;
-      }
-      t.confetti = t.confetti.filter((p) => p.life < 1.3);
-    }
-    // A reserved box becomes visible only after ALL its flights land. The eighth
-    // reservation can arrive first; it must not materialize the other three candies.
-    const landedFlights = this.flying.filter((f) => now - f.at >= f.ms);
-    for (const f of landedFlights)
-      (f.truck.miniPops || (f.truck.miniPops = [])).push({ slot: f.slot, piece: f.piece, at: now });
-    this.flying = this.flying.filter((f) => {
-      if (now - f.at < f.ms) return true;
-      return false;
-    });
-    for (const t of this.trucks)
-      for (let slot = 0; slot < t.blocks.length; slot++)
-        if (t.blocks[slot].flying) {
-          const moving = this.flying.some((f) => f.truck === t && f.slot === slot);
-          t.blocks[slot].flying = moving;
-          // Cosmetic milestone consumed by the renderer. It is written only after
-          // the eighth candy really lands, never when its destination is reserved.
-          if (!moving) t.blocks[slot].packedAt = now;
-        }
-    // peak theo tung khung hinh chu khong chi ngay luc cham: o dem con leo len trong luc
-    // hang dang chay tren ray. ⚠ Khong con phan xu thua o day - xem canTap().
-    if (this.state === "play") this.peak = Math.max(this.peak, this.counter());
-    if (this.state !== "play") return;
-
+  // Tha cac vien da toi gio (`only`: chi cua mot khay) tu o cua chung ra mieng khay.
+  releaseDue(now, only = null) {
     // nha cube dang cho ra khoi mieng ben. Khong can cho ray trong: cube ra la roi
     // vao mang, ray tac thi chung don ngay o mieng - dung nhu ban goc.
     for (let i = 0; i < this.pending.length; i++) {
       const p = this.pending[i];
-      if (p.at > now) continue;
+      if (p.at > now || (only && p.truck !== only)) continue;
       const t = p.truck;
       const from = this.candyPos(t, p.slot, p.piece);
       // Each candy leaves its own pocket, not the centre of a vanished carton.
@@ -1040,6 +1015,44 @@ export class Game {
       this.pending.splice(i, 1);
       i--;
     }
+  }
+
+  step(dt, now) {
+    this.now = now;
+    for (const t of this.trucks) {
+      // Cosmetic packing milestones: one large conveyor piece becomes eight small
+      // candies in the 4x4x4 carton. They do not participate in game accounting.
+      t.miniPops = (t.miniPops || []).filter((p) => now - p.at < 700);
+      for (const p of t.confetti) {
+        p.life += dt; p.vy += 9 * dt;
+        p.x += p.vx * dt; p.y += p.vy * dt; p.rot += p.vr * dt;
+      }
+      t.confetti = t.confetti.filter((p) => p.life < 1.3);
+    }
+    // A reserved box becomes visible only after ALL its flights land. The eighth
+    // reservation can arrive first; it must not materialize the other three candies.
+    const landedFlights = this.flying.filter((f) => now - f.at >= f.ms);
+    for (const f of landedFlights)
+      (f.truck.miniPops || (f.truck.miniPops = [])).push({ slot: f.slot, piece: f.piece, at: now });
+    this.flying = this.flying.filter((f) => {
+      if (now - f.at < f.ms) return true;
+      return false;
+    });
+    for (const t of this.trucks)
+      for (let slot = 0; slot < t.blocks.length; slot++)
+        if (t.blocks[slot].flying) {
+          const moving = this.flying.some((f) => f.truck === t && f.slot === slot);
+          t.blocks[slot].flying = moving;
+          // Cosmetic milestone consumed by the renderer. It is written only after
+          // the eighth candy really lands, never when its destination is reserved.
+          if (!moving) t.blocks[slot].packedAt = now;
+        }
+    // peak theo tung khung hinh chu khong chi ngay luc cham: o dem con leo len trong luc
+    // hang dang chay tren ray. ⚠ Khong con phan xu thua o day - xem canTap().
+    if (this.state === "play") this.peak = Math.max(this.peak, this.counter());
+    if (this.state !== "play") return;
+
+    this.releaseDue(now);
 
     // ⚠ Do QUANG DUONG hat da di tren ray, khong do khoang cach toi mieng va cung khong
     // do bang dong ho. Khoang cach hut lai: hat vua tuon ra da nam ngoai ban kinh hut roi
