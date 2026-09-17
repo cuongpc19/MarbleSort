@@ -22,7 +22,9 @@ import { paintFactoryBackdrop } from "./factory-art.js";
 // ⚠ Do duoc va KHONG sua o day: mau nay so voi long khay la 1.02:1 (cung mot do sang, mat
 // gan het khi ra nang). Mau hang hoa va mau khay do mot dot chinh mau khac lam chu; ai doi
 // cho nay thi do lai ty so do truoc.
-const HIDDEN_FILL = "#31538e";
+// Xam sang, khong phai xanh navy (chu du an: "design tranh mau den ra"). Xam la mau KHONG level
+// nao dung cho keo, nen hop "?" khong bao gio nham voi mot mau that (tim, trang...).
+const HIDDEN_FILL = "#cbc4d8";
 
 // ⚠ Day la be rong CO SO. Be rong THAT cua tung level la TRUCK_W * game.fit - engine thu than
 // xe lai o nhung ban dong xe (xem chu thich trong buildStatics). Moi cho ve than xe hay hang
@@ -579,14 +581,14 @@ export function mountThree(frameEl, getGameFn) {
   const questionPaint=questionCanvas.getContext("2d");
   questionPaint.textAlign="center";questionPaint.textBaseline="middle";questionPaint.lineJoin="round";
   questionPaint.globalAlpha=.3;questionPaint.font="900 30px Trebuchet MS, system-ui, sans-serif";
-  questionPaint.fillStyle="#a8c9f2";
+  questionPaint.fillStyle="#ffffff";
   for(const [x,y,r] of [[24,25,-.18],[103,27,.2],[26,104,.2],[102,102,-.2]]){
     questionPaint.save();questionPaint.translate(x,y);questionPaint.rotate(r);questionPaint.fillText("?",0,0);questionPaint.restore();
   }
-  questionPaint.globalAlpha=1;questionPaint.font="900 82px Trebuchet MS, system-ui, sans-serif";
-  questionPaint.lineWidth=10;questionPaint.strokeStyle="#263e76";
-  questionPaint.strokeText("?",64,66);
-  questionPaint.fillStyle="#b8d5f7";questionPaint.fillText("?",64,66);
+  questionPaint.globalAlpha=1;questionPaint.font="900 112px Trebuchet MS, system-ui, sans-serif";
+  questionPaint.lineWidth=16;questionPaint.strokeStyle="#ffffff";
+  questionPaint.strokeText("?",64,70);
+  questionPaint.fillStyle="#ff2f76";questionPaint.fillText("?",64,70);
   const questionTexture=keep(new THREE.CanvasTexture(questionCanvas));questionTexture.colorSpace=THREE.SRGBColorSpace;
   const questionMaterial=keep(new THREE.MeshBasicMaterial({map:questionTexture,transparent:true,depthWrite:false}));
 

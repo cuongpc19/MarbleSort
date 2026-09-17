@@ -35,8 +35,8 @@ const DATA = (typeof location !== "undefined"
 // Shared candy-factory palette: engine, fallback and 3D artwork import the same colours.
 const PALETTE = {
   R: "#ff4265", O: "#ff8a27", Y: "#ffd332", G: "#52d94c", B: "#36a9ff",
-  P: "#ad62ff", PNK: "#ff65b2", GR: "#8590a6", BR: "#96592c", LB: "#21d8d0",
-  DG: "#177038", BL: "#31363f", W: "#eef1f6", LPNK: "#f79ac0", DPNK: "#c31f6e",
+  P: "#ad62ff", PNK: "#ff65b2", GR: "#8590a6", BR: "#b8733a", LB: "#21d8d0",
+  DG: "#12a85e", BL: "#5f6bff", W: "#eef1f6", LPNK: "#f79ac0", DPNK: "#c31f6e",
 };
 const HIDDEN_FILL = "#5b5480";
 
