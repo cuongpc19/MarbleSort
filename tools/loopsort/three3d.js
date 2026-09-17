@@ -129,8 +129,8 @@ export function mountThree(frameEl, getGameFn) {
   // anh: fov 7 + near 0.1 vo nat; fov 7 + near 10 SACH HOAN TOAN; fov 5 + near 10 cung sach.
   // Khong co gi trong canh nay o gan camera hon vai chuc don vi, nen near 0.1 la lang phi thuan
   // tuy. Muon hep hon nua thi cu ha fov, dung dong vao near.
-  // ⚠ fov 20 va goc nhin 40 do (xem placeCamera), theo lua chon cua chu du an 2026-09-17 sau khi
-  // so sau bien the tren cung level 5 va 30: "ban 40 do trong cung duoc day". Muc dich la thay
+  // ⚠ fov 20 va goc nhin nghieng (xem placeCamera), theo lua chon cua chu du an 2026-09-17 sau khi
+  // so sau bien the tren cung level 5 va 30. Muc dich la thay
   // duoc THAN hop keo, ma o 64 do fov 7 gan nhu chi thay mat tren. Near = 10 van dung: o fov 20
   // camera van cach ban co vai chuc don vi.
   const camera = new THREE.PerspectiveCamera(20, 1, 10, 4000);
@@ -341,9 +341,11 @@ export function mountThree(frameEl, getGameFn) {
     // The reference reads almost top-down: objects keep their size and shape across the
     // board, while their thick front faces still remain visible. A roughly 64° elevation
     // gives that clarity without flattening the real geometry into a 2D drawing.
-    // Goc nhin 40 do so voi mat ban. Khoang cach o day chi la diem xuat phat - fitCamera se
-    // keo lai cho vua khung.
-    const ELEV = 40 * Math.PI / 180, D = H * 1.25;
+    // Goc nhin so voi mat ban. 40 do (2026-09-17 sang) duoc chon de thay than hop, roi chu du an
+    // choi thu va bao "bi nghieng qua, cho len chut nua" - nen 48. Khoang cach o day chi la diem
+    // xuat phat, fitCamera se keo lai cho vua khung. `?elev=` de so thu tren may dev.
+    const qElev = typeof location !== "undefined" && +new URLSearchParams(location.search).get("elev");
+    const ELEV = (qElev || 48) * Math.PI / 180, D = H * 1.25;
     camera.position.set(cx, D * Math.sin(ELEV), cz + D * Math.cos(ELEV));
     camera.lookAt(cx, 0, cz);
 
