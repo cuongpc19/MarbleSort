@@ -340,8 +340,7 @@ export function mountThree(frameEl, getGameFn) {
     // choi thu va bao "bi nghieng qua, cho len chut nua" - thu 48, roi chot 54 sau khi xem ba
     // muc 40/48/54 tren level 30. Khoang cach o day chi la diem xuat phat, fitCamera se keo lai
     // cho vua khung. `?elev=` de so thu tren may dev.
-    const qElev = typeof location !== "undefined" && +new URLSearchParams(location.search).get("elev");
-    const ELEV = (qElev || 54) * Math.PI / 180, D = H * 1.25;
+    const ELEV = (portrait() ? MOBILE_ELEV : DESK_ELEV) * Math.PI / 180, D = H * 1.25;
     camera.position.set(cx, D * Math.sin(ELEV), cz + D * Math.cos(ELEV));
     camera.lookAt(cx, 0, cz);
 
@@ -385,13 +384,18 @@ export function mountThree(frameEl, getGameFn) {
   // Quet ca 1299 level cua bo tu sinh: trung vi 0.89, 53% level be ngang qua, trung binh bo phi
   // 24% mot chieu. Do la don bay cua BO SINH LEVEL (dat bo do o canh tren/duoi thay vi don ca
   // sang trai/phai), khong phai cua camera.
-  // ⚠ 1.10: MEP NGOAI cua ray duoc phep lo ra ngoai hai canh man hinh mot chut, con KHAY thi
-  // luon nam tron (0.97, ben duoi). Chu du an 2026-09-17: "k hieu sao ban cua minh cu bi nhin xa
-  // ... hay co gang de view gan va nhin moi thu gan hon". Do: be ngang ban co la cai chan camera
-  // tren moi level (ban co rong/cao ~0.75, man hinh can ~0.45), va chon ray khac cho ca 100 level
-  // chi to them ~9%. Cho ray lo ra 10% thi moi thu to them ~17%. 0.94 (co le hai ben) la muc cu;
-  // `?ringfit=` de so thu.
-  const RING_FIT = (typeof location !== "undefined" && +new URLSearchParams(location.search).get("ringfit")) || 1.10;
+  // ⚠ MOBILE va DESKTOP khop khac nhau (chu du an 2026-09-17: "lam sao de toi uu duoc nhin duong
+  // ray duoc rong nhat co the, sat nhat co the so voi 2 bien" va "toi uu view cho mobile va
+  // desktop rieng").
+  //   - Man hinh DOC (mobile): be ngang ban co la cai chan tren moi level (ban co rong/cao ~0.75,
+  //     man hinh can ~0.45). Mep ngoai ray khop SAT hai canh (1.00) - khong con le, khong cat.
+  //   - Man hinh NGANG (desktop): chieu cao la cai chan. Camera nghieng thap hon mot chut
+  //     (DESK_ELEV) de chieu sau ban co bi nen lai, nen ban co ve to hon trong cung chieu cao.
+  // `?ringfit=` / `?elev=` / `?delev=` de so thu tren may dev.
+  const qp = (k) => typeof location !== "undefined" && +new URLSearchParams(location.search).get(k);
+  const RING_FIT = qp("ringfit") || 1.00;
+  const MOBILE_ELEV = qp("elev") || 54, DESK_ELEV = qp("delev") || 42;
+  const portrait = () => h >= w;
   function fitCamera(game) {
     const b = game.bounds;
     const cx = (b.x0 + b.x1) / 2, cz = (b.y0 + b.y1) / 2;
@@ -428,7 +432,7 @@ export function mountThree(frameEl, getGameFn) {
     const bottom=playing?document.getElementById("tools").offsetHeight+18:0;
     const upper=Math.max(.2,1-2*top/h), lower=Math.max(.2,1-2*bottom/h);
     const focus = new THREE.Vector3(cx, 0, cz);
-    for (let i = 0; i < 60; i++) {
+    for (let i = 0; i < 120; i++) {
       camera.updateMatrixWorld();
       camera.updateProjectionMatrix();
       let worst = 0, ylo = 1e9, yhi = -1e9;
@@ -444,7 +448,7 @@ export function mountThree(frameEl, getGameFn) {
       }
       for (const p of truckPts) {
         const v = p.clone().project(camera);
-        worst = Math.max(worst, Math.abs(v.x) / 0.97, (v.y / upper) / 1.00, (-v.y / lower) / 1.00);
+        worst = Math.max(worst, Math.abs(v.x) / 0.99, (v.y / upper) / 1.00, (-v.y / lower) / 1.00);
       }
       // ⚠ Chi duoc dung o PHIA AN TOAN. Truoc day dieu kien la |worst - 1| < 0.01, tuc worst =
       // 1.008 cung duoc coi la xong - va 0.8% do la ray bi cat that: do duoc 10px o level 100.
@@ -463,9 +467,10 @@ export function mountThree(frameEl, getGameFn) {
         focus.z += m; camera.position.z += m; camera.lookAt(focus);
         continue;
       }
-      if (worst <= 1 && worst > 0.97) break;
+      // Dung khi rang buoc chat nhat nam trong [0.99, 1.00]: ray/khay sat bien toi 1%.
+      if (worst <= 1 && worst > 0.99) break;
       const off = camera.position.clone().sub(focus);
-      off.multiplyScalar(Math.max(0.6, Math.min(1.6, worst / 0.985)));
+      off.multiplyScalar(Math.max(0.6, Math.min(1.6, worst / 0.995)));
       camera.position.copy(focus).add(off);
       camera.lookAt(focus);
     }

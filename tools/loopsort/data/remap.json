@@ -1953,21 +1953,22 @@
   "blocks": 44,
   "slot": 6,
   "shape": [
-   "a?a?b?c",
-   "d?c?e?a",
-   "f?f?g?d",
-   "c?h?i?b",
-   "j?i?a?k",
-   "k?g?d?g",
-   "e?g?j?j",
-   "hedb",
-   "kffh",
-   "biik",
-   "ehcj"
+   "a?b?c?d",
+   "e?f?g?h",
+   "c?i?i?b",
+   "j?k?e?b",
+   "k?d?j?j",
+   "e?h?g?h",
+   "h?a?j?a",
+   "giig",
+   "bffa",
+   "dcek",
+   "fdkc"
   ],
   "shuffled": true,
   "changed": 0.89,
-  "donorSpline": 281,
+  "winnable": true,
+  "donorSpline": 632,
   "recolor": {
    "O": "O",
    "Y": "BR",
@@ -1982,8 +1983,8 @@
    "PNK": "BL"
   },
   "bbox": [
-   28.8,
-   39.3
+   29.1,
+   40.4
   ]
  },
  {
@@ -2320,19 +2321,20 @@
   "blocks": 36,
   "slot": 5,
   "shape": [
-   "abcd",
-   "aeca",
-   "fghg",
-   "h?f?i?f",
-   "b?a?c?d",
-   "i?i?e?h",
-   "g?d?c?f",
-   "i?b?b?h",
-   "d?e?e?g"
+   "aaba",
+   "cdcb",
+   "eede",
+   "e?f?g?c",
+   "h?h?b?h",
+   "f?d?b?g",
+   "i?g?a?f",
+   "g?i?i?d",
+   "h?i?c?f"
   ],
   "shuffled": true,
   "changed": 0.89,
-  "donorSpline": 496,
+  "winnable": true,
+  "donorSpline": 747,
   "recolor": {
    "O": "LB",
    "R": "DPNK",
@@ -2345,8 +2347,8 @@
    "P": "BR"
   },
   "bbox": [
-   27.8,
-   38.3
+   27.7,
+   44.4
   ]
  },
  {
@@ -2514,7 +2516,7 @@
   "shuffled": true,
   "changed": 0.82,
   "winnable": true,
-  "donorSpline": 465,
+  "donorSpline": 442,
   "recolor": {
    "GR": "R",
    "R": "LPNK",
@@ -2528,8 +2530,8 @@
    "PNK": "Y"
   },
   "bbox": [
-   28.8,
-   33.1
+   29.1,
+   40.4
   ]
  },
  {
@@ -2872,20 +2874,21 @@
   "blocks": 40,
   "slot": 6,
   "shape": [
-   "a?ba?c",
-   "d?ee?f",
-   "a?eg?h",
-   "g?fb?g",
-   "i?ah?c",
-   "b?id?j",
-   "d?bj?j",
-   "i?cg?j",
-   "c?hf?d",
-   "i?ef?h"
+   "a?bc?d",
+   "e?bf?g",
+   "h?gd?h",
+   "i?ic?f",
+   "j?if?b",
+   "e?je?b",
+   "d?ad?e",
+   "g?gj?a",
+   "a?jc?f",
+   "c?hi?h"
   ],
   "shuffled": true,
-  "changed": 0.9,
-  "donorSpline": 569,
+  "changed": 0.88,
+  "winnable": true,
+  "donorSpline": 698,
   "recolor": {
    "Y": "BL",
    "P": "O",
@@ -2899,8 +2902,8 @@
    "R": "BR"
   },
   "bbox": [
-   28.3,
-   37.7
+   27.3,
+   45.4
   ]
  },
  {
@@ -3440,20 +3443,21 @@
   "slot": 6,
   "shape": [
    "abcd",
-   "eaac",
-   "fegb",
-   "hhhi",
-   "jbgj",
-   "ekfi",
-   "dhgi",
-   "fkdk",
-   "icgk",
-   "bacj",
-   "fedj"
+   "befc",
+   "cgbd",
+   "ggha",
+   "iajc",
+   "fkhk",
+   "ibgd",
+   "kfij",
+   "hadj",
+   "ejke",
+   "fihe"
   ],
   "shuffled": true,
-  "changed": 0.98,
-  "donorSpline": 207,
+  "changed": 0.91,
+  "winnable": true,
+  "donorSpline": 760,
   "recolor": {
    "P": "P",
    "PNK": "Y",
@@ -3468,8 +3472,8 @@
    "LB": "G"
   },
   "bbox": [
-   27.1,
-   33.3
+   29.3,
+   44.4
   ]
  },
  {

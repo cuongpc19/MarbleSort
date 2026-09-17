@@ -32,12 +32,13 @@ import { useData, rate, seed, playOnce } from "./levelbot.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ORIG = path.resolve(HERE, "../../Manythings/LoopSort-teardown/data");
-const OUT = path.join(HERE, "data");
-
 const arg = (n, d) => {
   const i = process.argv.indexOf("--" + n);
   return i < 0 ? d : (process.argv[i + 1] ?? true);
 };
+// `--out <thu muc>`: ghi vao mot BAN SAO cua data/ thay vi data/. De chay nhieu `--only` song song
+// (moi tien trinh mot ban sao), roi ghep lai - hai tien trinh cung ghi data/ se de mat cua nhau.
+const OUT = arg("out", null) ? path.resolve(String(arg("out"))) : path.join(HERE, "data");
 const TO = Number(arg("to", 20));
 const TRIES = Number(arg("tries", 40));
 const RECOLOR = process.argv.indexOf("--no-recolor") < 0;
