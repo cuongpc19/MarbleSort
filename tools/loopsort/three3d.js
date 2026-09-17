@@ -342,10 +342,11 @@ export function mountThree(frameEl, getGameFn) {
     // board, while their thick front faces still remain visible. A roughly 64° elevation
     // gives that clarity without flattening the real geometry into a 2D drawing.
     // Goc nhin so voi mat ban. 40 do (2026-09-17 sang) duoc chon de thay than hop, roi chu du an
-    // choi thu va bao "bi nghieng qua, cho len chut nua" - nen 48. Khoang cach o day chi la diem
-    // xuat phat, fitCamera se keo lai cho vua khung. `?elev=` de so thu tren may dev.
+    // choi thu va bao "bi nghieng qua, cho len chut nua" - thu 48, roi chot 54 sau khi xem ba
+    // muc 40/48/54 tren level 30. Khoang cach o day chi la diem xuat phat, fitCamera se keo lai
+    // cho vua khung. `?elev=` de so thu tren may dev.
     const qElev = typeof location !== "undefined" && +new URLSearchParams(location.search).get("elev");
-    const ELEV = (qElev || 48) * Math.PI / 180, D = H * 1.25;
+    const ELEV = (qElev || 54) * Math.PI / 180, D = H * 1.25;
     camera.position.set(cx, D * Math.sin(ELEV), cz + D * Math.cos(ELEV));
     camera.lookAt(cx, 0, cz);
 
