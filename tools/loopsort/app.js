@@ -204,7 +204,7 @@ function startLevel(n) {
   drawTools();
   syncChrome(true);
   coins(); dev();
-  if (n === 1) hint("Chạm một hộp để thả đủ 8 viên kẹo lên băng chuyền", 6500);
+  if (n === 1) hint("Chạm một hộp để thả 8 mẻ kẹo lên băng chuyền", 6500);
 }
 
 // ---------------------------------------------------------------- booster
@@ -509,9 +509,8 @@ function frame(now) {
       }
     } else if (!carded && g.state !== "play") {
       carded = true;
-      // Let the final tray close, travel through the SHOP gate and clear the board
-      // before the result card covers it. Reduced-motion users keep the short delay.
-      const winDelay = reducedMotion.matches ? 700 : 4800;
+      // Let the final tray close and settle into its station before the result card.
+      const winDelay = reducedMotion.matches ? 700 : 2300;
       setTimeout(g.state === "win" ? onWin : onLose, g.state === "win" ? winDelay : 450);
     } else if (!carded) {
       if (!jammed(g)) {
@@ -711,14 +710,23 @@ window.__ls = {
     setTimeout(() => {
       const g = E.getGame();
       if (!g) { console.log("PICKTEST: FAIL - khong co game"); return; }
+      // ⚠ pick() tra ve { truck, slot } tu khi cham duoc TUNG HOP, khong con tra ve xe tron.
+      // So `hit === t` thi phep kiem nay truot 100% bat ke camera dung hay sai - da gap dung the.
+      // Kiem TUNG HOP: cham vao tam hop thu i phai ra dung xe va dung o i.
       let ok = 0, bad = 0;
-      for (const t of g.trucks) {
-        const c = g.slotPos(t, (t.cap - 1) / 2, 0.5);
-        const s = three.project(c.x, c.y);
-        const hit = three.pick(s.x, s.y);
-        if (hit === t) ok++;
-        else { bad++; console.log("PICKTEST: truot xe lane=" + t.lane + " tai " + Math.round(s.x) + "," + Math.round(s.y)); }
-      }
+      for (const t of g.trucks)
+        for (let slot = 0; slot < t.blocks.length; slot++) {
+          const c = g.slotPos(t, slot, 0.5);
+          const s = three.project(c.x, c.y);
+          const hit = three.pick(s.x, s.y);
+          if (hit && hit.truck === t && hit.slot === slot) ok++;
+          else {
+            bad++;
+            console.log("PICKTEST: truot xe lane=" + t.lane + " o " + slot + " tai " +
+              Math.round(s.x) + "," + Math.round(s.y) + " -> " +
+              (hit ? "lane=" + hit.truck.lane + " o " + hit.slot : "khong trung gi"));
+          }
+        }
       console.log("PICKTEST: " + ok + "/" + (ok + bad) + (bad ? " FAIL" : " PASS"));
     }, 900);
   }

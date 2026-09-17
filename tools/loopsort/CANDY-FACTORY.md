@@ -1,10 +1,17 @@
 # Candy factory engine / renderer contract
 
 Shipped level files and their box counts remain unchanged. Each standard tray holds
-four boxes. Each box pours eight real candies in a 2 x 4 layout, radius
-`game.r = 0.312`. A tap still
-pours exactly one selected box. The 3D picker returns its `slot`; callers that omit
-the slot keep selecting the front box for compatibility with bots and old tools.
+four boxes. A box pours eight large conveyor batches in a 2 x 4 source layout,
+radius `game.r = 0.312`. A tap still pours exactly one selected box. The 3D picker
+returns its `slot`; callers that omit the slot keep selecting the front box for
+compatibility with bots and old tools.
+
+Each conveyor batch separates into eight mini candies when it reaches an open box.
+The box therefore fills as a 4 x 4 x 4 stack: two arriving batches complete one
+16-candy layer, and all eight complete the visible 64-candy carton. This expansion
+is presentation only. The engine still accounts for eight batches, preserving belt
+capacity, puzzle timing and all shipped level arithmetic. The final layer remains
+visible briefly before the taller coloured carton seals.
 
 - `slotCount`, `counter()` and `tapLoad()` use **box equivalents**.
 - `capCubes = slotCount * 8` uses candies.
@@ -50,11 +57,21 @@ locks taps and shuffle. Adding a tray slot waits for packing and pending pours;
 revive cancels the removed colour's flights and retargets survivors after reindexing.
 
 The shared `PALETTE` export supplies the bright candy colours. Renderer dimensions:
-paper at `BODY_H=.6`, candy bottom `.74` over the liner; loose candy bottom `.40`;
-candy height `.45`. Open-carton candy width is `slotLen * .20`, loose diameter is
-`game.r * 2`. A completed carton uses an opaque colour lid; only opening and partial
-cartons expose their pieces. Source transfers use a small bridge hop; incoming flights
-use a higher arc and a landing squash before the lid closes.
+the raised tray deck is `BODY_H=.74`; loose conveyor candy uses a 1.18 visual scale;
+and open-carton minis are laid out at `slotLen * .155` pitch. Their four layers rise
+inside real side walls, while a completed carton has a `.72`-high body and an opaque
+colour lid. Only opening and partial cartons expose their stacked minis. Source
+transfers use a small bridge hop; incoming flights use a higher arc and landing
+squash. Near the carton mouth each large batch contracts and separates into eight
+minis; they follow a staggered curved stream into their exact row positions. A
+selected source carton briefly retains its lid, which springs up and slides back
+before the outgoing batches clear. The landed minis settle row by row, then the lid
+closes.
+
+The play scene deliberately contains only the conveyor, trays, cartons and candies.
+There is no surrounding workbench slab, decorative corner machinery, sales hatch or
+delivery route. The conveyor uses one support, one casing and one moving belt surface;
+a completed tray closes, settles into its own station and disappears after 520 ms.
 Height is renderer-owned; engine flight coordinates are planar.
 
 Run `node tools/loopsort/factory-check.mjs` for conservation, pocket/arrival,

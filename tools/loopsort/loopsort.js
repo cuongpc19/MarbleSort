@@ -57,7 +57,9 @@ const CONFETTI = ["#f5c518", "#3fbf4f", "#2f8fe0", "#ef5fa7", "#f2892a", "#5fd0e
 const CAP = 4;            // suc chua mot ben khi bat dau = 4 khoi
 const DELIVER = 4;        // so khoi cung mau de mot chuyen hang duoc giao
                           // (moi mau xuat hien dung 4 lan tren toan bo 800 bo carrier)
-const CANDIES_PER_BOX = 8; // 2 x 4 vien nho: day ray hon ma van doc duoc tung hop.
+const CANDIES_PER_BOX = 8; // 8 me lon tren ray: giu nhip choi va suc chua ray de doc.
+const MINIS_PER_BELT_CANDY = 8; // moi me tach thanh 8 vien nho khi roi vao hop.
+const MINI_CANDIES_PER_BOX = CANDIES_PER_BOX * MINIS_PER_BELT_CANDY; // 4 x 4 x 4 = 64.
 // ⚠ MOT he so kich thuoc cho ca xe, hang va be rong ray - SCALE. Con so 1.5 la yeu cau cua
 // chu du an ("tang kich thuoc ray va vali len 1.5 lan"), va no chi co nghia khi duong ray
 // GIU NGUYEN kich thuoc: camera khop khung bao, nen phong to ca the gioi thi tren man hinh
@@ -392,7 +394,9 @@ export class Game {
     this.abreast = Math.max(1, Math.floor((2 * (CHANNEL - this.r)) / d) + 1);
     this.railSlots = Math.floor((this.len / d) * this.abreast * 0.8);
     this.slotCount = lv.SlotCount;
-    this.perBlock = CANDIES_PER_BOX;           // Eight candies pack one box; four boxes fill a tray.
+    // Eight conveyor batches pack one box. The renderer splits each batch into eight
+    // minis, so a completed box visibly contains a 4 x 4 x 4 stack (64 candies).
+    this.perBlock = CANDIES_PER_BOX;
     this.capCubes = this.slotCount * this.perBlock;
 
     this.trucks = parseCarrier(CARRIERS[lv.Carriers]).map((t) => {
@@ -402,7 +406,8 @@ export class Game {
       return {
         lane: t.lane, blocks: t.blocks, x: dk.x, y: dk.y, mx: d.x, my: d.y,
         px: near.px, py: near.py,
-        cap: CAP, fill: 0, claim: null, lastDump: null, gone: false, ate: 0, ripple: -1, drain: -1, check: -1, confetti: [],
+        cap: CAP, fill: 0, claim: null, lastDump: null, gone: false, ate: 0, ripple: -1, drain: -1, check: -1,
+        confetti: [], miniPops: [],
       };
     });
     for (const t of this.trucks) this.reveal(t);
@@ -673,6 +678,7 @@ export class Game {
     // temporary gap there until the last piece starts moving, then compacts the row.
     for (let piece = 0; piece < this.perBlock; piece++)
       this.pending.push({ color: c, truck: t, slot: selected, piece, pour,
+                          tapAt: now,
                           at: now + CRUMBLE_MS + piece * POUR_STAGGER });
     this.peak = Math.max(this.peak, this.counter());
     return true;
@@ -937,6 +943,9 @@ export class Game {
   step(dt, now) {
     this.now = now;
     for (const t of this.trucks) {
+      // Cosmetic packing milestones: one large conveyor piece becomes eight small
+      // candies in the 4x4x4 carton. They do not participate in game accounting.
+      t.miniPops = (t.miniPops || []).filter((p) => now - p.at < 700);
       for (const p of t.confetti) {
         p.life += dt; p.vy += 9 * dt;
         p.x += p.vx * dt; p.y += p.vy * dt; p.rot += p.vr * dt;
@@ -945,6 +954,9 @@ export class Game {
     }
     // A reserved box becomes visible only after ALL its flights land. The eighth
     // reservation can arrive first; it must not materialize the other three candies.
+    const landedFlights = this.flying.filter((f) => now - f.at >= f.ms);
+    for (const f of landedFlights)
+      (f.truck.miniPops || (f.truck.miniPops = [])).push({ slot: f.slot, piece: f.piece, at: now });
     this.flying = this.flying.filter((f) => {
       if (now - f.at < f.ms) return true;
       return false;
@@ -1587,10 +1599,13 @@ export function draw(now) {
     const q = game.candyPos(p.truck, p.slot, p.piece);
     drawCube(q.x, q.y, PALETTE[p.color] || "#888", Math.atan2(p.truck.my, p.truck.mx), 1);
   }
-  for (const c of game.cubes) drawCube(c.x, c.y, PALETTE[c.color] || "#888", c.rot, c.sz);
+  for (const c of game.cubes) drawCube(c.x, c.y, PALETTE[c.color] || "#888", c.rot, c.sz * 1.18);
   for (const f of game.flying) {
     const k = Math.min(1, (now - f.at) / f.ms), q = flyPos(f, k);
-    drawCube(q.x, q.y, PALETTE[f.color] || "#888", q.rot, f.sz);
+    const e = k * k * (3 - 2 * k);
+    const boxed = Math.max(.5, Math.min(.8, game.slotLen * .20 / (game.r * 2)));
+    drawCube(q.x, q.y, PALETTE[f.color] || "#888", q.rot,
+      f.sz * (1.18 + (boxed - 1.18) * e));
   }
   for (const t of game.trucks) drawTrim(t, now);
   for (const t of game.trucks) drawBlocked(t);
@@ -1753,16 +1768,6 @@ function drawBay(t, now) {
       const closedY = y0 + (h - closedSide) / 2;
       drawBlock3D(x, closedY, closedSide, closedSide, 0.22 * S,
         show ? col : HIDDEN_FILL, Math.max(1, 0.1 * S));
-      if (show) {
-        ctx.fillStyle = "#fff2c9";
-        roundRect(x + closedSide * .39, closedY + closedSide * .07,
-          closedSide * .22, closedSide * .86, .08 * S);
-        ctx.fill();
-        ctx.fillStyle = col;
-        roundRect(x + closedSide * .42, closedY + closedSide * .38,
-          closedSide * .16, closedSide * .24, .08 * S);
-        ctx.fill();
-      }
       // khoi o mieng co vien dam - no la khoi se roi ra neu cham
       if (i === t.blocks.length - 1 && !t.gone) {
         ctx.strokeStyle = "rgba(10,6,26,.62)";
@@ -1890,4 +1895,7 @@ function drawTrim(t, now) {
 // ⚠ CHANNEL/RIM di kem nhau: editor ve mat ray theo dung be rong engine dung de tinh
 // `bounds`, nen ve ra bang chinh hai so nay chu khong uoc luong. Uoc luong thi hinh trong
 // editor rong hep khac hinh trong game, va nguoi ve se can bang theo mot cai ray khong co that.
-export { LEVELS, CARRIERS, SPLINES, AREAS, PALETTE, UI, CAP, DELIVER, CANDIES_PER_BOX, CHANNEL, RIM };
+export {
+  LEVELS, CARRIERS, SPLINES, AREAS, PALETTE, UI, CAP, DELIVER,
+  CANDIES_PER_BOX, MINIS_PER_BELT_CANDY, MINI_CANDIES_PER_BOX, CHANNEL, RIM,
+};

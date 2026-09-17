@@ -116,11 +116,14 @@ const settle = (g, min = 0) => g.step(0, Math.max(min, g.now, ...g.flying.map((f
 let tests = 0;
 function test(name, fn) { fn(); tests++; console.log(`PASS ${name}`); }
 
-test('shipped boxes, palette, candy scale and all eight rotated pocket coordinates', () => {
+test('eight conveyor batches expand into 64 packed minis; palette and pocket coordinates', () => {
   assert.equal(E.PALETTE.R, '#ff4265'); assert.equal(E.PALETTE.LB, '#21d8d0');
+  assert.equal(E.MINIS_PER_BELT_CANDY, 8);
+  assert.equal(E.MINI_CANDIES_PER_BOX, 64);
   for (const id of Object.keys(E.LEVELS)) {
     const { g, check } = fixture(id);
     assert.equal(g.perBlock, 8); assert.ok(g.r >= .3 && g.r <= .33);
+    assert.equal(g.perBlock * E.MINIS_PER_BELT_CANDY, E.MINI_CANDIES_PER_BOX);
     assert.equal(g.slotCount, E.LEVELS[id].SlotCount);
     assert.equal(g.slotLen, 1.68 * E.SCALE * g.fit);
     for (const t of g.trucks) {

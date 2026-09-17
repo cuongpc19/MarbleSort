@@ -13,7 +13,10 @@ import * as THREE from "three";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
 // ⚠ DELIVER duoc export tu loopsort.js, nen import thay vi chep lai: so khoi cung mau de mot
 // chuyen hang duoc giao. Ban ve can no de bu lai khoi cuoi cua doan hang dang rut di.
-import { DELIVER, flyPos, SCALE, WIDE, PALETTE } from "./loopsort.js";
+import {
+  DELIVER, flyPos, SCALE, WIDE, PALETTE,
+  MINIS_PER_BELT_CANDY, MINI_CANDIES_PER_BOX,
+} from "./loopsort.js";
 import { paintFactoryBackdrop } from "./factory-art.js";
 
 // ⚠ Do duoc va KHONG sua o day: mau nay so voi long khay la 1.02:1 (cung mot do sang, mat
@@ -34,13 +37,16 @@ const TRUCK_W = 2.65;
 // Cao do vali khi nam tren ray. Hang trong khay nam cao hon, o BODY_H - chenh lech giua hai
 // so nay chinh la quang duong vali phai len khi no vao khay.
 const RAIL_Y = 0.38;
-const BODY_H = 0.6;    // cao than xe
-const CARGO_H = 0.45;   // cao mieng hang
-const BOARD_H = 0.5;   // day tam nen
+const BODY_H = 0.74;    // raised tray deck; enough side face remains visible under cargo
+const CARGO_H = 0.50;   // chunkier candy/box silhouettes at phone size
+const BELT_CANDY_VISUAL_SCALE = 1.18; // visual only; boxed candy remains smaller
+const MINI_GRID = 4;
+const MINI_LAYER_SIZE = MINI_GRID * MINI_GRID;
+if (MINI_CANDIES_PER_BOX !== MINI_GRID ** 3)
+  throw new Error("Packed candy grid must remain 4 x 4 x 4");
 
-// ⚠ RIPPLE_MS va DRAIN_MS chep tu loopsort.js; ATE_MS do tu cam giac ban goc. Ca ba la thoi
-// luong hoat hinh chu khong phai luat game, va file nay khong duoc sua ben do.
-const RIPPLE_MS = 360; // vong sang lan ra khi nguoi choi cham vao xe
+// DRAIN_MS follows the engine cadence; ATE_MS is renderer timing. Both affect only
+// presentation and never the packing rules.
 const DRAIN_MS = 830;  // hang rut khoi xe khi giao xong
 const ATE_MS = 180;    // cua so "nhun nhe" khi xe vua nuot duoc mot mieng hang
 // Fallback for old/synthetic states without an exact visual-arrival timestamp.
@@ -48,25 +54,20 @@ const LID_DELAY_MS = 910;
 const LID_CLOSE_MS = 520;
 const LID_LIFT = 1.15;
 const BRIDGE_RETRACT_MS = 310;
-const LID_SETTLE_MS = ATE_MS + 80;
+const LID_SETTLE_MS = ATE_MS + 340;
 const BOX_SEAL_MS = 460;
+const STACK_HOLD_MS = 380;
+const SOURCE_LID_MS = 330;
+const BATCH_SPLIT_START = .58;
+const BATCH_SPLIT_END = .73;
 const PACK_HOLD_MS = 320;
-const EXIT_TRAVEL_MS = 2400;
-const LAUNCH_SHARE = .22;
+const PACK_DISMISS_MS = 520;
 const lidStart = (t) => Number.isFinite(t.arriveAt)
   ? t.arriveAt + LID_SETTLE_MS
   : t.drain + LID_DELAY_MS;
 const lidEnd = (t) => lidStart(t) + LID_CLOSE_MS;
 const exitStart = (t) => lidEnd(t) + PACK_HOLD_MS;
-const exitEnd = (t) => exitStart(t) + EXIT_TRAVEL_MS;
-
-const UI = {
-  bg: 0x21194f,
-  board: 0x28235f,
-  rail: 0x7650d4,
-  truck: 0x6e51af,
-  truckGone: 0x3f3768,
-};
+const exitEnd = (t) => exitStart(t) + PACK_DISMISS_MS;
 
 const col = (c) => new THREE.Color(c);
 
@@ -111,40 +112,6 @@ export function mountThree(frameEl, getGameFn) {
     document.body.style.removeProperty("--ls-side-image");
   }
 
-  function buildDeco(game) {
-    const b=game.bounds;
-    const candidates=[
-      [b.x0+2,b.y0+2],[b.x1-2,b.y0+2],
-      [b.x0+2,b.y1-2],[b.x1-2,b.y1-2]
-    ];
-    const clearAt=(x,z)=>!game.ring.some(p=>Math.hypot(p.x-x,p.y-z)<3.4)
-      && !game.trucks.some(t=>{
-        for(let s=0;s<t.cap;s++){const p=game.slotPos(t,s,.5);if(Math.hypot(p.x-x,p.y-z)<3.2)return true;}
-        return false;
-      });
-    let count=0;
-    for(const [x,z] of candidates){
-      if(!clearAt(x,z)||count>=2)continue;
-      const g=new THREE.Group();g.position.set(x,0,z);
-      // A rounded mixing kettle with a copper cap and simple pressure gauge.
-      box(g,0,0,2.1,1.9,.25,0,"#269f9d",0,true);
-      const drum=new THREE.Mesh(new THREE.CylinderGeometry(.73,.8,1.15,24),mat("#ffb448",true));
-      drum.position.y=.85;drum.castShadow=true;g.add(drum);
-      const cap=new THREE.Mesh(new THREE.SphereGeometry(.77,24,12,0,Math.PI*2,0,Math.PI/2),mat("#fff5df",true));
-      cap.position.y=1.4;cap.scale.y=.45;cap.castShadow=true;g.add(cap);
-      const gauge=new THREE.Mesh(new THREE.CylinderGeometry(.23,.23,.10,20),mat("#fff7e7",true));
-      gauge.rotation.x=Math.PI/2;gauge.position.set(0,1.04,.76);g.add(gauge);
-      box(g,0,.83,.06,.04,.24,.89,"#684268",0,true);
-      for(const s of [-1,1]) box(g,s*.8,0,.21,.32,.72,.25,"#fa799b",0,true);
-      const stem=new THREE.Mesh(new THREE.CylinderGeometry(.13,.13,.48,12),mat("#3fc7b1",true));
-      stem.position.set(.3,1.8,0);g.add(stem);
-      const bubble=new THREE.Mesh(new THREE.SphereGeometry(.21,14,10),mat("#ff7198",true));
-      bubble.position.set(.3,2.16,0);bubble.userData.factoryBubble=true;
-      bubble.userData.factoryBaseY=2.16;bubble.userData.factoryPhase=count*Math.PI;g.add(bubble);
-      statics.add(g);count++;
-    }
-  }
-
   // fov hep (32) chu khong rong: fov rong lam hai dau ban co bi keo doang ra hai ben, doc
   // ra nhu ong kinh goc rong chu khong phai nhin nghieng.
   // ⚠ ONG KINH RAT HEP, GAN NHU TRUC GIAO - do tu anh chup BAN GOC (level 8, co khoi "?"):
@@ -161,18 +128,23 @@ export function mountThree(frameEl, getGameFn) {
   // anh: fov 7 + near 0.1 vo nat; fov 7 + near 10 SACH HOAN TOAN; fov 5 + near 10 cung sach.
   // Khong co gi trong canh nay o gan camera hon vai chuc don vi, nen near 0.1 la lang phi thuan
   // tuy. Muon hep hon nua thi cu ha fov, dung dong vao near.
-  const camera = new THREE.PerspectiveCamera(7, 1, 10, 4000);
+  // ⚠ fov 20 va goc nhin 40 do (xem placeCamera), theo lua chon cua chu du an 2026-09-17 sau khi
+  // so sau bien the tren cung level 5 va 30: "ban 40 do trong cung duoc day". Muc dich la thay
+  // duoc THAN hop keo, ma o 64 do fov 7 gan nhu chi thay mat tren. Near = 10 van dung: o fov 20
+  // camera van cach ban co vai chuc don vi.
+  const camera = new THREE.PerspectiveCamera(20, 1, 10, 4000);
 
-  // Nen la mau tim toi, nen anh moi truong phai manh: o 0.55 thi mat ban gan nhu den va
-  // ca ban co doc ra nhu mot lo thung chu khong phai mot cai ban.
-  scene.add(new THREE.AmbientLight(0xffffff, 0.82));
-  scene.add(new THREE.HemisphereLight(0xfff8dc, 0x48a89d, 0.68));
-  const sun = new THREE.DirectionalLight(0xfff8e8, 1.02);
+  // Keep enough fill for the bright candy palette, then let one warm key light establish
+  // the bevels and cast shadows. The previous broad fill lit every face almost equally,
+  // which made real 3D geometry read like flat coloured cards on a phone.
+  scene.add(new THREE.AmbientLight(0xffffff, 0.58));
+  scene.add(new THREE.HemisphereLight(0xfff8dc, 0x348c83, 0.46));
+  const sun = new THREE.DirectionalLight(0xfff3dc, 1.34);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
   sun.shadow.bias=-0.0003;
   sun.shadow.normalBias=0.035;
-  sun.shadow.radius=3;
+  sun.shadow.radius=2;
   scene.add(sun);
 
   // ---------------------------------------------------------------- nhom doi tuong
@@ -212,8 +184,8 @@ export function mountThree(frameEl, getGameFn) {
   function mat(hex, glow) {
     const key = glow ? hex + "!" : hex;
     if (!matCache.has(key)) {
-      const o = { color: col(hex), roughness: 0.34, metalness: 0,
-        clearcoat: 0.48, clearcoatRoughness: 0.28 };
+      const o = { color: col(hex), roughness: 0.28, metalness: 0,
+        clearcoat: 0.62, clearcoatRoughness: 0.22 };
       if (glow) { o.emissive = col(hex); o.emissiveIntensity = 0.3; }
       matCache.set(key, keep(new THREE.MeshPhysicalMaterial(o)));
     }
@@ -269,23 +241,6 @@ export function mountThree(frameEl, getGameFn) {
     m.receiveShadow = true;
     group.add(m);
     return m;
-  }
-
-  function roundedSlab(group, wx, wy, len, wid, hei, yBase, hex, radius) {
-    const x0=-len/2,z0=-wid/2,x1=len/2,z1=wid/2;
-    const r=Math.min(radius,len/2-.05,wid/2-.05);
-    const shape=new THREE.Shape();
-    shape.moveTo(x0+r,z0);
-    shape.lineTo(x1-r,z0);shape.quadraticCurveTo(x1,z0,x1,z0+r);
-    shape.lineTo(x1,z1-r);shape.quadraticCurveTo(x1,z1,x1-r,z1);
-    shape.lineTo(x0+r,z1);shape.quadraticCurveTo(x0,z1,x0,z1-r);
-    shape.lineTo(x0,z0+r);shape.quadraticCurveTo(x0,z0,x0+r,z0);
-    const geo=new THREE.ExtrudeGeometry(shape,{depth:hei,steps:1,curveSegments:12,
-      bevelEnabled:true,bevelSegments:3,bevelSize:Math.min(.10,hei*.35),bevelThickness:Math.min(.06,hei*.25)});
-    geo.rotateX(-Math.PI/2);
-    const mesh=new THREE.Mesh(geo,mat(hex,true));
-    mesh.position.set(wx,yBase,wy);mesh.castShadow=true;mesh.receiveShadow=true;
-    group.add(mesh);return mesh;
   }
 
   function clear(group) {
@@ -377,137 +332,18 @@ export function mountThree(frameEl, getGameFn) {
     const rail=new THREE.Mesh(geo,mat(color));rail.castShadow=true;rail.receiveShadow=true;statics.add(rail);
   }
 
-  // One reusable texture: delivery progress belongs to the board, never a fake target.
-  const progressCanvas = document.createElement("canvas");
-  progressCanvas.width = 512; progressCanvas.height = 256;
-  const progressTexture = keep(new THREE.CanvasTexture(progressCanvas));
-  progressTexture.colorSpace = THREE.SRGBColorSpace;
-  const progressMaterial = keep(new THREE.MeshBasicMaterial({map:progressTexture,transparent:true,depthWrite:false}));
-  let progressKey = "";
-  const shopCanvas=document.createElement("canvas");shopCanvas.width=384;shopCanvas.height=144;
-  const shopPaint=shopCanvas.getContext("2d");
-  shopPaint.fillStyle="#c84272";shopPaint.beginPath();shopPaint.roundRect(8,8,368,128,46);shopPaint.fill();
-  shopPaint.strokeStyle="#fff5be";shopPaint.lineWidth=12;shopPaint.stroke();
-  shopPaint.textAlign="center";shopPaint.textBaseline="middle";shopPaint.font="900 62px system-ui";
-  shopPaint.fillStyle="#fffbea";shopPaint.fillText("SHOP",192,73);
-  const shopTexture=keep(new THREE.CanvasTexture(shopCanvas));shopTexture.colorSpace=THREE.SRGBColorSpace;
-  const shopMaterial=keep(new THREE.SpriteMaterial({map:shopTexture,transparent:true,depthWrite:false}));
-
-  function dispatchPoint(game){
-    // Put the sales hatch on the upper-left bend: away from the centred HUD and away
-    // from the loading bridges that commonly occupy the right side. Picking a target
-    // relative to this level's own bounds keeps the placement useful on every ring shape.
-    const xs=game.ring.map(p=>p.x),ys=game.ring.map(p=>p.y);
-    const target={x:Math.min(...xs)+(Math.max(...xs)-Math.min(...xs))*.18,
-      y:Math.min(...ys)+(Math.max(...ys)-Math.min(...ys))*.18};
-    let index=0,best=Infinity;
-    for(let i=0;i<game.ring.length;i++){
-      const d=(game.ring[i].x-target.x)**2+(game.ring[i].y-target.y)**2;
-      if(d<best){best=d;index=i;}
-    }
-    const n=game.ring.length,p=game.ring[index];
-    const a=game.ring[(index-1+n)%n],b=game.ring[(index+1)%n];
-    return {x:p.x,y:p.y,angle:Math.atan2(-(b.y-a.y),b.x-a.x),index};
-  }
-
-  const shipmentRoutes=new WeakMap();
-  function shipmentRoute(game,t){
-    if(shipmentRoutes.has(t))return shipmentRoutes.get(t);
-    const n=game.ring.length,door=dispatchPoint(game);
-    let start=0,best=Infinity;
-    for(let i=0;i<n;i++){
-      const p=game.ring[i],d=(p.x-t.px)**2+(p.y-t.py)**2;
-      if(d<best){best=d;start=i;}
-    }
-    const points=[{x:t.px,y:t.py}];
-    for(let i=start,guard=0;guard<=n;guard++,i=(i+1)%n){
-      const p=game.ring[i],last=points.at(-1);
-      if(Math.hypot(p.x-last.x,p.y-last.y)>.03)points.push({x:p.x,y:p.y});
-      if(i===door.index)break;
-    }
-    const last=points.at(-1);
-    if(Math.hypot(door.x-last.x,door.y-last.y)>.03)points.push({x:door.x,y:door.y});
-    const spans=[];let len=0;
-    for(let i=0;i<points.length-1;i++){
-      const d=Math.hypot(points[i+1].x-points[i].x,points[i+1].y-points[i].y);
-      spans.push(d);len+=d;
-    }
-    const route={points,spans,len,door};shipmentRoutes.set(t,route);return route;
-  }
-
-  function shipmentPoint(game,t,u){
-    const route=shipmentRoute(game,t);let s=Math.max(0,Math.min(1,u))*route.len;
-    for(let i=0;i<route.spans.length;i++){
-      const d=route.spans[i],a=route.points[i],b=route.points[i+1];
-      if(s<=d||i===route.spans.length-1){
-        const q=d>1e-6?Math.max(0,Math.min(1,s/d)):1;
-        return {x:a.x+(b.x-a.x)*q,y:a.y+(b.y-a.y)*q,
-          angle:Math.atan2(-(b.y-a.y),b.x-a.x)};
-      }
-      s-=d;
-    }
-    return {...route.door};
-  }
-
-  function angleToward(a,b,k){
-    let d=b-a;while(d>Math.PI)d-=Math.PI*2;while(d<-Math.PI)d+=Math.PI*2;
-    return a+d*k;
-  }
-
-  function buildDispatch(game){
-    if(!game.closed||game.ring.length<3)return;
-    const d=dispatchPoint(game),g=new THREE.Group();g.position.set(d.x,0,d.y);g.rotation.y=d.angle;
-    const side=BELT_W/2+.34;
-    box(g,-side,0,.44,.44,1.75,.30,"#ff7297",0,true);
-    box(g,side,0,.44,.44,1.75,.30,"#ff7297",0,true);
-    box(g,-side,0,.52,.52,.16,1.18,"#fff0a7",0,true);
-    box(g,side,0,.52,.52,.16,1.18,"#fff0a7",0,true);
-    box(g,0,0,BELT_W+1.20,.52,.42,1.88,"#33cbb2",0,true);
-    box(g,0,0,BELT_W+.72,.58,.15,2.21,"#fff0a7",0,true);
-    const sign=new THREE.Sprite(shopMaterial);sign.position.set(0,2.82,0);sign.scale.set(2.75,1.02,1);
-    sign.userData.shopSign=true;sign.userData.shopBaseY=2.82;sign.userData.shopBaseScale=sign.scale.clone();g.add(sign);
-    const bellStem=new THREE.Mesh(new THREE.CylinderGeometry(.07,.09,.34,12),mat("#fff0a7",true));
-    bellStem.position.set(0,3.48,0);bellStem.userData.shopBell=true;bellStem.userData.shopBaseY=3.48;g.add(bellStem);
-    const bell=new THREE.Mesh(new THREE.SphereGeometry(.22,16,10),mat("#ffc83d",true));
-    bell.scale.y=.72;bell.position.set(0,3.70,0);bell.userData.shopBell=true;bell.userData.shopBaseY=3.70;g.add(bell);
-    const glow=new THREE.Mesh(new THREE.CircleGeometry(1.02,32),keep(new THREE.MeshBasicMaterial({
-      color:0xffef96,transparent:true,opacity:.32,depthWrite:false})));
-    glow.rotation.x=-Math.PI/2;glow.position.y=.47;glow.scale.set(1,1.55,1);
-    glow.userData.shopGlow=true;glow.userData.shopBaseScale=glow.scale.clone();g.add(glow);
-    statics.add(g);
-  }
-  function stamp(game) {
-    const xs=game.ring.map(p=>p.x), ys=game.ring.map(p=>p.y);
-    const x=(Math.min(...xs)+Math.max(...xs))/2, y=(Math.min(...ys)+Math.max(...ys))/2;
-    // Skip compact loops and layouts with a central truck; the label must not cover play.
-    if(Math.max(...xs)-Math.min(...xs)<9 || Math.max(...ys)-Math.min(...ys)<7 ||
-       game.trucks.some(t=>{const c=game.slotPos(t,(t.cap-1)/2,.5);return Math.hypot(c.x-x,c.y-y)<t.cap*slotLen(game,t)/2+4;})) return;
-    const mesh=new THREE.Mesh(new THREE.PlaneGeometry(5,2.5),progressMaterial);
-    mesh.rotation.x=-Math.PI/2;mesh.position.set(x,0.105,y);statics.add(mesh);
-  }
-  function updateProgress(game) {
-    const done=game.trucks.filter(t=>t.gone).length;
-    const key=done+"/"+game.trucks.length;
-    if(key===progressKey)return;
-    progressKey=key;
-    const p=progressCanvas.getContext("2d");p.clearRect(0,0,512,256);
-    p.fillStyle="#fff4d4";p.beginPath();p.roundRect(26,18,460,220,74);p.fill();
-    p.strokeStyle="#ffffff";p.lineWidth=10;p.stroke();
-    p.textAlign="center";p.fillStyle="#267d98";p.font="900 80px system-ui";p.fillText(key,256,119);
-    p.fillStyle="#ee8b58";p.font="900 29px system-ui";p.fillText("SWEET ORDERS",256,178);
-    progressTexture.needsUpdate=true;
-  }
-
   // ---------------------------------------------------------------- camera
   function placeCamera(b) {
     const cx = (b.x0 + b.x1) / 2, cz = (b.y0 + b.y1) / 2;
     const H = Math.max(b.x1 - b.x0, b.y1 - b.y0);
 
-    // Camera dat TREN va PHIA TRUOC tam ban co. Ty le 0.92 / 0.62 cho ra goc cheo ~56 do
-    // so voi mat ban: du de thay mat tren moi vat CONG mot phan mat truoc cua no — do
-    // chinh la thu tao ra chieu sau. Dat thang dinh (0.62 -> 0) thi ket qua khong khac gi
-    // ban 2D va ca file nay vo nghia.
-    camera.position.set(cx, H * 0.92, cz + H * 0.62);
+    // The reference reads almost top-down: objects keep their size and shape across the
+    // board, while their thick front faces still remain visible. A roughly 64° elevation
+    // gives that clarity without flattening the real geometry into a 2D drawing.
+    // Goc nhin 40 do so voi mat ban. Khoang cach o day chi la diem xuat phat - fitCamera se
+    // keo lai cho vua khung.
+    const ELEV = 40 * Math.PI / 180, D = H * 1.25;
+    camera.position.set(cx, D * Math.sin(ELEV), cz + D * Math.cos(ELEV));
     camera.lookAt(cx, 0, cz);
 
     sun.position.set(cx - H * 0.5, H * 1.2, cz + H * 0.35);
@@ -578,7 +414,7 @@ export function mountThree(frameEl, getGameFn) {
       const w = (TRUCK_W * (game.fit ?? 1)) / 2;
       for (const end of [game.slotPos(t, 0, 0), game.slotPos(t, t.cap - 1, 1)])
         for (const sgn of [-1, 1])
-          for (const y of [0, CARGO_H + BODY_H])
+          for (const y of [0, BODY_H + 1.15])
             truckPts.push(new THREE.Vector3(end.x - t.my * sgn * w, y, end.y + t.mx * sgn * w));
     }
     const playing=!document.getElementById("chrome").classList.contains("hide");
@@ -586,10 +422,14 @@ export function mountThree(frameEl, getGameFn) {
     const bottom=playing?document.getElementById("tools").offsetHeight+18:0;
     const upper=Math.max(.2,1-2*top/h), lower=Math.max(.2,1-2*bottom/h);
     const focus = new THREE.Vector3(cx, 0, cz);
-    for (let i = 0; i < 24; i++) {
+    for (let i = 0; i < 60; i++) {
       camera.updateMatrixWorld();
       camera.updateProjectionMatrix();
-      let worst = 0;
+      let worst = 0, ylo = 1e9, yhi = -1e9;
+      for (const p of ringPts.concat(truckPts)) {
+        const v = p.clone().project(camera);
+        ylo = Math.min(ylo, v.y); yhi = Math.max(yhi, v.y);
+      }
       for (const p of ringPts) {
         const v = p.clone().project(camera);
         // 0.94 = chua khoang 3% be ngang man hinh lam le moi ben. Chieu doc thi dich 1.00,
@@ -605,6 +445,18 @@ export function mountThree(frameEl, getGameFn) {
       // Khi ngoai mep ban co la mang mau phang thi khong ai thay; tu khi la anh san nha ga co
       // hoa van thi thay ngay. Nen: qua 1 la luon phai lui them, chi duoc dung trong dai
       // [0.97, 1.00].
+      // ⚠ CAN GIUA theo chieu doc trong dai an toan truoc khi khop co. Camera nhin vao TAM MAT
+      // SAN, nen o goc nhin nghieng, noc cac khay bi day len phia HUD: phan tren cham tran truoc,
+      // phan duoi con trong, va ban co nho di vo ich. Dich ca camera lan diem nhin doc truc z cho
+      // noi dung nam giua dai [ -lower, upper ].
+      const want = (upper - lower) / 2, have = (ylo + yhi) / 2;
+      const y0 = focus.clone().project(camera).y;
+      const y1 = focus.clone().add(new THREE.Vector3(0, 0, -1)).project(camera).y;
+      if (Math.abs(have - want) > 0.004 && Math.abs(y1 - y0) > 1e-6) {
+        const m = (want - have) / (y1 - y0);
+        focus.z += m; camera.position.z += m; camera.lookAt(focus);
+        continue;
+      }
       if (worst <= 1 && worst > 0.97) break;
       const off = camera.position.clone().sub(focus);
       off.multiplyScalar(Math.max(0.6, Math.min(1.6, worst / 0.985)));
@@ -627,34 +479,26 @@ export function mountThree(frameEl, getGameFn) {
       }
       tread.add(group);
     }
-    // A transparent real shadow receiver ties the machines to the soft painted floor.
+    // One invisible receiver is enough to anchor the playable objects to the room.
+    // The old three-layer rounded board duplicated the belt silhouette and formed a
+    // large decorative ring around the whole puzzle.
     const shadow=new THREE.Mesh(new THREE.PlaneGeometry(250,250),
-      keep(new THREE.ShadowMaterial({color:0x345d64,opacity:.22})));
+      keep(new THREE.ShadowMaterial({color:0x294f59,opacity:.24})));
     shadow.rotation.x=-Math.PI/2;shadow.position.y=-.03;shadow.receiveShadow=true;
     statics.add(shadow);
-    // A real raised workbench under the whole puzzle. Its cool mint top separates the
-    // board from the warm factory floor, and the three exposed layers provide depth on
-    // both portrait and wide desktop views.
-    const bb=game.bounds,cx=(bb.x0+bb.x1)/2,cz=(bb.y0+bb.y1)/2;
-    const pw=bb.x1-bb.x0-.15,pd=bb.y1-bb.y0-.15;
-    roundedSlab(statics,cx,cz,pw,pd,.28,-.34,"#237d83",2.1);
-    roundedSlab(statics,cx,cz,pw-.20,pd-.20,.15,-.15,"#45cfb4",2.0);
-    roundedSlab(statics,cx,cz,pw-.46,pd-.46,.055,-.025,"#d9ffec",1.85);
-    if(game.closed)stamp(game);
     if(game.ring?.length>1){
       const path=beltFrame(game);
-      beltSolid(path,2.98,.02,.17,"#168d91");
-      beltSolid(path,2.83,.14,.20,"#43d7b7");
-      beltSolid(path,2.55,.28,.10,"#fff0a8");
-      beltSolid(path,2.25,.32,.075,"#4b2f86");
-      beltStrip(path,2.12,.397,"#704fc0");
+      // Three readable parts only: dark support, mint casing and moving purple belt.
+      // The previous ten concentric strips competed with candies and looked like a
+      // second ornamental loop around the board.
+      beltSolid(path,2.88,.03,.18,"#176f78");
+      beltSolid(path,2.64,.16,.16,"#36bba8");
+      beltSolid(path,2.36,.28,.10,"#38256d");
+      beltStrip(path,2.18,.397,"#6849ad");
       for(const side of [-1,1]){
-        beltTube(path,side*1.32,.125,.34,"#1cb69f");
-        beltTube(path,side*1.30,.078,.445,"#c8ffea");
-        beltTube(path,side*1.12,.027,.418,"#fff3b8");
+        beltTube(path,side*1.25,.065,.405,"#d6fff0");
       }
     }
-    buildDispatch(game);
     if(!game.closed){
       const R=game.ring,n=R.length;
       for(const [pe,p1] of [[R[0],R[1]],[R[n-1],R[n-2]]]){
@@ -668,22 +512,22 @@ export function mountThree(frameEl, getGameFn) {
       const SL=slotLen(game,t),len=t.cap*SL,TW=TRUCK_W*(game.fit??1);
       const c=game.slotPos(t,(t.cap-1)/2,.5),rotation=rotOf(t);
       const tag=(m,packed=false)=>{m.userData.truck=t;m.userData.tintWhenPacked=packed;return m;};
-      tag(trayBox(statics,c.x,c.y,len+.5,TW+.26,.18,.03,"#c94678",rotation,true,.12),true);
-      tag(trayBox(statics,c.x,c.y,len+.4,TW+.16,.40,.18,"#ff7f9f",rotation,true,.18),true);
-      tag(trayBox(statics,c.x,c.y,len+.24,TW,.12,.53,"#fff1bd",rotation,true,.055));
+      tag(trayBox(statics,c.x,c.y,len+.56,TW+.34,.22,.03,"#b93468",rotation,true,.13),true);
+      tag(trayBox(statics,c.x,c.y,len+.46,TW+.24,.50,.20,"#ff6f98",rotation,true,.18),true);
+      tag(trayBox(statics,c.x,c.y,len+.28,TW+.04,.14,.67,"#fff0bd",rotation,true,.06));
       // Open paper cavities, with real depth and no fake colored contents.
       for(let i=0;i<t.cap;i++){
         const p=game.slotPos(t,i,.5);
-        tag(trayBox(statics,p.x,p.y,SL-.12,TW-.22,.045,.648,"#e0ad8e",rotation,true,.022));
-        tag(trayBox(statics,p.x,p.y,SL-.20,TW-.31,.035,.687,"#fff3ca",rotation,true,.016));
+        tag(trayBox(statics,p.x,p.y,SL-.12,TW-.20,.055,.755,"#d39b7b",rotation,true,.025));
+        tag(trayBox(statics,p.x,p.y,SL-.20,TW-.30,.040,.805,"#fff1c5",rotation,true,.018));
       }
       // Low rounded lips keep the silhouette a shallow confectionery tray.
       for(const side of [-1,1]){
         const x=c.x-t.my*side*(TW/2-.025),z=c.y+t.mx*side*(TW/2-.025);
-        tag(trayBox(statics,x,z,len+.23,.12,.14,.60,"#fff8e3",rotation,true,.052));
+        tag(trayBox(statics,x,z,len+.27,.14,.18,.69,"#fff8df",rotation,true,.058));
       }
       const back={x:c.x-t.mx*len/2,z:c.y-t.my*len/2};
-      tag(trayBox(statics,back.x,back.z,.13,TW,.14,.6,"#fff8e3",rotation,true,.055));
+      tag(trayBox(statics,back.x,back.z,.15,TW+.02,.18,.69,"#fff8df",rotation,true,.06));
       const reach=Math.hypot(t.px-t.x,t.py-t.y);
       if(reach>.4){
         const group=new THREE.Group();
@@ -747,14 +591,13 @@ export function mountThree(frameEl, getGameFn) {
   const candyMats=new Map();
   function candyMat(hex){
     if(!candyMats.has(hex))candyMats.set(hex,keep(new THREE.MeshPhysicalMaterial({
-      color:hex,emissive:hex,emissiveIntensity:.18,roughness:.24,
-      metalness:0,clearcoat:.8,clearcoatRoughness:.2
+      color:hex,emissive:hex,emissiveIntensity:.18,roughness:.20,
+      metalness:0,clearcoat:.92,clearcoatRoughness:.16
     })));
     return candyMats.get(hex);
   }
-  function candy(group,x,z,size,bottom,hex,rotation=0){
+  function candy(group,x,z,size,bottom,hex,rotation=0,height=CARGO_H*.70){
     const m=new THREE.Mesh(candyGeo,candyMat(hex));
-    const height=CARGO_H*.70;
     m.position.set(x,bottom+height/2,z);m.scale.set(size,height,size);
     m.rotation.y=rotation;m.castShadow=true;m.receiveShadow=true;group.add(m);return m;
   }
@@ -764,62 +607,105 @@ export function mountThree(frameEl, getGameFn) {
     const u=(piece%4-1.5)*sl*.20,v=(Math.floor(piece/4)-.5)*sl*.36;
     return {x:c.x+t.mx*u-t.my*v,y:c.y+t.my*u+t.mx*v};
   }
+  function miniCandyPosition(game,t,slot,index){
+    const c=game.slotPos(t,slot,.5),sl=slotLen(game,t);
+    const layer=Math.floor(index/MINI_LAYER_SIZE),cell=index%MINI_LAYER_SIZE;
+    const col=cell%MINI_GRID,row=Math.floor(cell/MINI_GRID),pitch=sl*.155;
+    const u=(col-1.5)*pitch,v=(row-1.5)*pitch;
+    const height=Math.max(.12,sl*.064);
+    return {
+      x:c.x+t.mx*u-t.my*v,y:c.y+t.my*u+t.mx*v,
+      bottom:BODY_H+.22+layer*height*.82,height,size:sl*.112,layer
+    };
+  }
   // Every pocket is one real candy. Flights reserve pockets in the model, but their
   // destination is kept empty until the moving candy actually arrives.
-  function makeBox(game,t,slot,color,pieces=null,hidden=false,ghost=false,sealed=true,packedAt=0){
+  function makeBox(game,t,slot,color,pieces=null,hidden=false,ghost=false,sealed=true,packedAt=0,sourceOpenAt=null){
     const SL=slotLen(game,t),p=game.slotPos(t,slot,.5),r=rotOf(t);
     pieces=pieces||Array.from({length:game.perBlock},(_,i)=>i);
     const hex=PALETTE[color]||"#ff79a6";
     const tag=m=>{m.userData.truck=t;m.userData.slot=slot;if(ghost)m.userData.drainTruck=t;return m;};
+    // Preserve a square silhouette on screen for any tray direction. The camera projects
+    // world X and Z at different scales, so one hard-coded depth can only look square on
+    // horizontal OR vertical trays. Fit the largest projected square inside this slot.
+    const fit=game.fit??1;
+    const viewDir=new THREE.Vector3();camera.getWorldDirection(viewDir);
+    const projected=(x,z)=>Math.sqrt(Math.max(.08,1-Math.pow(x*viewDir.x+z*viewDir.z,2)));
+    const alongP=projected(t.mx,t.my),acrossP=projected(-t.my,t.mx);
+    const maxLen=SL-.08,maxWid=TRUCK_W*fit-.06;
+    // ⚠ Hop PHU GAN KIN O, khong ep thanh hinh vuong tren man hinh nua. Chu du an 2026-09-17:
+    // "cho hop keo chiem gan kin khay de tiet kiem dien tich" va "lam hop keo lon nhat co the de
+    // user trong duoc ro". Ban cu lay canh NGAN hon giua chieu dai o va be ngang khay (sau khi
+    // chieu), nen tren khay dai hop chi chiem mot phan be ngang. `projectedSide` van giu lai vi
+    // cac cho khac con doc toi no.
+    const projectedSide=Math.min(maxLen*alongP,maxWid*acrossP);
+    const closedLen=maxLen,closedWid=maxWid;
     if(hidden){
-      tag(trayBox(cargo,p.x,p.y,SL-.10,SL-.10,.13,BODY_H+.035,"#fff9e9",r,true,.055));
-      tag(trayBox(cargo,p.x,p.y,SL-.13,SL-.13,.38,BODY_H+.15,HIDDEN_FILL,r,true,.11));
-      addCargoMark(cargo,p.x,p.y,BODY_H+.56,questionMaterial,t,ghost,slot);
+      tag(trayBox(cargo,p.x,p.y,closedLen+.02,closedWid+.02,.18,BODY_H+.025,"#fff9e9",r,true,.07));
+      tag(trayBox(cargo,p.x,p.y,closedLen,closedWid,.72,BODY_H+.16,HIDDEN_FILL,r,true,.16));
+      addCargoMark(cargo,p.x,p.y,BODY_H+.92,questionMaterial,t,ghost,slot);
       return;
     }
     if(sealed){
       // A completed carton is opaque and closed, like the bold colour blocks in the
       // reference. The player reads colour and state at a glance; candies are exposed
       // only while this carton is being opened or filled. The camera foreshortens the
-      // board's depth by roughly 17%, so a geometrically square lid still looks wide and
-      // rectangular on screen. Give only the closed carton a deeper footprint; its
-      // projected silhouette then reads as a square while staying inside the tray.
-      const fit=game.fit??1;
-      const closedLen=SL*.93;
-      const closedWid=Math.min(TRUCK_W*fit-.05,closedLen*1.19);
-      const body=tag(trayBox(cargo,p.x,p.y,closedLen,closedWid,.38,BODY_H+.09,hex,r,true,.10));
-      const lid=tag(trayBox(cargo,p.x,p.y,closedLen+.04,closedWid+.04,.14,BODY_H+.47,hex,r,true,.075));
-      const band=tag(trayBox(cargo,p.x,p.y,SL*.22,closedWid-.10,.048,BODY_H+.615,"#fff2c9",r,true,.018));
-      const emblem=tag(box(cargo,p.x,p.y,SL*.27,SL*.17,.055,BODY_H+.668,hex,r,true));
-      const marks=[body,lid,band,emblem];
-      for(const side of [-1,1]){
-        const x=p.x+t.mx*side*SL*.205,z=p.y+t.my*side*SL*.205;
-        marks.push(tag(box(cargo,x,z,SL*.12,SL*.15,.046,BODY_H+.672,hex,r+side*.38,true)));
-      }
+      // board's depth, so the direction-aware footprint above preserves the square.
+      const body=tag(trayBox(cargo,p.x,p.y,closedLen,closedWid,.72,BODY_H+.05,hex,r,true,.16));
+      const lid=tag(trayBox(cargo,p.x,p.y,closedLen+.05,closedWid+.05,.18,BODY_H+.77,hex,r,true,.12));
+      // Keep the closed face as one uninterrupted colour plane. A cream ribbon used
+      // to break into two white patches under this camera and made the carton read as
+      // two slots instead of one finished box.
+      const marks=[body,lid];
       for(const m of marks){
         m.userData.boxSealAt=packedAt||0;
         m.userData.boxSealBaseY=m.position.y;
       }
       return;
     }
-    tag(trayBox(cargo,p.x,p.y,SL-.10,SL-.10,.13,BODY_H+.035,"#fff9e9",r,true,.055));
-    const size=SL*.20;
+    // The open carton packs a 4x4x4 stack. One large conveyor piece separates into
+    // eight minis, so the eight gameplay pieces become 64 visible candies without
+    // flooding the belt or changing its capacity.
+    tag(trayBox(cargo,p.x,p.y,closedLen+.06,closedWid+.06,.18,BODY_H+.025,"#e4ad68",r,true,.08));
+    tag(trayBox(cargo,p.x,p.y,closedLen-.10,closedWid-.10,.055,BODY_H+.20,"#fff0bd",r,true,.025));
+    const wallH=.30,wallBase=BODY_H+.17;
+    for(const side of [-1,1]){
+      const across=side*(closedWid/2-.055);
+      tag(trayBox(cargo,p.x-t.my*across,p.y+t.mx*across,
+        closedLen,.11,wallH,wallBase,"#ffd28a",r,true,.045));
+      const along=side*(closedLen/2-.055);
+      tag(trayBox(cargo,p.x+t.mx*along,p.y+t.my*along,
+        .11,closedWid-.16,wallH,wallBase,"#ffd28a",r,true,.045));
+    }
+    // A selected source carton keeps its real lid for one beat. It pops upward and
+    // slides back while the first batch leaves, giving the tap a physical cause instead
+    // of replacing a closed box with an open cavity in one frame.
+    if(sourceOpenAt!==null){
+      const lid=tag(trayBox(cargo,p.x,p.y,closedLen+.05,closedWid+.05,.18,
+        BODY_H+.77,hex,r,true,.12));
+      lid.userData.sourceLidAt=sourceOpenAt;
+      lid.userData.sourceLidTruck=t;
+    }
+    const present=new Set(pieces);
     for(let piece=0;piece<game.perBlock;piece++){
-      const q=candyPosition(game,t,slot,piece);
-      tag(box(cargo,q.x,q.y,size+.045,size+.045,.035,BODY_H+.135,"#e4c9b1",r,true));
-      if(pieces.includes(piece)){
-        const m=tag(candy(cargo,q.x,q.y,size,BODY_H+.14,hex,r));
+      if(!present.has(piece))continue;
+      const pop=(t.miniPops||[]).find(o=>o.slot===slot&&o.piece===piece);
+      for(let sub=0;sub<MINIS_PER_BELT_CANDY;sub++){
+        const q=miniCandyPosition(game,t,slot,piece*MINIS_PER_BELT_CANDY+sub);
+        const m=tag(candy(cargo,q.x,q.y,q.size,q.bottom,hex,r+(sub%2?-.045:.045),q.height));
         m.userData.candyPiece=piece;
+        m.userData.miniCandy=true;
+        if(pop)m.userData.miniPopAt=pop.at+sub*22;
       }
     }
   }
 
-  function buildDrainGhost(game,t){
+  function buildDrainGhost(game,t,sealed=true){
     const snapshot=lastCargo.get(t)||[];
     const color=t.claim||snapshot.find(b=>b?.color)?.color;
     if(!color)return false;
     const pieces=Array.from({length:game.perBlock},(_,i)=>i);
-    for(let slot=0;slot<Math.min(DELIVER,t.cap);slot++)makeBox(game,t,slot,color,pieces,false,true,true,0);
+    for(let slot=0;slot<Math.min(DELIVER,t.cap);slot++)makeBox(game,t,slot,color,pieces,false,true,sealed,0);
     return true;
   }
 
@@ -838,24 +724,24 @@ export function mountThree(frameEl, getGameFn) {
     };
     // A shallow candy gift carton: same footprint as the tray, wrapped with a cream
     // paper belly-band. No luggage wheels, handles, zippers, or tapered ends.
-    tag(trayBox(cargo,c.x,c.y,len,wid,.18,BODY_H+.47+lift,hex,r,true,.075));
-    tag(trayBox(cargo,c.x,c.y,len-.12,wid-.12,.10,BODY_H+.65+lift,hex,r,true,.045));
+    tag(trayBox(cargo,c.x,c.y,len,wid,.20,BODY_H+.79+lift,hex,r,true,.085));
+    tag(trayBox(cargo,c.x,c.y,len-.12,wid-.12,.11,BODY_H+.99+lift,hex,r,true,.05));
     const bandWidth=Math.min(1.7,len*.26);
-    tag(trayBox(cargo,c.x,c.y,bandWidth,wid-.08,.034,BODY_H+.755+lift,"#fff6dd",r,true,.014));
+    tag(trayBox(cargo,c.x,c.y,bandWidth,wid-.08,.038,BODY_H+1.105+lift,"#fff6dd",r,true,.016));
     // Raised wrapped-candy emblem and a clear completion seal.
-    tag(box(cargo,c.x,c.y,.58,.47,.105,BODY_H+.80+lift,hex,r,true));
+    tag(box(cargo,c.x,c.y,.58,.47,.105,BODY_H+1.15+lift,hex,r,true));
     for(const side of [-1,1]){
       const x=c.x+t.mx*side*.46,z=c.y+t.my*side*.46;
-      const wrapper=tag(box(cargo,x,z,.27,.31,.065,BODY_H+.81+lift,hex,r+.35*side,true));
+      const wrapper=tag(box(cargo,x,z,.27,.31,.065,BODY_H+1.16+lift,hex,r+.35*side,true));
     }
     const x=c.x-t.mx*len*.32,z=c.y-t.my*len*.32;
     const seal=new THREE.Mesh(new THREE.CircleGeometry(.37,28),mat("#ffefad",true));
-    seal.rotation.x=-Math.PI/2;seal.position.set(x,BODY_H+.79+lift,z);cargo.add(tag(seal));
+    seal.rotation.x=-Math.PI/2;seal.position.set(x,BODY_H+1.14+lift,z);cargo.add(tag(seal));
     const check=new THREE.Shape();
     check.moveTo(-.20,0);check.lineTo(-.055,-.14);check.lineTo(.25,.18);
     check.lineTo(.15,.27);check.lineTo(-.055,.04);check.lineTo(-.12,.10);check.closePath();
     const tick=new THREE.Mesh(new THREE.ShapeGeometry(check),mat("#248d78",true));
-    tick.rotation.x=-Math.PI/2;tick.position.set(x,BODY_H+.80+lift,z);cargo.add(tag(tick));
+    tick.rotation.x=-Math.PI/2;tick.position.set(x,BODY_H+1.15+lift,z);cargo.add(tag(tick));
   }
 
   function buildCargo(game){
@@ -864,7 +750,8 @@ export function mountThree(frameEl, getGameFn) {
       if(t.gone){
         if(game.now>=exitEnd(t))continue;
         const sequencing=!reducedMotion.matches&&t.drain>=0&&game.now<lidEnd(t);
-        if(sequencing&&buildDrainGhost(game,t)){
+        const showStack=game.now<lidStart(t);
+        if(sequencing&&buildDrainGhost(game,t,!showStack)){
           if(game.now>=lidStart(t))buildLid(game,t,true);
         }else buildLid(game,t);
         continue;
@@ -877,7 +764,9 @@ export function mountThree(frameEl, getGameFn) {
         const moving=new Set(incoming.filter(f=>f.slot===slot).map(f=>f.piece));
         const pieces=Array.from({length:game.perBlock},(_,n)=>n).filter(n=>!moving.has(n));
         const displaySlot=sourceGap!==null&&slot>=sourceGap?slot+1:slot;
-        makeBox(game,t,displaySlot,b.color,pieces,b.hidden&&!b.seen,false,!b.flying,b.packedAt||0);
+        const stacking=b.packedAt&&game.now<b.packedAt+STACK_HOLD_MS;
+        makeBox(game,t,displaySlot,b.color,pieces,b.hidden&&!b.seen,false,
+          !b.flying&&!stacking,stacking?0:(b.packedAt?b.packedAt+STACK_HOLD_MS:0));
       }
       if(t.fill>0&&t.claim){
         const slot=t.blocks.length;
@@ -888,7 +777,8 @@ export function mountThree(frameEl, getGameFn) {
       // Candy still waiting for its staggered release stays visible in the source box.
       for(const slot of new Set(waiting.map(p=>p.slot))){
         const group=waiting.filter(p=>p.slot===slot);
-        makeBox(game,t,slot,group[0].color,group.map((p,i)=>p.piece??i),false,false,false,0);
+        makeBox(game,t,slot,group[0].color,group.map((p,i)=>p.piece??i),
+          false,false,false,0,group[0].tapAt??group[0].at);
       }
       lastCargo.set(t,t.blocks.map(b=>({...b})));
     }
@@ -905,7 +795,8 @@ export function mountThree(frameEl, getGameFn) {
     let s="";
     for(const t of game.trucks){
       if(t.gone)s+=t.drain<0?"x":game.now<lidStart(t)?"s":game.now<lidEnd(t)?"c":game.now<exitEnd(t)?"e":"o";
-      else s+=t.blocks.map(b=>(b.hidden&&!b.seen?"?":b.color)+(b.flying?"~":"")).join("");
+      else s+=t.blocks.map(b=>(b.hidden&&!b.seen?"?":b.color)+
+        (b.flying?"~":b.packedAt&&game.now<b.packedAt+STACK_HOLD_MS?"^":"")).join("");
       s+="|"+t.cap+":"+(t.claim||"")+":"+t.fill+";";
     }
     // Pending and in-flight counts change when an individual candy leaves or lands.
@@ -918,24 +809,13 @@ export function mountThree(frameEl, getGameFn) {
   // Vong sang khi cham + confetti khi giao hang. Ca hai la hieu ung THEM, khong nam trong state
   // cua game: engine chi phat moc thoi gian, con vi tri confetti do chinh engine cap nhat moi
   // khung. Nen chung phai ve lai moi khung, khong the di qua buildCargo.
-  const rippleGeo = keep(new THREE.RingGeometry(0.72, 1.0, 40));
-  const ripplePool = [];
   const sealGeo = keep(new THREE.RingGeometry(.62,.78,32));
   const sealPool = [];
-  const shopBurstPool=[];
-  let shopBurstRing=null;
-  const SHOP_SPARKS=["#ff4265","#ffc82f","#44dd57","#25b8ff","#a856ee","#fff0a7"];
   const paperGeo = keep(new THREE.PlaneGeometry(0.36, 0.14));
   const confettiPool = [];
   const fxMat = () => keep(new THREE.MeshBasicMaterial({
     color: 0xffffff, transparent: true, depthWrite: false, side: THREE.DoubleSide }));
 
-  function rippleMesh() {
-    const m = new THREE.Mesh(rippleGeo, fxMat());
-    m.rotation.x = -Math.PI / 2;
-    fx.add(m);
-    return m;
-  }
   function paperMesh() {
     const m = new THREE.Mesh(paperGeo, fxMat());
     fx.add(m);
@@ -948,37 +828,6 @@ export function mountThree(frameEl, getGameFn) {
   function animateFx(game) {
     const now = game.now;
     const still = reducedMotion.matches;
-    if(!shopBurstRing){shopBurstRing=sealMesh();shopBurstRing.material.color.set("#fff09a");}
-
-    // ⚠ TAT vong song sau cu cham, theo lenh chu du an: "khi click vao vali truoc thi vali sau
-    // khong can animation co song tren than no dau".
-    //
-    // Va ho dung: `li` duoi day la `t.blocks.length - 1`, tuc khoi CON LAI o mieng khay sau khi
-    // tap() da lay di may khoi vua do. Nen cai vong song khong bao gio no tren miếng vua bi cham
-    // - no luon no tren than mieng DUNG SAU, la mieng dang dung yen va khong lam gi ca. Day la
-    // lan thu hai chu du an chi vao cung mot luat: "vali con lai neu khong phai vali cham hoi va
-    // khong di ra ray thi khong can animation gi them". Lan truoc la cu nhun khi xe nuot hang.
-    //
-    // Khong mat phan hoi cham nao: vali duoc cham la roi cho ngay lap tuc (CRUMBLE_MS = 0), va
-    // cham vao xe dang bi khoa thi than xe da toi di san (xem animateLocked).
-    // Giu nguyen ca khoi ve, bat lai bang cach doi RIPPLE_ON thanh true.
-    const RIPPLE_ON = false;
-    const ripples = (still || !RIPPLE_ON) ? [] : game.trucks.filter(
-      (t) => t.ripple >= 0 && (now - t.ripple) >= 0 && (now - t.ripple) < RIPPLE_MS);
-    while (ripplePool.length < ripples.length) ripplePool.push(rippleMesh());
-    for (let i = 0; i < ripplePool.length; i++) {
-      const m = ripplePool[i];
-      if (i >= ripples.length) { m.visible = false; continue; }
-      const t = ripples[i];
-      const k = (now - t.ripple) / RIPPLE_MS;
-      const li = t.blocks.length ? t.blocks.length - 1 : t.cap - 1;
-      const c = game.slotPos(t, li, 0.5);
-      m.visible = true;
-      m.position.set(c.x, BODY_H + CARGO_H + 0.09, c.y);
-      const s = 0.25 + k * 0.9;
-      m.scale.set(s, s, s);
-      m.material.opacity = (1 - k) * 0.55;
-    }
 
     const seals=still?[]:game.trucks.flatMap(t=>t.blocks.map((b,slot)=>({t,b,slot})))
       .filter(o=>o.b.packedAt&&now-o.b.packedAt>=0&&now-o.b.packedAt<BOX_SEAL_MS+180);
@@ -990,28 +839,6 @@ export function mountThree(frameEl, getGameFn) {
       m.visible=true;m.position.set(p.x,BODY_H+CARGO_H+.30,p.y);
       const s=.55+k*.95;m.scale.set(s,s,s);
       m.material.color.set(PALETTE[o.b.color]||"#ff7b9e");m.material.opacity=(1-k)*.72;
-    }
-
-    // The SHOP hatch gives one comic "burp" after swallowing a shipment. These are
-    // renderer-only crumbs, timed from the actual parcel rather than from level win.
-    const gulp=still?null:game.trucks.map(t=>({t,u:(now-exitStart(t))/EXIT_TRAVEL_MS}))
-      .find(o=>o.t.gone&&o.t.drain>=0&&o.u>=.82&&o.u<1.08);
-    if(gulp){
-      const p=dispatchPoint(game),k=Math.max(0,Math.min(1,(gulp.u-.82)/.26));
-      shopBurstRing.visible=true;shopBurstRing.position.set(p.x,.94,p.y);
-      const s=.45+k*2.45;shopBurstRing.scale.set(s,s,s);
-      shopBurstRing.material.opacity=Math.sin(k*Math.PI)*.88;
-    }else shopBurstRing.visible=false;
-    while(shopBurstPool.length<10)shopBurstPool.push(paperMesh());
-    for(let i=0;i<shopBurstPool.length;i++){
-      const m=shopBurstPool[i];
-      if(!gulp){m.visible=false;continue;}
-      const p=dispatchPoint(game),k=Math.max(0,Math.min(1,(gulp.u-.82)/.26));
-      const a=i/10*Math.PI*2+.45,r=.25+k*(1.25+(i%3)*.22);
-      m.visible=true;m.position.set(p.x+Math.cos(a)*r,1.05+Math.sin(a)*r*.55+k*.9,p.y+Math.sin(a)*r);
-      const size=1.25+Math.sin(k*Math.PI)*1.15;m.scale.set(size,size,size);
-      m.rotation.set(-Math.PI/2,k*5+i,Math.sin(k*Math.PI+i)*.7);
-      m.material.color.set(SHOP_SPARKS[i%SHOP_SPARKS.length]);m.material.opacity=Math.sin(k*Math.PI)*.9;
     }
 
     // Confetti: engine da tinh x,y moi khung, chi dat vao dung cho va mo dan theo p.life.
@@ -1029,31 +856,34 @@ export function mountThree(frameEl, getGameFn) {
     }
   }
 
-  function animateShop(game){
-    let pulse=0;
-    for(const t of game.trucks){
-      if(!t.gone||t.drain<0)continue;
-      const u=(game.now-exitStart(t))/EXIT_TRAVEL_MS;
-      if(u>=.76&&u<1.08)pulse=Math.max(pulse,Math.sin(Math.min(1,(u-.76)/.32)*Math.PI));
-    }
-    statics.traverse(m=>{
-      if(m.userData.shopSign){
-        m.position.y=m.userData.shopBaseY+pulse*.20;
-        const s=m.userData.shopBaseScale;m.scale.set(s.x*(1+pulse*.10),s.y*(1-pulse*.06),s.z);
-      }else if(m.userData.shopBell){
-        m.position.y=m.userData.shopBaseY+Math.abs(Math.sin(game.now*.026))*pulse*.16;
-        m.rotation.z=Math.sin(game.now*.04)*pulse*.35;
-      }else if(m.userData.shopGlow){
-        const s=m.userData.shopBaseScale;m.scale.set(s.x*(1+pulse*.35),s.y*(1+pulse*.35),s.z);
-        m.material.opacity=.26+pulse*.28;
-      }
-    });
-  }
-
   // ⚠ Hai thu buildCargo KHONG the lam vi no chi chay khi chu ky hang doi: hang rut dan khi
   // giao, va cu nhun khi xe nuot duoc hang. Ca hai deu cap nhat theo tung khung o day.
   function animateCargo(game){
     if(reducedMotion.matches)return;
+    for(const m of cargo.children){
+      const at=m.userData.sourceLidAt;
+      if(at===undefined)continue;
+      const k=Math.max(0,Math.min(1,(game.now-at)/SOURCE_LID_MS));
+      const eased=1-Math.pow(1-k,3),pop=Math.sin(k*Math.PI);
+      const base=m.userData.baseScale,pos=m.userData.basePos,t=m.userData.sourceLidTruck;
+      m.position.set(pos.x-t.mx*eased*.42,pos.y+pop*.46+eased*.12,pos.z-t.my*eased*.42);
+      m.rotation.y=m.userData.baseRotY+Math.sin(k*Math.PI*.72)*.22;
+      m.scale.set(base.x*(1-.18*eased),base.y*(1-.32*eased),base.z*(1-.18*eased));
+      m.visible=k<.995;
+    }
+    for(const m of cargo.children){
+      const at=m.userData.miniPopAt;
+      if(!at)continue;
+      if(game.now<at)continue;
+      const k=Math.max(0,Math.min(1,(game.now-at)/210));
+      const bounce=Math.sin(k*Math.PI);
+      const base=m.userData.baseScale,pos=m.userData.basePos;
+      // The split flight already carried this mini into place. The static mesh only
+      // gives a small row-by-row settle pulse; scaling from zero here made landed
+      // candies blink out for one frame before reappearing.
+      m.scale.set(base.x*(1+.10*bounce),base.y*(1-.15*bounce),base.z*(1+.10*bounce));
+      m.position.y=pos.y+bounce*.045;
+    }
     for(const m of cargo.children){
       const at=m.userData.boxSealAt;
       if(!at)continue;
@@ -1078,36 +908,15 @@ export function mountThree(frameEl, getGameFn) {
             }
           }
         }else if(game.now>=exitStart(t)){
-          const k=Math.max(0,Math.min(1,(game.now-exitStart(t))/EXIT_TRAVEL_MS));
-          const start=game.slotPos(t,(t.cap-1)/2,.5),startRot=rotOf(t),first=shipmentPoint(game,t,0);
-          let x,z,lift,rot,longScale,widthScale,overall;
-          if(k<LAUNCH_SHARE){
-            const u=k/LAUNCH_SHARE,q=u*u*(3-2*u),pop=Math.sin(u*Math.PI);
-            x=start.x+(t.px-start.x)*q;z=start.y+(t.py-start.y)*q;
-            lift=.92*pop;
-            rot=angleToward(startRot,first.angle,q);
-            // The transfer collar gives one comic squeeze before the parcel pops out.
-            longScale=1-.66*q;widthScale=1-.16*q;overall=1+.09*pop;
-          }else{
-            const u=(k-LAUNCH_SHARE)/(1-LAUNCH_SHARE),q=u*u*(3-2*u),p=shipmentPoint(game,t,q);
-            const gulp=Math.max(0,Math.min(1,(u-.82)/.18)),g=gulp*gulp*(3-2*gulp);
-            x=p.x;z=p.y;
-            // A diminishing boing after landing makes the parcel feel light and playful;
-            // the last lift/twist is the SHOP hatch gulping it down.
-            lift=.18+Math.exp(-u*10)*Math.abs(Math.sin(u*Math.PI*8))*.38+g*.92;
-            rot=p.angle+Math.sin(u*Math.PI*10)*(1-g)*.035+g*Math.PI*.55;
-            longScale=.34;widthScale=.84;overall=.90*(1-.88*g);
-          }
-          const ax=Math.cos(rot),az=-Math.sin(rot),sx=Math.sin(rot),sz=Math.cos(rot);
+          // Once sealed, the parcel simply settles into its own station. No second
+          // destination competes with the playable board for attention.
+          const k=Math.max(0,Math.min(1,(game.now-exitStart(t))/PACK_DISMISS_MS));
+          const eased=k*k*(3-2*k),pulse=Math.sin(k*Math.PI);
           for(const m of cargo.children){
             if(m.userData.exitTruck!==t)continue;
-            const base=m.userData.basePos,dx=base.x-start.x,dz=base.z-start.y;
-            const u=dx*t.mx+dz*t.my,v=dx*(-t.my)+dz*t.mx;
-            m.position.set(x+ax*u*longScale*overall+sx*v*widthScale*overall,
-              base.y+lift,z+az*u*longScale*overall+sz*v*widthScale*overall);
-            const s=m.userData.baseScale;
-            m.scale.set(s.x*longScale*overall,s.y*overall,s.z*widthScale*overall);
-            m.rotation.y=m.userData.baseRotY+(rot-startRot);
+            const base=m.userData.basePos,s=m.userData.baseScale;
+            m.position.set(base.x,base.y+pulse*.12-eased*.48,base.z);
+            m.scale.set(s.x*(1-.10*eased),s.y*Math.max(.02,1-eased),s.z*(1-.10*eased));
           }
         }
       }else if(t.ate>0){
@@ -1186,6 +995,9 @@ export function mountThree(frameEl, getGameFn) {
   // ho va chi bat/tat .visible.
   const pool=[];
   function drawCubes(game){
+    const boxedHeightFactor=.70/BELT_CANDY_VISUAL_SCALE;
+    const boxedFootprint=(t)=>Math.max(.5,Math.min(.8,
+      slotLen(game,t)*.20/(game.r*2*BELT_CANDY_VISUAL_SCALE)));
     const list=game.cubes.map(c=>{
       let bottom=RAIL_Y+.025;
       let hop=0,tilt=0,squash=0,sizeFactor=1,heightFactor=1;
@@ -1196,7 +1008,9 @@ export function mountThree(frameEl, getGameFn) {
         hop=Math.sin(k*Math.PI);
         bottom=(BODY_H+.14)*(1-e)+(RAIL_Y+.025)*e+hop*.36;
         tilt=hop*.18;
-        sizeFactor=.70+.30*e;heightFactor=.70+.30*e;
+        const small=boxedFootprint(t);
+        sizeFactor=small+(1-small)*e;
+        heightFactor=boxedHeightFactor+(1-boxedHeightFactor)*e;
       }
       return {...c,bottom,hop,tilt,squash,sizeFactor,heightFactor};
     });
@@ -1204,10 +1018,39 @@ export function mountThree(frameEl, getGameFn) {
       const k=Math.max(0,Math.min(1,(game.now-f.at)/f.ms)),p=flyPos(f,k);
       const e=k*k*(3-2*k),hop=Math.sin(k*Math.PI);
       const landing=k>.82?Math.sin((k-.82)/.18*Math.PI):0;
-      list.push({x:p.x,y:p.y,color:f.color,sz:1,rot:p.rot,
-        bottom:(RAIL_Y+.025)*(1-e)+(BODY_H+.14)*e+hop*.72,
-        hop,tilt:-hop*.22,squash:landing*.12,
-        sizeFactor:1-.30*e,heightFactor:1-.30*e});
+      const small=boxedFootprint(f.truck);
+      const split=Math.max(0,Math.min(1,(k-BATCH_SPLIT_START)/(BATCH_SPLIT_END-BATCH_SPLIT_START)));
+      if(split<1){
+        const vanish=1-split*split*(3-2*split);
+        list.push({x:p.x,y:p.y,color:f.color,sz:1,rot:p.rot,
+          bottom:(RAIL_Y+.025)*(1-e)+(BODY_H+.14)*e+hop*.72,
+          hop,tilt:-hop*.22,squash:landing*.12,
+          sizeFactor:(1-(1-small)*e)*(.24+.76*vanish),
+          heightFactor:(1-(1-boxedHeightFactor)*e)*(.30+.70*vanish)});
+      }
+      if(k>=BATCH_SPLIT_START){
+        const origin=flyPos(f,BATCH_SPLIT_START);
+        const oe=BATCH_SPLIT_START*BATCH_SPLIT_START*(3-2*BATCH_SPLIT_START);
+        const originBottom=(RAIL_Y+.025)*(1-oe)+(BODY_H+.14)*oe+
+          Math.sin(BATCH_SPLIT_START*Math.PI)*.72;
+        for(let sub=0;sub<MINIS_PER_BELT_CANDY;sub++){
+          const start=BATCH_SPLIT_START+sub*.022;
+          if(k<start)continue;
+          const u=Math.max(0,Math.min(1,(k-start)/(1-start)));
+          const q=miniCandyPosition(game,f.truck,f.slot,
+            f.piece*MINIS_PER_BELT_CANDY+sub);
+          const eased=1-Math.pow(1-u,3),arc=Math.sin(u*Math.PI);
+          const side=(sub-3.5)*.035*arc;
+          list.push({
+            x:origin.x+(q.x-origin.x)*eased-f.truck.my*side,
+            y:origin.y+(q.y-origin.y)*eased+f.truck.mx*side,
+            color:f.color,rot:p.rot+((f.rot1??p.rot)-p.rot)*eased,
+            bottom:originBottom+(q.bottom-originBottom)*eased+arc*(.18+(sub%3)*.035),
+            worldSize:q.size*(.62+.38*eased),worldHeight:q.height*(.58+.42*eased),
+            tilt:-arc*.12,squash:u>.86?Math.sin((u-.86)/.14*Math.PI)*.08:0,
+          });
+        }
+      }
     }
     while(pool.length<list.length){
       const m=new THREE.Mesh(candyGeo,candyMat("#ff79ab"));m.castShadow=true;m.receiveShadow=true;
@@ -1215,10 +1058,10 @@ export function mountThree(frameEl, getGameFn) {
     }
     for(let i=0;i<pool.length;i++){
       const m=pool[i],c=list[i];m.visible=!!c;if(!c)continue;
-      const d=game.r*2*(c.sz??1);
+      const d=c.worldSize??game.r*2*BELT_CANDY_VISUAL_SCALE*(c.sz??1);
       m.material=candyMat(PALETTE[c.color]||"#ff79ab");
       const sf=c.sizeFactor??1,hf=c.heightFactor??1;
-      const mh=CARGO_H*hf*(1-(c.squash||0));
+      const mh=(c.worldHeight??CARGO_H*BELT_CANDY_VISUAL_SCALE*hf)*(1-(c.squash||0));
       m.scale.set(d*sf*(1+(c.squash||0)*.45),mh,d*sf*(1+(c.squash||0)*.45));
       m.position.set(c.x,c.bottom+mh/2,c.y);
       m.rotation.set(c.tilt||0,c.rot||0,(c.tilt||0)*.55);
@@ -1254,10 +1097,6 @@ export function mountThree(frameEl, getGameFn) {
       lastGame = game;
       lastStatics=staticKey;
       buildStatics(game);
-      // ⚠ Goi SAU buildStatics: buildStatics() bat dau bang clear(statics), nen dat do trang
-      // tri truoc no thi chung bi quet sach ngay trong cung mot khung hinh - va hong im lang,
-      // nhin ra y het nhu chua bao gio bat.
-      buildDeco(game);
       applyBackdrop(game);
       lastSig = "";
       w = h = 0;                     // ep tinh lai camera cho ban co moi
@@ -1272,16 +1111,7 @@ export function mountThree(frameEl, getGameFn) {
     animateCargo(game);
     animateBridges(game);
     animateFx(game);
-    animateShop(game);
     animateLocked(game);
-    if(!reducedMotion.matches)statics.traverse((m)=>{
-      if(!m.userData.factoryBubble)return;
-      m.position.y=m.userData.factoryBaseY+.16*Math.sin(game.now*.002+m.userData.factoryPhase);
-      const s=.92+.10*Math.sin(game.now*.002+m.userData.factoryPhase);
-      m.scale.setScalar(s);
-    });
-
-    updateProgress(game);
     drawCubes(game);
     // Follow arc length so the sparse moving chevrons glide smoothly through rounded corners.
     const ring = game.ring;
