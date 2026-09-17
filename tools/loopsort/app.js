@@ -204,7 +204,7 @@ function startLevel(n) {
   drawTools();
   syncChrome(true);
   coins(); dev();
-  if (n === 1) hint("Chạm một hộp để thả 8 mẻ kẹo lên băng chuyền", 6500);
+  if (n === 1) hint("Chạm hộp ngoài cùng để đổ kẹo lên băng chuyền", 6500);
 }
 
 // ---------------------------------------------------------------- booster
@@ -602,8 +602,9 @@ cv.addEventListener("pointerdown", (e) => {
   if (armed) return applyArmed(t);
   const g = E.getGame();
   const load = Math.max(1, g.tapLoad(t)) * g.perBlock;
-  if (g.tap(t)) { sound.play("pour", load); return; }
+  if (g.tap(t, hit.slot)) { sound.play("pour", load); return; }
   sound.play("blocked");
+  if (g.innerSlot(t, hit.slot)) { hint("Hộp bên trong — lấy hộp ngoài cùng ra trước", 1600); return; }
   // ⚠ Het cho tren ray khong phai thua, chi la khoa tam: vali da mo san (drawBlocked),
   // day chi la cau tra loi cho nguoi van cham vao. Noi cai DIEU KIEN go khoa - "cho ben
   // nuot bot" - chu khong phai "khong bam duoc", vi cai sau khong cho ho viec gi de lam.

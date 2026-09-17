@@ -151,11 +151,16 @@ test('a tap pours the outermost box and every same-colour box right behind it', 
   o2.blocks = white.slice(2);
   check();
   assert.equal(g.tapLoad(t), 2);
-  // An inner box cannot leave first: whatever box is touched, the outermost run goes.
-  assert.ok(g.tap(t, 0));
+  // An inner box is blocked outright: touching it pours nothing.
+  assert.equal(g.canTap(t, 0), false); assert.equal(g.tap(t, 0), false);
+  assert.equal(t.blocks.length, 3); assert.equal(g.pending.length, 0);
+  // Touching any box of the outermost same-colour run pours the whole run, all at once.
+  assert.ok(g.tap(t, 1));
   assert.deepEqual(t.blocks, [white[0]], 'both pink boxes left, the white one stayed');
   assert.equal(g.pending.length, 2 * B); assert.equal(g.counter(), 2);
   assert.deepEqual(g.pending.map(p => p.slot), [...Array(B).fill(2), ...Array(B).fill(1)]);
+  for (let piece = 0; piece < B; piece++)
+    assert.equal(g.pending[piece].at, g.pending[B + piece].at, 'both boxes pour in parallel');
   assert.ok(g.pending.every(p => p.color === 'PNK'));
   const first = g.pending[0], origin = g.candyPos(first.truck, first.slot, first.piece);
   assert.equal(first.at, g.now, 'candy leaves on the tap itself, no opening delay');

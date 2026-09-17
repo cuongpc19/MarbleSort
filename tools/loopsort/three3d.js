@@ -1365,8 +1365,11 @@ export function mountThree(frameEl, getGameFn) {
       const t = h.object.userData && h.object.userData.truck;
       if (t) return {
         truck: t,
+        // Cham vao THAN khay (khong trung hop nao) = cham hop NGOAI CUNG: hop dang do do neu
+        // co, khong thi hop day cuoi. Tra ve hop day cuoi khi dang co hop do do thi luat
+        // "hop phia trong bi chan" se chan nham.
         slot: Number.isInteger(h.object.userData.slot)
-          ? h.object.userData.slot : t.blocks.length - 1,
+          ? h.object.userData.slot : t.blocks.length - (t.fill > 0 ? 0 : 1),
       };
     }
     return null;

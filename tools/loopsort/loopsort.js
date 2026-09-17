@@ -654,8 +654,13 @@ export class Game {
   // ca ve luat lan ve cam giac: ray day la mot trang thai TAM THOI, no tu go khi hang chay
   // vao ben, con thua thi khong go duoc. Thua chi con dung mot nghia: ban co chet han
   // (isStuck).
-  canTap(t) {
+  // `slot` (tuy chon): o hop nguoi choi CHAM vao. Hop PHIA TRONG thi bi chan han - khong do gi
+  // ca (chu du an 2026-09-17: "click vao hop keo phia trong, bi chan, ma keo van ra duoc").
+  // Chi hop thuoc day ngoai cung (hoac hop dang do do / o dang tuon keo, nam ngoai cac hop
+  // day) moi do duoc. Bot va cong cu khong truyen slot = cham ca khay.
+  canTap(t, slot) {
     if (this.state !== "play" || t.gone || t.drain >= 0) return false;
+    if (this.innerSlot(t, slot)) return false;
     // ⚠ HOP DANG DO DO LUON CHAM DUOC (chu du an 2026-09-17): "khi keo vao hop chua het thi co
     // the click vao hop chua het do de me keo do co the ra ray. Neu k thi se co tinh huong k
     // bao gio hoan thanh duoc level". Keo cua no da tinh trong o dem, nen do ra khong can them
@@ -695,8 +700,12 @@ export class Game {
     return true;
   }
 
-  tap(t) {
-    if (!this.canTap(t)) return false;
+  innerSlot(t, slot) {
+    return Number.isInteger(slot) && slot < t.blocks.length - (t.fill > 0 ? 0 : this.tapRun(t).boxes);
+  }
+
+  tap(t, slot) {
+    if (!this.canTap(t, slot)) return false;
     const now = this.now;
     t.ripple = now;
     // Hop truoc cua khay nay con keo cho tuon: tha het ngay bay gio, tu DUNG o cu cua no.
@@ -734,9 +743,12 @@ export class Game {
     // Hoan tac chi cho luot do toan hop day - mot hop do do khong dung lai duoc nhu cu.
     if (run.partial) this.history = [];
     else this.history.push({ truck: t, color: c, n, pour });
-    out.forEach(({ slot, piece }, i) =>
+    // ⚠ Cac hop trong day ra CUNG LUC, moi hop tuon keo cua no song song (chu du an
+    // 2026-09-17: "cac hop keo k duoc ra cung luc kia"). Nhip rieng tung vien theo so thu tu
+    // TRONG hop, khong theo thu tu chung ca day - xep noi tiep thi hop thu hai phai doi ~0.9s.
+    out.forEach(({ slot, piece }) =>
       this.pending.push({ color: c, truck: t, slot, piece, pour, tapAt: now,
-                          at: now + CRUMBLE_MS + i * POUR_STAGGER }));
+                          at: now + CRUMBLE_MS + piece * POUR_STAGGER }));
     this.peak = Math.max(this.peak, this.counter());
     return true;
   }
