@@ -315,7 +315,13 @@ function card(html, kind) {
   // tren man nua". Dat co o tung noi goi thi se quen mot noi.
   if (kind !== "warn jam") jamOpen = false;
   const c = $("cards");
-  c.innerHTML = '<div class="card' + (kind ? " " + kind : "") + '">' + html + "</div>";
+  // The result cards ("res") sit on a dark stage, and the win card adds turning light rays
+  // behind it - the Ball Sort layout (chu du an 2026-09-17: "xem game ball sort color lam nhu
+  // the nao thi lam theo").
+  const res = /\bres\b/.test(kind || "");
+  c.classList.toggle("res", res);
+  c.innerHTML = (res && /\bwin\b/.test(kind) ? '<div class="rays"></div>' : "") +
+    '<div class="card' + (kind ? " " + kind : "") + '">' + html + "</div>";
   c.classList.remove("hide");
 }
 
@@ -336,20 +342,22 @@ function onWin() {
   const newArea = E.areaOf(g.id + 1) !== E.areaOf(g.id);
 
   card(`
-    <h2>MẺ KẸO HOÀN TẤT!</h2>
-    <div class="sub">Level ${g.id} · CANDY FACTORY</div>
-    <div class="stars"><i>★</i><i>★</i><i>★</i></div>
-    <div class="reward"><span class="coin"></span>+${gain}</div>
-    ${TAG[theme] ? '<p class="rwhy' + (theme === "SuperHard" ? " sh" : "") + '">' +
-        "THƯỞNG MÀN " + TAG[theme] + "</p>" : '<div style="height:10px"></div>'}
-    <div class="stat"><span>Số lượt chạm</span><b>${g.taps}</b></div>
-    <div class="stat"><span>Hộp trên băng chuyền</span><b>${g.counter()}/${g.slotCount}</b></div>
-    ${newArea ? '<div class="banner">Mở khoá mẻ kẹo mới!</div>' : ""}
-    <button class="btn" id="cNext">LEVEL ${Math.min(MAX_LEVEL, g.id + 1)}</button>
-    <button class="btn ghost" id="cHome">Về nhà</button>`);
+    <div class="head"><h2>HOÀN THÀNH!</h2></div>
+    <div class="body">
+      <p class="lead">Level ${g.id}</p>
+      <div class="stars"><i>★</i><i>★</i><i>★</i></div>
+      <div class="reward"><span class="coin"></span>+${gain}</div>
+      ${TAG[theme] ? '<p class="rwhy' + (theme === "SuperHard" ? " sh" : "") + '">' +
+          "THƯỞNG MÀN " + TAG[theme] + "</p>" : ""}
+      ${newArea ? '<div class="banner">Mở khoá mẻ kẹo mới!</div>' : ""}
+    </div>
+    <button class="b3" id="cNext">LEVEL ${Math.min(MAX_LEVEL, g.id + 1)}</button>
+    <button class="b3 blue small" id="cHome">VỀ NHÀ</button>`, "res win");
 
   const ic = $("cards").querySelectorAll(".stars i");
-  for (let i = 0; i < st; i++) setTimeout(() => ic[i].classList.add("on"), 180 + i * 190);
+  // Thu tu sang: trai, (giua), phai - ngoi sao GIUA to nhat sang sau cung khi du 3 sao.
+  const lit = st === 3 ? [0, 2, 1] : st === 2 ? [0, 1] : [0];
+  lit.forEach((i, k) => setTimeout(() => ic[i].classList.add("on"), 260 + k * 230));
   $("cNext").onclick = () => { sound.play("ui"); startLevel(g.id + 1); };
   $("cHome").onclick = () => { sound.play("ui"); goHome(); };
   coins();
@@ -372,19 +380,21 @@ function onLose() {
       ICON[id] + '<span class="l">' + b.l + "</span>" + stock(id) + "</button>";
   }).join("");
 
+  const X = g.revivePlan();
   card(`
-    <h2>KẸO KẸT RỒI!</h2>
-    <div class="sub">Level ${g.id} · Không còn khay nhận được kẹo</div>
-    <div class="stat"><span>Số lượt chạm</span><b>${g.taps}</b></div>
-    <div class="stat"><span>Hộp trên băng chuyền</span><b>${g.counter()}/${g.slotCount}</b></div>
-    <p class="waysLbl">Cách gỡ</p>
-    <div class="ways">${ways}</div>
-    <button class="btn gold" id="cRev" ${can ? "" : "disabled"}>
-      <span class="price"></span> HỒI SINH ${price.toLocaleString("vi-VN")}</button>
-    <div class="row2">
-      <button class="btn ${can ? "ghost" : ""}" id="cRetry">CHƠI LẠI</button>
-      <button class="btn ghost" id="cHome">VỀ NHÀ</button>
-    </div>`, "warn");
+    <div class="head"><h2>KẸO KẸT RỒI!</h2></div>
+    <div class="body">
+      <p class="lead">Không còn khay nào nhận kẹo trên băng chuyền.</p>
+      ${planStrip(g, X)}
+      ${X ? '<p class="planNote">Hồi sinh dọn hết kẹo màu <b style="background:' +
+          (E.PALETTE[X] || "#8590a6") + '"></b></p>' : ""}
+      <p class="waysLbl">Hoặc gỡ bằng</p>
+      <div class="ways">${ways}</div>
+    </div>
+    <button class="b3" id="cRev" ${can && X ? "" : "disabled"}>HỒI SINH
+      <span class="tag"><span class="price"></span>${price.toLocaleString("vi-VN")}</span></button>
+    <button class="b3 blue small" id="cRetry">CHƠI LẠI</button>
+    <button class="link" id="cHome">Về nhà</button>`, "res lose");
 
   for (const el of $("cards").querySelectorAll(".way"))
     el.onclick = () => onBooster(el.dataset.b);
@@ -431,21 +441,34 @@ function jamStrip(g) {
     '<i style="background:' + c + ';animation-delay:' + (-i * 90) + 'ms"></i>').join("");
 }
 
+// Dai mau tren bang chuyen luc nay (gom lien nhau), mau se bi don thi bay len - the Hoi sinh
+// ve DUNG ke hoach cua revive(), giong the BELT FULL cua Ball Sort.
+function planStrip(g, X) {
+  const cols = [];
+  for (const c of g.cubes) if (cols[cols.length - 1] !== c.color) cols.push(c.color);
+  const shown = cols.slice(0, 12);
+  if (!shown.length) return "";
+  return '<div class="plan">' + shown.map((c, i) =>
+    '<i class="' + (c === X ? "go" : "") + '" style="background:' + (E.PALETTE[c] || "#8590a6") +
+    ';animation-delay:' + (i * 60) + 'ms"></i>').join("") + "</div>";
+}
+
 function showJam(g) {
   const b = BST.ConveyorCapacity;
   const dead = !b.can(g) || (save.bst(b.id) <= 0 && save.coins < b.cost);
   jamOpen = true;
   card(`
-    <h2>KẸO KẸT RỒI!</h2>
-    <div class="sub">Chưa đủ chỗ để thả mẻ kẹo tiếp theo</div>
-    <div class="stat"><span>Hộp trên băng chuyền</span><b>${g.counter()}/${g.slotCount}</b></div>
-    <div class="jamRail"><div class="jamRun">${jamStrip(g)}</div><span class="jamStop"></span></div>
-    <p class="waysLbl">Cách gỡ</p>
-    <div class="ways">
-      <button class="way" data-b="ConveyorCapacity"${dead ? " disabled" : ""}
-        title="${b.name} — ${b.hint}">${ICON.ConveyorCapacity}<span class="l">${b.l}</span>${stock(b.id)}</button>
+    <div class="head"><h2>BĂNG CHUYỀN ĐẦY!</h2></div>
+    <div class="body">
+      <p class="lead">Chưa đủ chỗ để thả hộp kẹo tiếp theo · ${g.counter()}/${g.slotCount} hộp</p>
+      <div class="jamRail"><div class="jamRun">${jamStrip(g)}</div><span class="jamStop"></span></div>
+      <p class="waysLbl">Cách gỡ</p>
+      <div class="ways">
+        <button class="way" data-b="ConveyorCapacity"${dead ? " disabled" : ""}
+          title="${b.name} — ${b.hint}">${ICON.ConveyorCapacity}<span class="l">${b.l}</span>${stock(b.id)}</button>
+      </div>
     </div>
-    <button class="btn" id="jWait">ĐỂ TÔI ĐỢI</button>`, "warn jam");
+    <button class="b3 blue" id="jWait">ĐỂ TÔI ĐỢI</button>`, "res jam");
   for (const el of $("cards").querySelectorAll(".way"))
     el.onclick = () => onBooster(el.dataset.b);
   $("jWait").onclick = closeJam;

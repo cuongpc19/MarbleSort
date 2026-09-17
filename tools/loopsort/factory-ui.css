@@ -81,3 +81,42 @@ button:not(:disabled):active{translate:0 2px}
   #toolDock{background:linear-gradient(transparent,#fff0d1b8 48%,#ffd8c2d9)}
 }
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+/* ---- The result / revive cards, laid out like Ball Sort's: a dark stage with light rays,
+   a coloured header band with an outlined title, big staggered stars and chunky 3D buttons. */
+#cards{overflow:hidden}
+#cards.res{background:radial-gradient(circle at 50% 42%,#6b4a7fd9,#24162ef2 70%);backdrop-filter:none}
+#cards .rays{position:absolute;left:50%;top:44%;width:180vmax;height:180vmax;margin:-90vmax 0 0 -90vmax;pointer-events:none;background:repeating-conic-gradient(#fff3d64d 0 8deg,transparent 8deg 20deg);-webkit-mask:radial-gradient(circle,#000 10%,transparent 55%);mask:radial-gradient(circle,#000 10%,transparent 55%);animation:raySpin 30s linear infinite}
+.card.res{position:relative;width:min(350px,88%);padding:0 0 22px;overflow:visible;border:4px solid #fff;border-radius:28px;background:linear-gradient(#fffaf1,#fbeedd);box-shadow:0 8px #c7aecb,0 24px 60px #0008;animation:cardIn .42s cubic-bezier(.2,1.5,.45,1) both}
+.res .head{margin:-4px -4px 0;padding:18px 12px 17px;border-radius:25px 25px 0 0;background:linear-gradient(#7eeaa3,#3fbf72);box-shadow:inset 0 -6px #2f9b5b,inset 0 3px #ffffff80}
+.res.lose .head{background:linear-gradient(#ff9aab,#ec5d79);box-shadow:inset 0 -6px #c3405e,inset 0 3px #ffffff80}
+.res.jam .head{background:linear-gradient(#ffc78a,#f39245);box-shadow:inset 0 -6px #c96d2b,inset 0 3px #ffffff80}
+.res .head h2{margin:0;color:#fff;font:1000 31px/1.05 "Arial Rounded MT Bold","Trebuchet MS",system-ui,sans-serif;letter-spacing:.5px;-webkit-text-stroke:6px #4b2d50;paint-order:stroke fill;text-shadow:0 4px #4b2d50}
+.res .body{padding:14px 20px 0}
+.res .lead{margin:0 0 4px;color:#5d3f58;font-size:15px;font-weight:800;line-height:1.35}
+.res .stars{align-items:flex-end;gap:2px;margin:4px 0 6px;font-size:inherit}
+.res .stars i{font-size:54px;line-height:1;color:#e4d8e8;-webkit-text-stroke:3px #fff;paint-order:stroke fill;text-shadow:0 3px #cdbcd4;transform:none}
+.res .stars i:nth-child(2){font-size:78px;margin:0 2px 12px}
+.res .stars i.on{color:#ffc93a;text-shadow:0 4px #df8a1f,0 7px 10px #b3641a55;animation:starPop .5s cubic-bezier(.2,1.6,.4,1) both}
+.res .reward{display:inline-flex;margin:4px 0 2px;padding:5px 18px 5px 8px;border:3px solid #f4d27e;border-radius:999px;background:#fff1c7;font-size:26px;color:#8b5419;box-shadow:0 3px #e2b85a}
+.res .rwhy{margin:6px 0 0}
+.res .banner{margin-top:10px}
+.b3{display:flex;align-items:center;justify-content:center;gap:10px;width:80%;min-height:56px;margin:14px auto 0;padding:10px 14px;border:3px solid #fff;border-radius:18px;color:#fff;font:1000 21px/1 "Arial Rounded MT Bold","Trebuchet MS",system-ui,sans-serif;letter-spacing:.5px;-webkit-text-stroke:5px #237a37;paint-order:stroke fill;text-shadow:0 2px #1d6a2f;background:linear-gradient(#9af19b 0 48%,#55cf61 52%);box-shadow:0 6px #2f9443,0 10px 16px #0003;transition:transform .08s}
+.b3.blue{-webkit-text-stroke-color:#2c5f9e;text-shadow:0 2px #26538c;background:linear-gradient(#a8d6ff 0 48%,#5ea8f4 52%);box-shadow:0 6px #3470c0,0 10px 16px #0003}
+.b3.small{min-height:44px;width:60%;font-size:16px;margin-top:12px}
+.b3:active{transform:translateY(4px);box-shadow:0 2px #0003}
+.b3:disabled{filter:grayscale(.85);opacity:.55}
+.b3 .tag{display:inline-flex;align-items:center;gap:5px;padding:4px 10px 4px 5px;border-radius:999px;background:#1d6b2d55;font-size:17px;-webkit-text-stroke:0}
+.b3 .tag .price:before{width:20px;height:20px}
+.res .link{display:block;margin:12px auto 0;border:0;background:none;color:#8d6b86;font-size:14px;font-weight:800;text-decoration:underline}
+.res .waysLbl{margin:14px 0 6px}
+.res .ways{gap:10px}.res .way{width:70px;min-height:70px;padding:6px 4px}.res .way svg{width:36px;height:36px}
+.plan{margin:12px 0 4px;padding:10px 12px;border-radius:999px;background:#5b4a63;box-shadow:inset 0 4px #0003;display:flex;flex-wrap:wrap;justify-content:center;gap:5px}
+.plan i{width:22px;height:22px;border-radius:6px;box-shadow:inset -2px -3px #0003,inset 2px 2px #ffffff80}
+.plan i.go{animation:planGo 1.6s ease-in infinite}
+.planNote{display:flex;align-items:center;justify-content:center;gap:8px;margin:8px 0 0;color:#6b4d64;font-size:13px;font-weight:800}
+.planNote b{display:inline-block;width:18px;height:18px;border-radius:5px;box-shadow:inset -2px -2px #0003}
+@keyframes raySpin{to{transform:rotate(360deg)}}
+@keyframes cardIn{0%{transform:scale(.6)}100%{transform:scale(1)}}
+@keyframes starPop{0%{transform:scale(0) rotate(-40deg)}70%{transform:scale(1.25) rotate(8deg)}100%{transform:scale(1) rotate(0)}}
+@keyframes planGo{0%,35%{transform:none;opacity:1}75%{transform:translateY(-26px) scale(.6) rotate(25deg);opacity:0}100%{opacity:0}}
+@media (prefers-reduced-motion:reduce){#cards .rays,.plan i.go,.card.res,.res .stars i.on{animation:none}}

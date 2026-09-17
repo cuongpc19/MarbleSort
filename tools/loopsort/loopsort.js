@@ -1358,7 +1358,8 @@ export class Game {
   // nguoi choi se tuong do minh danh do. Day dung la bai hoc CLAUDE.md cua Ball Sort ghi
   // cho revive cua no: "mot thung va so bi cua no roi di cung nhau, luon luon".
   // Chon mau dang lang thang nhieu nhat - do la mau gay tac.
-  revive() {
+  // Mau ma revive() se don - MOT dinh nghia, the Hoi sinh ve dung mau nay truoc khi bam.
+  revivePlan() {
     const cnt = {};
     for (const c of this.cubes) cnt[c.color] = (cnt[c.color] || 0) + 1;
     for (const p of this.pending) cnt[p.color] = (cnt[p.color] || 0) + 1;
@@ -1366,6 +1367,11 @@ export class Game {
     for (const f of this.flying) if (f.block) cnt[f.color] = (cnt[f.color] || 0) + 1;
     let X = null, best = -1;
     for (const k in cnt) if (cnt[k] > best) { best = cnt[k]; X = k; }
+    return X;
+  }
+
+  revive() {
+    const X = this.revivePlan();
     if (!X) return null;
     let removed = this.cubes.filter((c) => c.color === X).length +
                   this.pending.filter((p) => p.color === X).length;
