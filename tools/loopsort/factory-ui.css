@@ -153,3 +153,9 @@ button:not(:disabled):active{translate:0 2px}
 @keyframes mascotSway{0%,100%{transform:rotate(-5deg)}50%{transform:rotate(5deg)}}
 @keyframes praisePop{0%{transform:scale(0)}100%{transform:scale(1)}}
 @media (prefers-reduced-motion:reduce){.res .mascot,.praise{animation:none}}
+/* Candy-coloured titles: one box colour per letter, white candy outline. */
+.bigTitle.candy{background:none;-webkit-background-clip:border-box;background-clip:border-box;color:#ff5f8f;filter:drop-shadow(0 4px 0 #6b3a5a33);letter-spacing:.5px}
+.bigTitle.candy span{display:inline-block;-webkit-text-stroke:7px #fff;paint-order:stroke fill;text-shadow:0 3px 0 #0000;animation:letterBob 1.8s ease-in-out infinite}
+.bigTitle.candy span:nth-child(odd){animation-delay:-.9s}
+@keyframes letterBob{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
+@media (prefers-reduced-motion:reduce){.bigTitle.candy span{animation:none}}

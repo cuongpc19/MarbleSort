@@ -315,6 +315,15 @@ function askBuy(b) {
   };
 }
 
+// Tieu de "keo": moi chu mot mau lay tu BO MAU HOP KEO (chu du an 2026-09-17: "dung bo mau
+// sac cua cac hop keo cho sac so").
+const CANDY_TEXT = ["R", "O", "Y", "G", "B", "P", "PNK", "LB"];
+function candyText(str, offset = 0) {
+  let k = offset;
+  return [...str].map((ch) => ch === " " ? " " :
+    '<span style="color:' + E.PALETTE[CANDY_TEXT[k++ % CANDY_TEXT.length]] + '">' + ch + "</span>").join("");
+}
+
 function card(html, kind) {
   // ⚠ Moi the deu di qua day, nen day la cho duy nhat co the noi "cai the tac khong con
   // tren man nua". Dat co o tung noi goi thi se quen mot noi.
@@ -350,7 +359,7 @@ function onWin() {
   card(`
     ${mascot("happy")}
     <div class="lvChip">Level ${g.id}</div>
-    <h2 class="bigTitle">COMPLETE!</h2>
+    <h2 class="bigTitle candy">${candyText("COMPLETE!", 3)}</h2>
     <div class="praise">${praise}</div>
     <div class="stars"><i>★</i><i>★</i><i>★</i></div>
     <div class="reward"><span class="coin"></span>+${gain}</div>
@@ -362,12 +371,17 @@ function onWin() {
       <button class="sq" id="cReplay" title="Play again" aria-label="Play again">${ICON.retry}</button>
       <button class="b3 grow" id="cNext">Next level →</button>
     </div>`, "res win");
-  celebrate($("cards"), { sound, reduced: reducedMotion.matches });
+  celebrate($("cards"), { sound, reduced: reducedMotion.matches, palette: [...CANDY_TEXT, "LPNK", "DPNK"].map((k) => E.PALETTE[k]) });
 
   const ic = $("cards").querySelectorAll(".stars i");
   // Thu tu sang: trai, (giua), phai - ngoi sao GIUA to nhat sang sau cung khi du 3 sao.
   const lit = st === 3 ? [0, 2, 1] : st === 2 ? [0, 1] : [0];
-  lit.forEach((i, k) => setTimeout(() => ic[i].classList.add("on"), 380 + k * 230));
+  lit.forEach((i, k) => setTimeout(() => {
+    if (!ic[i].isConnected) return;
+    ic[i].classList.add("on");
+    sound.play("star", k);
+  }, 380 + k * 230));
+  setTimeout(() => { if (ic[0].isConnected) sound.play("coin"); }, 420 + lit.length * 230);
   $("cReplay").onclick = () => { sound.play("ui"); startLevel(g.id); };
   $("cNext").onclick = () => { sound.play("ui"); startLevel(g.id + 1); };
   $("cHome").onclick = () => { sound.play("ui"); goHome(); };
@@ -394,7 +408,7 @@ function onLose() {
   const X = g.revivePlan();
   card(`
     ${mascot("sad")}
-    <h2 class="bigTitle warm">Candy jam!</h2>
+    <h2 class="bigTitle warm candy">${candyText("Candy jam!", 6)}</h2>
     <p class="lead">No tray can take the candy on the belt.</p>
     ${planStrip(g, X)}
     ${X ? '<p class="planNote">Revive clears every <b style="background:' +
@@ -469,7 +483,7 @@ function showJam(g) {
   const t2 = BST.Capacity, dead2 = !t2.can(g) || (save.bst(t2.id) <= 0 && save.coins < t2.cost);
   card(`
     ${mascot("sad")}
-    <h2 class="bigTitle warm">Belt full!</h2>
+    <h2 class="bigTitle warm candy">${candyText("Belt full!", 9)}</h2>
     <p class="lead">No room for the next box yet · ${g.counter()}/${g.slotCount} boxes on the belt</p>
     <div class="jamRail"><div class="jamRun">${jamStrip(g)}</div><span class="jamStop"></span></div>
     <div class="ways">
@@ -511,6 +525,8 @@ function frame(now) {
       const absorbed = Math.max(0, cargoBefore - g.pending.length - g.cubes.length);
       if (released) sound.play("belt", released);
       if (absorbed) sound.play("catch", absorbed);
+      // a box just finished packing (its last candy landed this frame)
+      if (g.trucks.some((t) => t.blocks.some((b) => b.packedAt === g.now))) sound.play("box");
       const gone = g.trucks.filter((t) => t.gone).length;
       if (gone > audioGone) sound.play("deliver", gone - audioGone);
       audioGone = gone;
@@ -663,7 +679,7 @@ function openSettings(inGame) {
   carded = true;
   const on = sound.isEnabled();
   card(`
-    <h2 class="bigTitle">Settings</h2>
+    <h2 class="bigTitle candy">${candyText("Settings", 12)}</h2>
     <label class="swRow"><span>${on ? SOUND_ON : SOUND_OFF} Sound</span>
       <input type="checkbox" id="sSound" ${on ? "checked" : ""}><i></i></label>
     <div class="swRow"><span>Go to level</span>
@@ -684,7 +700,7 @@ function openSettings(inGame) {
   $("sReset").onclick = () => {
     sound.play("ui");
     card(`
-      <h2 class="bigTitle warm">Start over?</h2>
+      <h2 class="bigTitle warm candy">${candyText("Start over?", 15)}</h2>
       <p class="lead">All levels, stars, coins and boosters go back to the start. This can't be undone.</p>
       <button class="b3 danger" id="rYes">Yes, start over</button>
       <button class="b3 ghost" id="rNo">Cancel</button>`, "res set");

@@ -8,11 +8,19 @@
 // The canvas lives INSIDE #cards, so it goes away with the card: the loop stops by itself as
 // soon as the canvas is no longer in the document.
 
-const COLORS = ["#ff4265", "#ff8a27", "#ffd332", "#52d94c", "#36a9ff", "#ad62ff",
-                "#ff65b2", "#21d8d0", "#fff4b0"];
+// Fallback only: the game passes its own candy-box palette (chu du an: "dung bo mau sac cua
+// cac hop keo cho sac so").
+let COLORS = ["#ff4265", "#ff8a27", "#ffd332", "#52d94c", "#36a9ff", "#ad62ff",
+              "#ff65b2", "#21d8d0", "#fff4b0"];
 const pick = (a) => a[(Math.random() * a.length) | 0];
 
-export function celebrate(host, { sound, reduced = false } = {}) {
+// Like Tube Tangle: ONE show - a volley of SHELLS rockets over ~2.2s - then quiet. It used to
+// keep firing (with sound) for as long as the card stayed open, and kept going after the card
+// was hidden, so the fireworks were still audible on the next level.
+const SHELLS = 11;
+
+export function celebrate(host, { sound, reduced = false, palette = null } = {}) {
+  if (palette) COLORS = palette.filter((c) => !/^#(3|2|1)/.test(c));   // skip the near-black ones
   const cv = document.createElement("canvas");
   cv.className = "fireworks";
   host.prepend(cv);
@@ -29,7 +37,7 @@ export function celebrate(host, { sound, reduced = false } = {}) {
 
   const rockets = [], sparks = [], candies = [];
   const t0 = performance.now();
-  let last = t0, nextVolley = t0, nextRain = t0;
+  let last = t0, nextVolley = t0 + 350, nextRain = t0, fired = 3;
 
   function launch(x, delay = 0) {
     rockets.push({
@@ -94,22 +102,21 @@ export function celebrate(host, { sound, reduced = false } = {}) {
   }
 
   function frame(now) {
-    if (!cv.isConnected) return;
+    // The card was closed or replaced (next level, retry, home): stop, silently.
+    if (!cv.isConnected || host.classList.contains("hide")) { cv.remove(); return; }
     requestAnimationFrame(frame);
     const r = host.getBoundingClientRect();
     if (Math.abs(r.width - W) > 1 || Math.abs(r.height - H) > 1) size();
     const dt = Math.min(0.05, (now - last) / 1000); last = now;
     const age = now - t0;
 
-    // Barrage for 3.4s, then one rocket every ~1.3s while the card stays up.
-    if (now >= nextVolley) {
-      const heavy = age < 3400;
-      const n = reduced ? 1 : heavy ? 1 + ((Math.random() * 2) | 0) : 1;
-      for (let i = 0; i < n; i++) launch(W * (0.1 + Math.random() * 0.8), i * 90);
-      if (heavy || Math.random() < 0.5) sound?.play("launch", 0.6);
-      nextVolley = now + (reduced ? 1400 : heavy ? 260 + Math.random() * 260 : 1100 + Math.random() * 600);
+    if (now >= nextVolley && fired < (reduced ? 4 : SHELLS)) {
+      launch(W * (0.1 + Math.random() * 0.8));
+      fired++;
+      sound?.play("launch");
+      nextVolley = now + (reduced ? 600 : 190);
     }
-    if (!reduced && now >= nextRain && age < 5200) { rain(age < 1500 ? 5 : 2); nextRain = now + 160; }
+    if (!reduced && now >= nextRain && age < 3000) { rain(age < 1200 ? 5 : 2); nextRain = now + 160; }
 
     ctx.clearRect(0, 0, W, H);
     ctx.globalCompositeOperation = "lighter";
