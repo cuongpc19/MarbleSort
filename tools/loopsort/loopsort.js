@@ -82,12 +82,12 @@ const CANDIES_PER_BOX = 8; // 2 x 4 vien nho: day ray hon ma van doc duoc tung h
 // khung bao nen ray dai gap ba bon lan thi moi thu ve nho di tuong ung. Phong to vali 1.5 lan
 // chi keo ti le vali/ray tu 2.9% len 4.3%, van chua bang mot nua muc 9.4% cua ban goc.
 // Giu nguyen ba hang so nay de bat lai bang mot dong khi quay lai viec do.
-export const SCALE = 1.2;
-export const WIDE = 1.2;
+export const SCALE = 1.40;
+export const WIDE = 1.38;
 // ⚠ Hai he so, khong phai mot. SCALE phong to KHAY (o hang, than xe) - cai nay tu do lon bao
 // nhieu cung duoc vi camera se khop lai. Con mieng hang CHAY TREN RAY thi bi be rong ray chan:
 // ray rong 2.82 va khong doi, nen cube ban kinh qua 1.1 la no tran ra ngoai hai mep ray.
-export const CUBE_SCALE = 1.2;
+export const CUBE_SCALE = 1.45;
 const SLOT_LEN = 1.68 * SCALE;    // Full carton pitch; loose candy size must not change this.
 const TRUCK_W = 2.6 * WIDE;   // rong than xe, cung do tu clip
 const SPEED = 9.0;        // Whole candies travel slowly enough to follow by eye.
@@ -387,7 +387,7 @@ export class Game {
     this.ring = densify(curvePath(sp.path, sp.closed), sp.closed, 0.18);
     this.len = totalLen(this.ring, sp.closed);
 
-    this.r = 0.17 * CUBE_SCALE;                // Eight separated candies fit a 2 x 4 carton and enrich the belt.
+    this.r = 0.215 * CUBE_SCALE;               // Reference-like large candies; two can sit abreast on the belt.
     const d = this.r * 2;
     this.abreast = Math.max(1, Math.floor((2 * (CHANNEL - this.r)) / d) + 1);
     this.railSlots = Math.floor((this.len / d) * this.abreast * 0.8);
@@ -1742,14 +1742,32 @@ function drawBay(t, now) {
       const y0 = -w / 2 + 0.16 * S, h = w - 0.32 * S;
       // A sealed carton appears only when every reserved candy has landed.
       // Until then draw only arrived pockets, never a duplicate of an incoming flight.
-      if (b.flying) { drawPockets(i, game.perBlock, col); continue; }
-      drawBlock3D(x, y0, len, h, 0.26 * S, show ? "#fff3d6" : HIDDEN_FILL, Math.max(1, 0.1 * S));
-      if (show) drawPockets(i, game.perBlock, col);
+      if (b.flying) {
+        drawBlock3D(x, y0, len, h, 0.26 * S, "#fff3d6", Math.max(1, 0.1 * S));
+        drawPockets(i, game.perBlock, col);
+        continue;
+      }
+      // Full boxes are opaque colour-coded cartons. Their contents appear only after
+      // opening or while a destination carton is being filled.
+      const closedSide = Math.min(len, h);
+      const closedY = y0 + (h - closedSide) / 2;
+      drawBlock3D(x, closedY, closedSide, closedSide, 0.22 * S,
+        show ? col : HIDDEN_FILL, Math.max(1, 0.1 * S));
+      if (show) {
+        ctx.fillStyle = "#fff2c9";
+        roundRect(x + closedSide * .39, closedY + closedSide * .07,
+          closedSide * .22, closedSide * .86, .08 * S);
+        ctx.fill();
+        ctx.fillStyle = col;
+        roundRect(x + closedSide * .42, closedY + closedSide * .38,
+          closedSide * .16, closedSide * .24, .08 * S);
+        ctx.fill();
+      }
       // khoi o mieng co vien dam - no la khoi se roi ra neu cham
       if (i === t.blocks.length - 1 && !t.gone) {
         ctx.strokeStyle = "rgba(10,6,26,.62)";
         ctx.lineWidth = Math.max(1, 0.12 * S);
-        roundRect(x, y0, len, h, 0.26 * S);
+        roundRect(x, closedY, closedSide, closedSide, 0.22 * S);
         ctx.stroke();
       }
       if (!show) {
@@ -1780,7 +1798,7 @@ function drawBay(t, now) {
       // Canvas +x points away from the belt, opposite candyPos's +u.
       const u = (piece % 4 - 1.5) * SLOT_LEN * .20 * S;
       const v = (Math.floor(piece / 4) - .5) * SLOT_LEN * .36 * S;
-      drawCandy(cx - u, -v, SLOT_LEN * .17 * S, col);
+      drawCandy(cx - u, -v, SLOT_LEN * .20 * S, col);
     }
   }
 

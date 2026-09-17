@@ -511,7 +511,7 @@ function frame(now) {
       carded = true;
       // Let the final tray close, travel through the SHOP gate and clear the board
       // before the result card covers it. Reduced-motion users keep the short delay.
-      const winDelay = reducedMotion.matches ? 700 : 3500;
+      const winDelay = reducedMotion.matches ? 700 : 4800;
       setTimeout(g.state === "win" ? onWin : onLose, g.state === "win" ? winDelay : 450);
     } else if (!carded) {
       if (!jammed(g)) {

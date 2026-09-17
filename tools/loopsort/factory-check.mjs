@@ -120,7 +120,7 @@ test('shipped boxes, palette, candy scale and all eight rotated pocket coordinat
   assert.equal(E.PALETTE.R, '#ff4265'); assert.equal(E.PALETTE.LB, '#21d8d0');
   for (const id of Object.keys(E.LEVELS)) {
     const { g, check } = fixture(id);
-    assert.equal(g.perBlock, 8); assert.ok(g.r >= .2 && g.r <= .3);
+    assert.equal(g.perBlock, 8); assert.ok(g.r >= .3 && g.r <= .33);
     assert.equal(g.slotCount, E.LEVELS[id].SlotCount);
     assert.equal(g.slotLen, 1.68 * E.SCALE * g.fit);
     for (const t of g.trucks) {
@@ -326,8 +326,8 @@ test('real shipped levels complete with ordinary belt physics and audited conser
 });
 
 test('2D draw commands contain exactly the real candies through pending and partial packing', () => {
-  // Each candy paints one highlight ellipse. Spy on the real fallback's drawing
-  // commands to catch missing pending pieces or simultaneous box/flight copies.
+  // Closed cartons deliberately hide their contents. Each exposed candy paints one
+  // highlight ellipse, so count pending, loose, flying and arrived partial pieces only.
   let candies = 0;
   const ctx = new Proxy({}, { get(target, key) {
     if (key in target) return target[key];
@@ -340,14 +340,20 @@ test('2D draw commands contain exactly the real candies through pending and part
     globalThis.window = { devicePixelRatio: 1 };
     E.initCanvas({ getContext: () => ctx, getBoundingClientRect: () => ({ width: 600, height: 800 }) });
     const { g, check } = fixture(); E.setGame(g);
-    const rendered = (n) => { candies = 0; E.draw(g.now); assert.equal(candies, n); check(); };
-    const total = g.trucks.reduce((n, t) => n + t.blocks.length * g.perBlock, 0);
-    rendered(total);
-    assert.ok(g.tap(g.trucks[0])); rendered(total);
-    feed(g, g.trucks[1], 3); rendered(total);
-    g.step(0, 1000); rendered(total);
-    pourTo(g, g.trucks[0], g.trucks[1], 21, 'LB'); rendered(total);
-    settle(g, 2000); rendered(0);
+    const visible = () => g.pending.length + g.cubes.length + g.flying.length +
+      g.trucks.reduce((n, t) => {
+        for (let slot = 0; slot < t.blocks.length; slot++) if (t.blocks[slot].flying)
+          n += g.perBlock - g.flying.filter(f => f.truck === t && f.slot === slot).length;
+        if (t.fill) n += t.fill - g.flying.filter(f => f.truck === t && f.slot === t.blocks.length).length;
+        return n;
+      }, 0);
+    const rendered = () => { candies = 0; E.draw(g.now); assert.equal(candies, visible()); check(); };
+    rendered();
+    assert.ok(g.tap(g.trucks[0])); rendered();
+    feed(g, g.trucks[1], 3); rendered();
+    g.step(0, 1000); rendered();
+    pourTo(g, g.trucks[0], g.trucks[1], 21, 'LB'); rendered();
+    settle(g, 2000); rendered(); assert.equal(candies, 0);
   } finally {
     if (savedWindow === undefined) delete globalThis.window; else globalThis.window = savedWindow;
   }

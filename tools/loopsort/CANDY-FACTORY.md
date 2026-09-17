@@ -2,7 +2,7 @@
 
 Shipped level files and their box counts remain unchanged. Each standard tray holds
 four boxes. Each box pours eight real candies in a 2 x 4 layout, radius
-`game.r = 0.204`. A tap still
+`game.r = 0.312`. A tap still
 pours exactly one selected box. The 3D picker returns its `slot`; callers that omit
 the slot keep selecting the front box for compatibility with bots and old tools.
 
@@ -51,9 +51,10 @@ revive cancels the removed colour's flights and retargets survivors after reinde
 
 The shared `PALETTE` export supplies the bright candy colours. Renderer dimensions:
 paper at `BODY_H=.6`, candy bottom `.74` over the liner; loose candy bottom `.40`;
-candy height `.45`. Packed candy width is `slotLen * .17`, loose diameter is
-`game.r * 2`. Source transfers use a small bridge hop; incoming flights use a higher
-arc and a landing squash before the lid closes.
+candy height `.45`. Open-carton candy width is `slotLen * .20`, loose diameter is
+`game.r * 2`. A completed carton uses an opaque colour lid; only opening and partial
+cartons expose their pieces. Source transfers use a small bridge hop; incoming flights
+use a higher arc and a landing squash before the lid closes.
 Height is renderer-owned; engine flight coordinates are planar.
 
 Run `node tools/loopsort/factory-check.mjs` for conservation, pocket/arrival,
