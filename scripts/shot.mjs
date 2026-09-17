@@ -173,8 +173,9 @@ async function main() {
     if (then && then !== true) {
       await cdp.eval(String(then) + "; return 1;");
       // Long enough for a tween or a debounced redraw the snippet kicked off to finish — a
-      // probe that reads mid-animation measures the animation, not the result.
-      await sleep(1400);
+      // probe that reads mid-animation measures the animation, not the result. `--hold <ms>`
+      // overrides it, to shoot a scene the snippet set moving some seconds later.
+      await sleep(Number(arg("hold", 1400)));
     }
     const r = await cdp.send("Page.captureScreenshot", { format: "png" });
     const file = join(OUT, `page-${String(page).replace(/[^\w.-]+/g, "_")}.png`);

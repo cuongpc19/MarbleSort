@@ -113,16 +113,19 @@ function pourTo(g, source, target, count, color) {
 // thai CUOI (thang, giao xong, ve het); cac moc gio trung gian co y nghia rieng thi giu nguyen.
 const settle = (g, min = 0) => g.step(0, Math.max(min, g.now, ...g.flying.map((f) => f.at + f.ms)) + 1);
 
+// So vien mot hop, doc tu engine. Moi con so trong cac bai duoi deu viet theo B de bai kiem
+// khong phai sua lai khi doi co hop (8 -> 64).
+const B = E.CANDIES_PER_BOX;
 let tests = 0;
 function test(name, fn) { fn(); tests++; console.log(`PASS ${name}`); }
 
-test('eight conveyor batches expand into 64 packed minis; palette and pocket coordinates', () => {
+test('64 real candies per box; palette and pocket coordinates', () => {
   assert.equal(E.PALETTE.R, '#ff4265'); assert.equal(E.PALETTE.LB, '#21d8d0');
-  assert.equal(E.MINIS_PER_BELT_CANDY, 8);
+  assert.equal(B, 64); assert.equal(E.MINIS_PER_BELT_CANDY, 1);
   assert.equal(E.MINI_CANDIES_PER_BOX, 64);
   for (const id of Object.keys(E.LEVELS)) {
     const { g, check } = fixture(id);
-    assert.equal(g.perBlock, 8); assert.ok(g.r >= .3 && g.r <= .33);
+    assert.equal(g.perBlock, B); assert.ok(g.r >= .18 && g.r <= .22);
     assert.equal(g.perBlock * E.MINIS_PER_BELT_CANDY, E.MINI_CANDIES_PER_BOX);
     assert.equal(g.slotCount, E.LEVELS[id].SlotCount);
     assert.equal(g.slotLen, 1.68 * E.SCALE * g.fit);
@@ -131,15 +134,16 @@ test('eight conveyor batches expand into 64 packed minis; palette and pocket coo
       for (let slot = 0; slot < t.cap; slot++) for (let piece = 0; piece < g.perBlock; piece++) {
         const p = g.candyPos(t, slot, piece), c = g.slotPos(t, slot);
         const dx = p.x - c.x, dy = p.y - c.y;
-        assert.ok(Math.abs(dx * t.mx + dy * t.my - (piece % 4 - 1.5) * g.slotLen * .20) < 1e-9);
-        assert.ok(Math.abs(-dx * t.my + dy * t.mx - (Math.floor(piece / 4) - .5) * g.slotLen * .36) < 1e-9);
+        const cell = piece % 16;
+        assert.ok(Math.abs(dx * t.mx + dy * t.my - (cell % 4 - 1.5) * g.slotLen * .235) < 1e-9);
+        assert.ok(Math.abs(-dx * t.my + dy * t.mx - (Math.floor(cell / 4) - 1.5) * g.slotLen * .235) < 1e-9);
       }
     }
     check();
   }
 });
 
-test('clicking one selected box pours exactly its eight real candies', () => {
+test('clicking one selected box pours exactly its B real candies', () => {
   const { g, check } = fixture(2);
   const t = g.trucks.find(t => new Set(t.blocks.map(b => b.color)).size > 1);
   const before = [...t.blocks], slot = 1, selected = before[slot];
@@ -149,11 +153,11 @@ test('clicking one selected box pours exactly its eight real candies', () => {
   assert.equal(g.tapLoad(t, slot), 1); assert.ok(g.tap(t, slot));
   assert.equal(t.blocks.length, before.length - 1);
   assert.equal(t.blocks.includes(selected), false);
-  assert.equal(g.pending.length, 8); assert.equal(g.counter(), 1);
-  assert.deepEqual(g.pending.map(p => p.slot), Array(8).fill(slot));
-  assert.deepEqual(g.pending.map(p => p.piece), [0, 1, 2, 3, 4, 5, 6, 7]);
+  assert.equal(g.pending.length, B); assert.equal(g.counter(), 1);
+  assert.deepEqual(g.pending.map(p => p.slot), Array(B).fill(slot));
+  assert.deepEqual(g.pending.map(p => p.piece), [...Array(B).keys()]);
   assert.ok(g.pending.every(p => p.color === selected.color));
-  assert.equal(g.canTap(t), false, 'tray waits until all eight pieces leave the opened box');
+  assert.equal(g.canTap(t), false, 'tray waits until all pieces leave the opened box');
   const first = g.pending[0], origin = g.candyPos(first.truck, first.slot, first.piece);
   g.step(0, first.at - 1);
   assert.equal(g.cubes.length, 0, 'the lid gets its opening beat before candy exits');
@@ -179,34 +183,35 @@ test('empty / partial / full / closed acceptance; partial arrival and tap lock',
   g.step(0, 1000); check();
   assert.equal(g.flying.length, 0); assert.equal(target.fill, 3);
   assert.equal(g.canTap(target), false); assert.equal(g.tap(target), false);
-  pourTo(g, source, target, 21); check();
+  pourTo(g, source, target, 3 * B - 3); check();
   assert.equal(target.blocks.length, 4); assert.equal(target.fill, 0);
   assert.equal(g.accepts(target, 'LB'), false);
   assert.equal(g.deliver(target), false, 'public deliver must also wait');
   settle(g, 2000); check();
   assert.ok(target.gone); assert.equal(g.accepts(target, 'LB'), false);
-  assert.equal(g.delivered.LB, 32); assert.equal(g.state, 'win');
+  assert.equal(g.delivered.LB, 4 * B); assert.equal(g.state, 'win');
 });
 
-test('eighth reservation landing first never finishes a box or delivers early', () => {
+test('last reservation landing first never finishes a box or delivers early', () => {
   const { g, check } = fixture();
   const [target, source] = g.trucks;
-  assert.ok(g.tap(source)); feed(g, target, 8); check();
+  assert.ok(g.tap(source)); feed(g, target, B); check();
   const block = target.blocks.at(-1);
   assert.ok(block.flying); assert.equal(target.fill, 0);
-  assert.deepEqual(g.flying.map(f => f.piece), [0, 1, 2, 3, 4, 5, 6, 7]);
-  // Adversarial arrival order, as can happen with unequal path lengths or frame timing.
-  for (const f of g.flying) { f.at = 0; f.ms = [800, 700, 600, 500, 400, 300, 250, 200][f.piece]; }
+  assert.deepEqual(g.flying.map(f => f.piece), [...Array(B).keys()]);
+  // Adversarial arrival order, as can happen with unequal path lengths or frame timing:
+  // the last piece lands first (200ms), the first piece last (800ms).
+  for (const f of g.flying) { f.at = 0; f.ms = f.piece ? 200 + (B - 1 - f.piece) * 500 / (B - 1) : 800; }
   target.arriveAt = 800;
   g.step(0, 201); check();
   assert.ok(block.flying); assert.equal(block.packedAt, undefined);
-  assert.equal(g.flying.length, 7); assert.equal(target.gone, false);
+  assert.equal(g.flying.length, B - 1); assert.equal(target.gone, false);
   g.step(0, 701); check();
   assert.ok(block.flying); assert.equal(g.flying.length, 1); assert.equal(g.deliver(target), false);
   g.step(0, 800); check();
   assert.equal(block.flying, false); assert.equal(block.packedAt, 800);
   assert.ok(target.gone); assert.equal(target.drain, 800);
-  assert.equal(g.state, 'win'); assert.equal(g.delivered.LB, 32);
+  assert.equal(g.state, 'win'); assert.equal(g.delivered.LB, 4 * B);
 });
 
 test('undo restores boxes from pending and physical candies; packing invalidates undo', () => {
@@ -241,17 +246,17 @@ test('expanded tray delivers four boxes and preserves the remaining colour', () 
   target.blocks = [pink.pop(), ...white]; source.blocks = pink; other.blocks = [];
   check(); assert.ok(g.deliver(target)); check();
   assert.equal(target.gone, false); assert.equal(target.blocks.length, 1);
-  assert.equal(target.blocks[0].color, 'PNK'); assert.equal(g.delivered.W, 32);
-  pourTo(g, source, target, 24, 'PNK'); check();
+  assert.equal(target.blocks[0].color, 'PNK'); assert.equal(g.delivered.W, 4 * B);
+  pourTo(g, source, target, 3 * B, 'PNK'); check();
   settle(g, 1000); check(); assert.equal(g.state, 'win');
 });
 
 test('revive clears pending, partial, reserved and airborne candies without ghosts', () => {
-  for (const count of [0, 2, 8, 9]) {
+  for (const count of [0, 2, B, B + 1]) {
     const { g, check, initial } = fixture();
     assert.ok(g.tap(g.trucks[0]));
     if (count) pourTo(g, g.trucks[0], g.trucks[1], count, 'LB');
-    if (count === 9) assert.equal(g.shuffle(g.trucks[1]), false, 'packing blocks cannot be reordered');
+    if (count === B + 1) assert.equal(g.shuffle(g.trucks[1]), false, 'packing blocks cannot be reordered');
     check(); const color = g.revive(); check();
     assert.equal(color, 'LB'); assert.equal(g.revived.LB, initial.LB);
     assert.equal(g.flying.length, 0); assert.equal(g.candyCount(), 0);
@@ -273,7 +278,7 @@ test('revive reindexes surviving flights above removed boxes, preserving positio
   for (const p of g.pending) p.at = 0;
   g.step(0, 1);
   assert.ok(g.tap(source)); assert.ok(g.tap(other));
-  pourTo(g, other, target, 9, 'W'); check();
+  pourTo(g, other, target, B + 1, 'W'); check();
   const before = new Map(g.flying.map(f => [f, E.flyPos(f, 0)]));
   assert.equal(g.revive(), 'PNK'); check();
   assert.equal(g.revived.PNK, initial.PNK);
@@ -282,8 +287,8 @@ test('revive reindexes surviving flights above removed boxes, preserving positio
     assert.ok(Math.hypot(p.x - old.x, p.y - old.y) < 1e-9, 'retarget does not teleport');
     assert.ok(f.slot === 1 || f.slot === 2);
   }
-  pourTo(g, other, target, 15, 'W'); check();
-  settle(g, 2000); check(); assert.equal(g.state, 'win'); assert.equal(g.delivered.W, 32);
+  pourTo(g, other, target, 2 * B - 1, 'W'); check();
+  settle(g, 2000); check(); assert.equal(g.state, 'win'); assert.equal(g.delivered.W, 4 * B);
 });
 
 test('a full conveyor with accepting trays drains instead of losing', () => {
@@ -357,7 +362,7 @@ test('2D draw commands contain exactly the real candies through pending and part
     assert.ok(g.tap(g.trucks[0])); rendered();
     feed(g, g.trucks[1], 3); rendered();
     g.step(0, 1000); rendered();
-    pourTo(g, g.trucks[0], g.trucks[1], 21, 'LB'); rendered();
+    pourTo(g, g.trucks[0], g.trucks[1], 3 * B - 3, 'LB'); rendered();
     settle(g, 2000); rendered(); assert.equal(candies, 0);
   } finally {
     if (savedWindow === undefined) delete globalThis.window; else globalThis.window = savedWindow;

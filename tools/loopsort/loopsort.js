@@ -57,8 +57,16 @@ const CONFETTI = ["#f5c518", "#3fbf4f", "#2f8fe0", "#ef5fa7", "#f2892a", "#5fd0e
 const CAP = 4;            // suc chua mot ben khi bat dau = 4 khoi
 const DELIVER = 4;        // so khoi cung mau de mot chuyen hang duoc giao
                           // (moi mau xuat hien dung 4 lan tren toan bo 800 bo carrier)
-const CANDIES_PER_BOX = 8; // 8 me lon tren ray: giu nhip choi va suc chua ray de doc.
-const MINIS_PER_BELT_CANDY = 8; // moi me tach thanh 8 vien nho khi roi vao hop.
+// ⚠ 64 VIEN THAT MOT HOP, moi vien la mot manh vat ly rieng tren ray - dung nhu dong "cat" cua
+// ban goc Loop Sort. Chu du an 2026-09-17: "1 hop keo co 64 vien", vien tren ray nho va chay
+// thanh dong dac. Truoc day la 8 me vat ly, moi me ve thanh 8 vien nho (64 vien chi la HINH), nen
+// keo nho li ti va khong bao gio thay chung chen nhau.
+// Ban goc dat cube cach nhau `Spacing` 0.58 tren cung don vi ray, ray mot hang chua ~15 cube cho
+// moi o dem, long ray chua 3-4 hang -> ~60 cube moi o dem: tuc dung khoang 64 cube mot khoi, va
+// o dem day nghia la ray dac kin, co cho con tran. Nen ray "thieu cho" khi o dem day la DUNG
+// voi ban goc, khong phai loi.
+const CANDIES_PER_BOX = 64;
+const MINIS_PER_BELT_CANDY = 1; // moi manh ve dung mot vien
 const MINI_CANDIES_PER_BOX = CANDIES_PER_BOX * MINIS_PER_BELT_CANDY; // 4 x 4 x 4 = 64.
 // ⚠ MOT he so kich thuoc cho ca xe, hang va be rong ray - SCALE. Con so 1.5 la yeu cau cua
 // chu du an ("tang kich thuoc ray va vali len 1.5 lan"), va no chi co nghia khi duong ray
@@ -89,14 +97,16 @@ export const WIDE = 1.38;
 // ⚠ Hai he so, khong phai mot. SCALE phong to KHAY (o hang, than xe) - cai nay tu do lon bao
 // nhieu cung duoc vi camera se khop lai. Con mieng hang CHAY TREN RAY thi bi be rong ray chan:
 // ray rong 2.82 va khong doi, nen cube ban kinh qua 1.1 la no tran ra ngoai hai mep ray.
-export const CUBE_SCALE = 1.45;
+// Ban kinh 0.20 (chu du an 2026-09-17: "doi thanh 64 vien thi cac vien tren ray be thoi"):
+// long ray 1.84 chua 4 vien mot hang ngang, nen ray dac nhu dong cat cua ban goc va du cho hon.
+export const CUBE_SCALE = 0.93;
 const SLOT_LEN = 1.68 * SCALE;    // Full carton pitch; loose candy size must not change this.
 const TRUCK_W = 2.6 * WIDE;   // rong than xe, cung do tu clip
 const SPEED = 9.0;        // Whole candies travel slowly enough to follow by eye.
 // Give the carton lid one readable beat before the first batch leaves. The renderer now keeps
 // the selected carton and all pending candies visible in their real pocket during this delay,
 // so this no longer creates the old empty-frame blink described by the previous zero value.
-const CRUMBLE_MS = 200;
+const CRUMBLE_MS = 160;
 // ⚠ 160, KHONG PHAI 0 - va day la mot hang so LUAT CHOI, khong chi la hang so hinh.
 // Tu khi moi vali ra tu DUNG O CUA NO (xem tap()), khoang cach giua cac vali tren cau la
 // (gian cach + mot o duong trong long xe), tuc DEU NHAU voi bat ky gian cach co dinh nao - nen
@@ -106,7 +116,8 @@ const CRUMBLE_MS = 200;
 //     0 -> 25%     60 -> 30%     120 -> 55%     160 -> 65%     210 -> 60%
 // (bot tat dinh, nen 3 hay 6 van moi level cho dung mot ket qua - chenh lech la that). Duoi
 // ~100ms la vung hong; 160 ra gan nhau hon ban cu 210 ma van cach xa vung do.
-const POUR_STAGGER = 155;
+// 64 vien mot hop: 14ms moi vien -> ca hop tuon ra trong ~0.9s, dung nhip "vo ra" cua ban goc.
+const POUR_STAGGER = 14;
 const EAT_MS = 30;        // nhip hut mot cube (~850ms/khoi, khop clip)
 const POUR_GUARD = 900;   // ben khong hut lai cat cua chinh no trong ngan nay - xem absorb()
 const ABSORB_MS = 190;    // thoi gian bay tu ray len khoang hang (chi con lam tran duoi)
@@ -528,8 +539,10 @@ export class Game {
   // (mx,my), +v follows (-my,mx), exactly the full box's coordinate system.
   candyPos(t, slot, piece) {
     const p = this.slotPos(t, slot);
-    const u = (piece % 4 - 1.5) * this.slotLen * 0.20;
-    const v = (Math.floor(piece / 4) - 0.5) * this.slotLen * 0.36;
+    // 64 o = luoi 4x4 x 4 tang. Cac tang chung mot toa do mat san; do cao la viec cua bo ve.
+    const cell = piece % 16;
+    const u = (cell % 4 - 1.5) * this.slotLen * 0.235;
+    const v = (Math.floor(cell / 4) - 1.5) * this.slotLen * 0.235;
     return { x: p.x + t.mx * u - t.my * v, y: p.y + t.my * u + t.mx * v };
   }
 
@@ -893,14 +906,18 @@ export class Game {
     // chong lan giai quyet trong vai khung, va do dung la hinh anh "ray dang dong".
     const cell = r * 2.2;
     const inTruck = (c) => !c.landed;
+    // Khoa o luoi la SO, khong phai chuoi "x,y": 64 vien mot hop dua ray len toi vai tram manh,
+    // va noi chuoi trong vong lap nay chiem phan lon thoi gian mot buoc vat ly. Cung o, cung thu
+    // tu nen ket qua khong doi mot bit.
+    const key = (gx, gy) => (gx + 32768) * 65536 + (gy + 32768);
     for (let pass = 0; pass < RELAX; pass++) {
       const grid = new Map();
       for (let i = 0; i < n; i++) {
         const c = cubes[i];
         if (inTruck(c)) continue;
-        const key = ((c.x / cell) | 0) + "," + ((c.y / cell) | 0);
-        let a = grid.get(key);
-        if (!a) grid.set(key, (a = []));
+        const k = key((c.x / cell) | 0, (c.y / cell) | 0);
+        let a = grid.get(k);
+        if (!a) grid.set(k, (a = []));
         a.push(i);
       }
       for (let i = 0; i < n; i++) {
@@ -909,7 +926,7 @@ export class Game {
         const cx = (a.x / cell) | 0, cy = (a.y / cell) | 0;
         for (let gx = cx - 1; gx <= cx + 1; gx++)
           for (let gy = cy - 1; gy <= cy + 1; gy++) {
-            const arr = grid.get(gx + "," + gy);
+            const arr = grid.get(key(gx, gy));
             if (!arr) continue;
             for (const j of arr) {
               if (j <= i) continue;
@@ -1139,7 +1156,7 @@ export class Game {
         // Give clusters a short cadence into the carton. A queued flight remains drawn at
         // its belt position until `flightAt`, so the candy never blinks out while waiting.
         const flightAt = Math.max(now, t.nextFlyAt || 0);
-        t.nextFlyAt = flightAt + 58;
+        t.nextFlyAt = flightAt + 10;   // 64 vien: 10ms moi vien, ca hop ~0.65s
         t.arriveAt = Math.max(t.arriveAt || 0, flightAt + ms);
         t.ate = t.arriveAt;
         const cuBay = {

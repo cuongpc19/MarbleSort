@@ -612,12 +612,14 @@ export function mountThree(frameEl, getGameFn) {
   function miniCandyPosition(game,t,slot,index){
     const c=game.slotPos(t,slot,.5),sl=slotLen(game,t);
     const layer=Math.floor(index/MINI_LAYER_SIZE),cell=index%MINI_LAYER_SIZE;
-    const col=cell%MINI_GRID,row=Math.floor(cell/MINI_GRID),pitch=sl*.155;
+    // Keo trong hop LAP GAN KIN long hop (chu du an: "keo o hop cung can to hon"). Luoi 4x4
+    // trai 3*pitch+size = 0.93 chieu dai o, 4 tang cao 0.15 o moi tang.
+    const col=cell%MINI_GRID,row=Math.floor(cell/MINI_GRID),pitch=sl*.235;
     const u=(col-1.5)*pitch,v=(row-1.5)*pitch;
-    const height=Math.max(.12,sl*.064);
+    const height=sl*.15;
     return {
       x:c.x+t.mx*u-t.my*v,y:c.y+t.my*u+t.mx*v,
-      bottom:BODY_H+.22+layer*height*.82,height,size:sl*.112,layer
+      bottom:BODY_H+.2+layer*height*.92,height,size:sl*.222,layer
     };
   }
   // Every pocket is one real candy. Flights reserve pockets in the model, but their
@@ -1128,11 +1130,17 @@ export function mountThree(frameEl, getGameFn) {
   }
   function drawCubes(game){
     const list=[];
+    // ⚠ 64 VIEN mot hop, va moi vien la mot manh vat ly (MINIS_PER_BELT_CANDY = 1): cac vien
+    // xep sat nhau thanh MOT DONG DAC giong dong "cat" cua ban goc Loop Sort. Nhanh `single=false`
+    // (moi manh ve thanh cum 8 vien) chi con cho truong hop doi lai hop 8 me.
     const batchSize=game.r*2*BELT_CANDY_VISUAL_SCALE;
-    const miniSize=batchSize*.36,miniHeight=CARGO_H*BELT_CANDY_VISUAL_SCALE*.50;
-    const pitch=batchSize*.35;
-    // One logical belt reservation is rendered as eight real candies. Eight reservations
-    // therefore keep all 64 candies of the selected carton visible from source to target.
+    // Mot manh = mot vien: vien bang co va cham, nhinh hon mot chut de dong keo dac kin.
+    const single=MINIS_PER_BELT_CANDY===1;
+    const miniSize=single?game.r*2*1.08:batchSize*.36;
+    const miniHeight=single?miniSize*.72:CARGO_H*BELT_CANDY_VISUAL_SCALE*.50;
+    const pitch=single?0:batchSize*.35;
+    // One belt reservation is rendered as MINIS_PER_BELT_CANDY candies, so every one of the
+    // carton's 64 candies stays visible from source to target.
     for(const c of game.cubes){
       let cx=c.x,cy=c.y,bottom=RAIL_Y+.025,tilt=0;
       if(!c.landed&&c.src){
