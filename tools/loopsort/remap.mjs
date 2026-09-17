@@ -79,6 +79,9 @@ function findWin(id) {
 // khong phai so cam tinh, nen no la mot co de chinh chu khong phai hang so chet.
 const TARGET_SPAN = Number(arg("span", 38.5));
 const FRAME_AR = 0.72;      // be ngang / chieu cao cua khung choi (may dien thoai dung)
+// Co vat the tren man hinh dien thoai (px moi don vi the gioi) cua mot khung ban: dai choi
+// ~376 x 680 px, camera 54 do nen chieu sau bi nen ~0.81. Lon hon = nhin GAN hon.
+const screenScale = (b) => Math.min(376 / (b.x1 - b.x0), 680 / (0.81 * (b.y1 - b.y0)));
 
 const MIN_FIT = 0.995;      // 1.0 = khong co cap xe nao de nhau
 const MAX_SKEW = 12;        // do lech mieng ben so voi huong toi ray
@@ -269,7 +272,7 @@ for (const id of IDS) {
       const b = g.bounds;
       // Canh nao rang buoc camera: be ngang chia ti le khung hinh, hay chieu cao.
       const span = Math.max((b.x1 - b.x0) / FRAME_AR, b.y1 - b.y0);
-      cands.push({ spline: E.SPLINES[sid], donor: d.s.Id, bbox: b, fit: g.fit, span });
+      cands.push({ spline: E.SPLINES[sid], donor: d.s.Id, bbox: b, fit: g.fit, span, scr: screenScale(b) });
     } else lastWhy = why;
     E.LEVELS[id].Spline = keepSp;
     delete E.SPLINES[sid];
@@ -281,8 +284,10 @@ for (const id of IDS) {
   // vi bot la phan dat nhat va cau hoi nay khong can toi no.
   if (SPANS) {
     const s = cands.map((c) => c.span).sort((a, b) => a - b);
+    const sc = cands.map((c) => c.scr).sort((a, b) => b - a);
     console.log(`lv ${String(id).padStart(2)}: ${need} khay · ${cands.length} ung vien · ` +
-      `span nho nhat ${s[0]?.toFixed(1) ?? "-"} · trung vi ${s[s.length >> 1]?.toFixed(1) ?? "-"}`);
+      `span nho nhat ${s[0]?.toFixed(1) ?? "-"} · trung vi ${s[s.length >> 1]?.toFixed(1) ?? "-"} · ` +
+      `co man hinh lon nhat ${sc[0]?.toFixed(2) ?? "-"}`);
     continue;
   }
 

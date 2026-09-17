@@ -126,7 +126,9 @@ export function mountThree(frameEl, getGameFn) {
   // so sau bien the tren cung level 5 va 30. Muc dich la thay
   // duoc THAN hop keo, ma o 64 do fov 7 gan nhu chi thay mat tren. Near = 10 van dung: o fov 20
   // camera van cach ban co vai chuc don vi.
-  const camera = new THREE.PerspectiveCamera(20, 1, 10, 4000);
+  // `?fov=` de so thu tren may dev.
+  const qFov = typeof location !== "undefined" && +new URLSearchParams(location.search).get("fov");
+  const camera = new THREE.PerspectiveCamera(qFov || 20, 1, 4, 4000);
 
   // Keep enough fill for the bright candy palette, then let one warm key light establish
   // the bevels and cast shadows. The previous broad fill lit every face almost equally,
@@ -383,6 +385,13 @@ export function mountThree(frameEl, getGameFn) {
   // Quet ca 1299 level cua bo tu sinh: trung vi 0.89, 53% level be ngang qua, trung binh bo phi
   // 24% mot chieu. Do la don bay cua BO SINH LEVEL (dat bo do o canh tren/duoi thay vi don ca
   // sang trai/phai), khong phai cua camera.
+  // ⚠ 1.10: MEP NGOAI cua ray duoc phep lo ra ngoai hai canh man hinh mot chut, con KHAY thi
+  // luon nam tron (0.97, ben duoi). Chu du an 2026-09-17: "k hieu sao ban cua minh cu bi nhin xa
+  // ... hay co gang de view gan va nhin moi thu gan hon". Do: be ngang ban co la cai chan camera
+  // tren moi level (ban co rong/cao ~0.75, man hinh can ~0.45), va chon ray khac cho ca 100 level
+  // chi to them ~9%. Cho ray lo ra 10% thi moi thu to them ~17%. 0.94 (co le hai ben) la muc cu;
+  // `?ringfit=` de so thu.
+  const RING_FIT = (typeof location !== "undefined" && +new URLSearchParams(location.search).get("ringfit")) || 1.10;
   function fitCamera(game) {
     const b = game.bounds;
     const cx = (b.x0 + b.x1) / 2, cz = (b.y0 + b.y1) / 2;
@@ -429,9 +438,9 @@ export function mountThree(frameEl, getGameFn) {
       }
       for (const p of ringPts) {
         const v = p.clone().project(camera);
-        // 0.94 = chua khoang 3% be ngang man hinh lam le moi ben. Chieu doc thi dich 1.00,
-        // tuc ray duoc cham day dai an toan nhung khong bao gio chui qua no.
-        worst = Math.max(worst, Math.abs(v.x) / 0.94, (v.y / upper) / 1.00, (-v.y / lower) / 1.00);
+        // RING_FIT: xem tren. Chieu doc thi dich 1.00, tuc ray duoc cham day dai an toan
+        // nhung khong bao gio chui qua no.
+        worst = Math.max(worst, Math.abs(v.x) / RING_FIT, (v.y / upper) / 1.00, (-v.y / lower) / 1.00);
       }
       for (const p of truckPts) {
         const v = p.clone().project(camera);
@@ -1142,6 +1151,29 @@ export function mountThree(frameEl, getGameFn) {
     const pitch=single?0:batchSize*.35;
     // One belt reservation is rendered as MINIS_PER_BELT_CANDY candies, so every one of the
     // carton's 64 candies stays visible from source to target.
+    // DONG KEO CHEN CHUC: vien nao bi nhieu vien khac ep quanh thi troi len thanh dong, nhu
+    // cube cua ban goc chat chong len nhau. Engine chi co vat ly 2D, nen do cao nay la HINH:
+    // dem hang xom trong ban kinh ~1.15 co vien, dong cang day thi vien (ngau nhien theo hat
+    // giong) cang nam cao. Luoi o vuong de dem, khong phai O(n^2).
+    const crowd=new Map();
+    if(lively){
+      const cell=game.r*2.3,key=(x,y)=>((x/cell)|0)*65536+((y/cell)|0);
+      const grid=new Map();
+      for(const c of game.cubes){
+        if(!c.landed)continue;
+        const k=key(c.x+5000,c.y+5000);let a=grid.get(k);if(!a)grid.set(k,a=[]);a.push(c);
+      }
+      const near2=(game.r*2*1.15)**2;
+      for(const c of game.cubes){
+        if(!c.landed)continue;
+        const gx=((c.x+5000)/cell)|0,gy=((c.y+5000)/cell)|0;let n=0;
+        for(let i=-1;i<=1;i++)for(let j=-1;j<=1;j++){
+          const a=grid.get((gx+i)*65536+gy+j);if(!a)continue;
+          for(const o of a)if(o!==c&&(o.x-c.x)**2+(o.y-c.y)**2<near2)n++;
+        }
+        crowd.set(c,n);
+      }
+    }
     for(const c of game.cubes){
       let cx=c.x,cy=c.y,bottom=RAIL_Y+.025,tilt=0;
       let st=candyVis.get(c);
@@ -1158,9 +1190,16 @@ export function mountThree(frameEl, getGameFn) {
           st.roll+=(target-st.roll)*Math.min(1,dtv*.012);
           const lk=(game.now-st.landAt)/220;
           if(lk<1)squash=Math.sin(lk*Math.PI)*.22*(1-lk*.5);
-          // Tren ray: nhap nho rat nhe, moi vien mot nhip, cho dong keo co hon.
-          bottom+=Math.abs(Math.sin(game.now*.010+st.seed*40))*.035;
-          tilt+=Math.sin(game.now*.008+st.seed*30)*.07;
+          // Dong day: vien co hat giong cao thi leo len tren (mot tang), vien khac nghieng de.
+          const n=crowd.get(c)||0;
+          const heap=Math.max(0,Math.min(1,(n-3)/3))*(st.seed>.45?1:.25);
+          st.pile=(st.pile||0)+(heap-(st.pile||0))*Math.min(1,dtv*.01);
+          bottom+=st.pile*miniHeight*1.05;
+          tilt+=st.pile*(st.seed-.5)*1.1;
+          // Tren ray: xoc nay theo nhip rieng tung vien, manh hon khi dang bi xo (vrot tu va cham).
+          const jolt=Math.min(1,Math.abs(c.vrot||0)/5);
+          bottom+=Math.abs(Math.sin(game.now*.016+st.seed*40))*(.03+.07*jolt);
+          tilt+=Math.sin(game.now*.013+st.seed*30)*(.08+.22*jolt);
         }
       }
       if(!c.landed&&c.src){

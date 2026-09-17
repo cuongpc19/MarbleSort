@@ -102,7 +102,13 @@ export const WIDE = 1.38;
 export const CUBE_SCALE = 0.93;
 const SLOT_LEN = 1.68 * SCALE;    // Full carton pitch; loose candy size must not change this.
 const TRUCK_W = 2.6 * WIDE;   // rong than xe, cung do tu clip
-const SPEED = 9.0;        // Whole candies travel slowly enough to follow by eye.
+// ⚠ 14 (chu du an 2026-09-17): "ban goc co animation chuyen dong nhanh, va nhieu, nen thay no
+// chen chuc nhau". Do tren clip ban goc: ~20 dv/giay voi cube 0.58, tuc ~34 co vien/giay; vien
+// o day rong 0.43 nen 14 dv/giay ~ 33 co vien/giay - cung nhip mat nhin.
+const SPEED = 14.0;
+// Moi vien chay mot toc do rieng quanh SPEED (+-12%): vien nhanh duoi kip vien cham va huc vao
+// nhau, nen dong keo luon xo day thay vi troi deu nhu bang tai.
+const SPEED_SPREAD = 0.12;
 // Give the carton lid one readable beat before the first batch leaves. The renderer now keeps
 // the selected carton and all pending candies visible in their real pocket during this delay,
 // so this no longer creates the old empty-frame blink described by the previous zero value.
@@ -130,7 +136,7 @@ const ABSORB_MS = 190;    // thoi gian bay tu ray len khoang hang (chi con lam t
 // tra ve tu 14.2 den 44.7 dv/giay - gap 1.6 den 5 lan bang chuyen (9). Vali dang troi thong
 // tha tren ray bong vot di gap nam lan: dung cai "giat giat" chu du an bao. Ghim toc do thi
 // cu xa bay lau hon cu gan, va do moi la chuyen dong binh thuong.
-const FLY_SPEED = 18;     // toc do nhap vali vao khoang hang (dv/giay), gap doi bang chuyen
+const FLY_SPEED = 26;     // toc do nhap vali vao khoang hang (dv/giay), ~gap doi bang chuyen
 // ⚠ Tran phai du rong de KHONG cham toi trong choi binh thuong. Chang duong vao gio di vong
 // theo cau (ray -> dau cau -> mieng khay -> o dich) nen dai 8-12 don vi chu khong con la doan
 // thang 2.7-8.5; de tran 420ms thi cu dai bi kep, va kep thoi gian chinh la ghim thoi gian -
@@ -154,10 +160,10 @@ const RIPPLE_MS = 360;
 // nhu cu. Hang to len 1.5 lan chay tren mot long ray khong doi, tuc hang lap day ray hon
 // truoc - dung y do.
 const CHANNEL = 0.92;     // Clearance for whole square candies.
-const DRIVE = 11;         // do bam cua bang chuyen (1/giay)
+const DRIVE = 14;         // do bam cua bang chuyen (1/giay)
 const PULL = 34;          // luc keo ve tim mang khi cube lech ra ngoai
 const NDAMP = 7;          // ma sat theo phuong NGANG (1/giay)
-const BOUNCE = 0.05;      // cube la khoi dac, gan nhu khong nay
+const BOUNCE = 0.25;      // keo nay nhe khi va nhau - du de dong keo xo day, khong ban tung toe
 const SUBSTEPS = 2;
 const RELAX = 3;          // so lan go chong lan moi buoc
 
@@ -825,7 +831,7 @@ export class Game {
       // ra nhap ray som duoc: mieng ben cach ray 2.0 den 4.7 don vi, con lim chi 0.31.
       if (!c.landed && Math.abs(off) <= lim) { c.landed = true; c.way = null; }
       if (c.landed) {
-        vt += (SPEED - vt) * Math.min(1, DRIVE * dt);  // bang chuyen keo phuong DOC
+        vt += ((c.spd || SPEED) - vt) * Math.min(1, DRIVE * dt);  // bang chuyen keo phuong DOC
         vn *= Math.exp(-NDAMP * dt);                   // ma sat ngang, cho cube lang xuong
         c.vx = p.tx * vt + nx * vn;
         c.vy = p.ty * vt + ny * vn;
@@ -984,7 +990,7 @@ export class Game {
                   const imp = -(1 + BOUNCE) * rv * 0.5;
                   a.vx -= dx * imp; a.vy -= dy * imp;
                   b.vx += dx * imp; b.vy += dy * imp;
-                  const kick = Math.min(6, Math.abs(imp) * 5);
+                  const kick = Math.min(10, Math.abs(imp) * 8);
                   a.vrot += (Math.random() - 0.5) * kick;
                   b.vrot += (Math.random() - 0.5) * kick;
                 }
@@ -1035,6 +1041,7 @@ export class Game {
         rot: Math.atan2(wy, wx), vrot: 0,
         way,
         sz: 1, color: p.color, piece: p.piece, slot: p.slot, seg: undefined,
+        spd: SPEED * (1 + (Math.random() * 2 - 1) * SPEED_SPREAD),
         // ⚠ Nho ben nao vua tuon hat nay ra, va tuon luc nao. absorb() dung hai truong
         // nay de mot ben khong hut lai chinh dong cat dang ra khoi mieng no.
         src: t, born: now,
