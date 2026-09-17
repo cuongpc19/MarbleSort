@@ -622,6 +622,12 @@ export function mountThree(frameEl, getGameFn) {
       bottom:BODY_H+.2+layer*height*.92,height,size:sl*.222,layer
     };
   }
+  // ⚠ Hop NGUON rot tu TANG TREN xuong: vien thu 0 roi di dau tien, nen no phai la vien tren
+  // cung - rot tu tang day thi cac tang tren lo lung giua khong trung. Hop DICH van xep tu day len.
+  function sourceIndex(game,piece,sub,source){
+    return source?(game.perBlock-1-piece)*MINIS_PER_BELT_CANDY+(MINIS_PER_BELT_CANDY-1-sub)
+                 :piece*MINIS_PER_BELT_CANDY+sub;
+  }
   // Every pocket is one real candy. Flights reserve pockets in the model, but their
   // destination is kept empty until the moving candy actually arrives.
   function makeBox(game,t,slot,color,pieces=null,hidden=false,ghost=false,sealed=true,
@@ -709,12 +715,15 @@ export function mountThree(frameEl, getGameFn) {
       }
     }
     const present=new Set(pieces);
+    const source=sourceOpenAt!==null;
     for(let piece=0;piece<game.perBlock;piece++){
       if(!present.has(piece))continue;
       const pop=(t.miniPops||[]).find(o=>o.slot===slot&&o.piece===piece);
       for(let sub=0;sub<MINIS_PER_BELT_CANDY;sub++){
-        const q=miniCandyPosition(game,t,slot,piece*MINIS_PER_BELT_CANDY+sub);
+        const q=miniCandyPosition(game,t,slot,sourceIndex(game,piece,sub,source));
         const m=tag(candy(cargo,q.x,q.y,q.size,q.bottom,hex,r+(sub%2?-.045:.045),q.height));
+        // Keo dang cho den luot trong hop vua mo: nhun nhay tai cho, nhu dang nong long lao ra.
+        if(source){m.userData.jiggleAt=sourceOpenAt;m.userData.jiggleSeed=piece*.618+sub*.31;}
         m.userData.candyPiece=piece;
         m.userData.miniCandy=true;
         m.userData.miniIndex=piece*MINIS_PER_BELT_CANDY+sub;
@@ -972,18 +981,32 @@ export function mountThree(frameEl, getGameFn) {
       m.scale.set(base.x*(1+release*.035),base.y*(1-press*.12+release*.05),base.z*(1+release*.035));
     }
     for(const m of cargo.children){
+      const at=m.userData.jiggleAt;
+      if(at===undefined)continue;
+      // Nhun nhay: bien do lon dan trong 150ms dau, moi vien mot nhip rieng.
+      const age=Math.max(0,game.now-at),amp=Math.min(1,age/150),sd=m.userData.jiggleSeed||0;
+      const hop=Math.abs(Math.sin(age*.028+sd*6.1))*amp;
+      const base=m.userData.baseScale,pos=m.userData.basePos;
+      m.position.y=pos.y+hop*.16;
+      m.scale.set(base.x*(1+.10*(1-hop)*amp),base.y*(1-.16*(1-hop)*amp+.08*hop),base.z*(1+.10*(1-hop)*amp));
+      m.rotation.y=m.userData.baseRotY+Math.sin(age*.021+sd*4.3)*.28*amp;
+      m.rotation.z=Math.sin(age*.017+sd*2.9)*.16*amp;
+    }
+    for(const m of cargo.children){
       const at=m.userData.miniPopAt;
       if(!at)continue;
       if(game.now<at)continue;
-      const k=Math.max(0,Math.min(1,(game.now-at)/210));
-      const bounce=Math.sin(k*Math.PI);
+      const k=Math.max(0,Math.min(1,(game.now-at)/300));
+      // Hai nhip nay: nay cao roi nay thap, tat dan - vien keo "rot bich" vao hop.
+      const bounce=Math.abs(Math.sin(k*Math.PI*2))*(1-k)*(k<.5?1:.45);
+      const squash=Math.sin(Math.min(1,k/.18)*Math.PI)*(1-k);
       const base=m.userData.baseScale,pos=m.userData.basePos;
       // The flight already carried this mini into place. The static mesh only
-      // gives a small row-by-row settle pulse; scaling from zero here made landed
-      // candies blink out for one frame before reappearing.
-      m.scale.set(base.x*(1+.16*bounce),base.y*(1-.20*bounce),base.z*(1+.16*bounce));
-      m.position.y=pos.y+bounce*.11;
-      m.rotation.y=m.userData.baseRotY+(m.userData.miniIndex%2?-.10:.10)*bounce;
+      // gives a settle bounce; scaling from zero here made landed candies blink out
+      // for one frame before reappearing.
+      m.scale.set(base.x*(1+.30*squash),base.y*(1-.34*squash+.10*bounce),base.z*(1+.30*squash));
+      m.position.y=pos.y+bounce*.30;
+      m.rotation.y=m.userData.baseRotY+(m.userData.miniIndex%2?-.22:.22)*bounce;
     }
     for(const m of cargo.children){
       const at=m.userData.stackPackAt;
@@ -1128,8 +1151,14 @@ export function mountThree(frameEl, getGameFn) {
     const co=Math.cos(rot||0),si=Math.sin(rot||0);
     return {x:x+co*u-si*v,y:y+si*u+co*v};
   }
+  // Trang thai HINH rieng cua tung vien (goc lan, luc cham ray) - khong nam trong engine.
+  const candyVis=new WeakMap();
+  let visNow=null;
+  const QUARTER=Math.PI/2;
   function drawCubes(game){
     const list=[];
+    const dtv=visNow===null?0:Math.max(0,Math.min(50,game.now-visNow));visNow=game.now;
+    const lively=!reducedMotion.matches;
     // ⚠ 64 VIEN mot hop, va moi vien la mot manh vat ly (MINIS_PER_BELT_CANDY = 1): cac vien
     // xep sat nhau thanh MOT DONG DAC giong dong "cat" cua ban goc Loop Sort. Nhanh `single=false`
     // (moi manh ve thanh cum 8 vien) chi con cho truong hop doi lai hop 8 me.
@@ -1143,6 +1172,25 @@ export function mountThree(frameEl, getGameFn) {
     // carton's 64 candies stays visible from source to target.
     for(const c of game.cubes){
       let cx=c.x,cy=c.y,bottom=RAIL_Y+.025,tilt=0;
+      let st=candyVis.get(c);
+      if(!st){st={roll:0,seed:((c.piece??0)*.6180339+(c.born||0)*.0137)%1,landAt:0};candyVis.set(c,st);}
+      let grow=1,squash=0;
+      if(lively){
+        if(!c.landed){
+          // LAN ra: lat ve phia truoc ~2 vong/giay trong luc roi hop va chay tren cau.
+          st.roll+=dtv*(.011+.005*st.seed);
+        }else{
+          if(!st.landAt)st.landAt=game.now;
+          // Cham ray thi "ngã" ve mat gan nhat (keo vuong doi xung 90 do), co nay nhe.
+          const target=Math.round(st.roll/QUARTER)*QUARTER;
+          st.roll+=(target-st.roll)*Math.min(1,dtv*.012);
+          const lk=(game.now-st.landAt)/220;
+          if(lk<1)squash=Math.sin(lk*Math.PI)*.22*(1-lk*.5);
+          // Tren ray: nhap nho rat nhe, moi vien mot nhip, cho dong keo co hon.
+          bottom+=Math.abs(Math.sin(game.now*.010+st.seed*40))*.035;
+          tilt+=Math.sin(game.now*.008+st.seed*30)*.07;
+        }
+      }
       if(!c.landed&&c.src){
         const t=c.src,reach=Math.max(1,Math.hypot(t.x-t.px,t.y-t.py));
         const f=Math.min(1,Math.hypot(c.x-t.px,c.y-t.py)/reach);
@@ -1152,12 +1200,19 @@ export function mountThree(frameEl, getGameFn) {
         cx-=t.my*lane*fan;cy+=t.mx*lane*fan;
         bottom=(BODY_H+.14)*(1-e)+(RAIL_Y+.025)*e+hop*.58;
         tilt=hop*.22+lane*fan*.18;
+        if(lively){
+          // BAT ra khoi hop: nhay vot len (moi vien cao mot kieu) va phong to nhe roi thu lai.
+          const pk=Math.max(0,Math.min(1,((game.now-c.born)||0)/340));
+          const pop=Math.sin(pk*Math.PI);
+          bottom+=pop*(.55+.55*st.seed);
+          grow=1+.28*pop;
+        }
       }
       for(let sub=0;sub<MINIS_PER_BELT_CANDY;sub++){
         const cp=clusterPoint(cx,cy,c.rot,pitch,sub);
         let x=cp.x,y=cp.y,b=bottom,size=miniSize,height=miniHeight;
         if(!c.landed&&c.src&&Number.isInteger(c.slot)&&Number.isInteger(c.piece)){
-          const q=miniCandyPosition(game,c.src,c.slot,c.piece*MINIS_PER_BELT_CANDY+sub);
+          const q=miniCandyPosition(game,c.src,c.slot,sourceIndex(game,c.piece,sub,true));
           const gather=Math.max(0,Math.min(1,((game.now-c.born)-sub*14)/360));
           const eased=gather*gather*(3-2*gather),arc=Math.sin(gather*Math.PI);
           const swirl=arc*(.13+(sub%3)*.025),a=sub*2.399+gather*2.2;
@@ -1167,7 +1222,8 @@ export function mountThree(frameEl, getGameFn) {
           size=q.size+(miniSize-q.size)*eased;height=q.height+(miniHeight-q.height)*eased;
         }
         list.push({x,y,bottom:b,color:c.color,rot:(c.rot||0)+(sub-3.5)*.018,
-          tilt:tilt+(sub%2?-.035:.035),worldSize:size,worldHeight:height});
+          tilt:tilt+(sub%2?-.035:.035),worldSize:size*grow,worldHeight:height*grow,
+          roll:st.roll,squash});
       }
     }
     for(const f of game.flying){
@@ -1178,13 +1234,17 @@ export function mountThree(frameEl, getGameFn) {
         const cp=clusterPoint(p.x,p.y,p.rot,pitch,sub);
         const q=miniCandyPosition(game,f.truck,f.slot,f.piece*MINIS_PER_BELT_CANDY+sub);
         const swirl=arc*(.08+(sub%3)*.018),a=sub*2.399+u*2.6;
+        const seed=((f.piece??0)*.6180339)%1;
+        const air=lively?arc*(.38+.30*seed):0,pop=lively?1+.30*arc:1;
         list.push({
           x:cp.x+(q.x-cp.x)*eased-f.truck.my*(sub-3.5)*.018*arc+Math.cos(a)*swirl,
           y:cp.y+(q.y-cp.y)*eased+f.truck.mx*(sub-3.5)*.018*arc+Math.sin(a)*swirl,
           color:f.color,rot:p.rot+((f.rot1??p.rot)-p.rot)*eased,
-          bottom:(RAIL_Y+.025)+(q.bottom-(RAIL_Y+.025))*eased+arc*(.24+(sub%3)*.035),
-          worldSize:miniSize+(q.size-miniSize)*eased,
-          worldHeight:miniHeight+(q.height-miniHeight)*eased,
+          bottom:(RAIL_Y+.025)+(q.bottom-(RAIL_Y+.025))*eased+arc*(.24+(sub%3)*.035)+air,
+          worldSize:(miniSize+(q.size-miniSize)*eased)*pop,
+          worldHeight:(miniHeight+(q.height-miniHeight)*eased)*pop,
+          // Lon nhao mot vong tron truoc khi roi vao hop (2*PI = het vong, mat keo thang lai).
+          roll:lively?(seed<.5?1:-1)*eased*Math.PI*2:0,
           tilt:-arc*.12,squash:u>.86?Math.sin((u-.86)/.14*Math.PI)*.08:0,
         });
       }
@@ -1203,7 +1263,7 @@ export function mountThree(frameEl, getGameFn) {
       const mh=(c.worldHeight??CARGO_H*BELT_CANDY_VISUAL_SCALE*hf)*(1-(c.squash||0));
       m.scale.set(d*sf*(1+(c.squash||0)*.45),mh,d*sf*(1+(c.squash||0)*.45));
       m.position.set(c.x,c.bottom+mh/2,c.y);
-      m.rotation.set(c.tilt||0,c.rot||0,(c.tilt||0)*.55);
+      m.rotation.set(c.tilt||0,c.rot||0,(c.tilt||0)*.55+(c.roll||0),"YXZ");
     }
   }
 

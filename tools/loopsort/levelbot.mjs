@@ -116,7 +116,9 @@ function pickTap(g, desperate) {
 // nhau den tung cu cham va tung giay. Muon biet mot ban co CO duong thang hay khong thi phai
 // cho bot di chech ra khoi duong no vua di - do la cong dung cua slip o day, khong phai de
 // mo phong nguoi choi au.
-export function playOnce(E, id, s, slip = 0) {
+// `gap`: ms toi thieu giua hai cu cham. 700 la mac dinh cua moi phep do; tang len la mot nguoi
+// choi thong tha hon - van la mot duong choi hop le, dung de tim duong thang cho ban co kho.
+export function playOnce(E, id, s, slip = 0, gap = 700) {
   seed(s);
   const g = new E.Game(id);
   let now = 0, nextTap = 0, peak = 0, taps = 0;
@@ -143,7 +145,7 @@ export function playOnce(E, id, s, slip = 0) {
           .filter((m) => g.canTap(m.t, m.slot));
         if (any.length) move = any[Math.floor(Math.random() * any.length)];
       }
-      if (move && g.tap(move.t, move.slot)) { taps++; nextTap = now + 700; flat = 0; }
+      if (move && g.tap(move.t, move.slot)) { taps++; nextTap = now + gap; flat = 0; }
       else nextTap = now + 250;
     }
   }
