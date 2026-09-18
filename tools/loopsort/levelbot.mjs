@@ -62,7 +62,7 @@ const MAX_S = Number(process.env.LS_MAXS || 240);
 // ⚠ Mo man thi KHONG mau nao duoc nhan ca (ben nao cung con day hang), nen phai co duong
 // "do lieu": khi khong con nuoc nao sach va ban co da dung yen, cu do ben day nhat. Do la
 // nuoc mo man that su cua tro choi, khong phai nuoc lieu.
-function pickTap(g, desperate) {
+export function pickTap(g, desperate) {
   const onRail = {};
   for (const c of g.cubes) onRail[c.color] = (onRail[c.color] || 0) + 1;
   let best = null, bestScore = -1e9, fallback = null;

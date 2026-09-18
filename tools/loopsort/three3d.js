@@ -24,7 +24,7 @@ import { paintFactoryBackdrop } from "./factory-art.js";
 // cho nay thi do lai ty so do truoc.
 // Xam sang, khong phai xanh navy (chu du an: "design tranh mau den ra"). Xam la mau KHONG level
 // nao dung cho keo, nen hop "?" khong bao gio nham voi mot mau that (tim, trang...).
-const HIDDEN_FILL = "#cbc4d8";
+const HIDDEN_FILL = "#f6e0ad";
 
 // ⚠ Day la be rong CO SO. Be rong THAT cua tung level la TRUCK_W * game.fit - engine thu than
 // xe lai o nhung ban dong xe (xem chu thich trong buildStatics). Moi cho ve than xe hay hang
@@ -525,39 +525,45 @@ export function mountThree(frameEl, getGameFn) {
       const SL=slotLen(game,t),len=t.cap*SL,TW=TRUCK_W*(game.fit??1);
       const c=game.slotPos(t,(t.cap-1)/2,.5),rotation=rotOf(t);
       const tag=(m,packed=false)=>{m.userData.truck=t;m.userData.tintWhenPacked=packed;return m;};
-      tag(trayBox(statics,c.x,c.y,len+.56,TW+.34,.22,.03,"#b93468",rotation,true,.13),true);
-      tag(trayBox(statics,c.x,c.y,len+.46,TW+.24,.50,.20,"#ff6f98",rotation,true,.18),true);
-      tag(trayBox(statics,c.x,c.y,len+.28,TW+.04,.14,.67,"#fff0bd",rotation,true,.06));
+      tag(trayBox(statics,c.x,c.y,len+.56,TW+.34,.22,.03,"#6f5ea0",rotation,true,.13),true);
+      tag(trayBox(statics,c.x,c.y,len+.46,TW+.24,.50,.20,"#a294cb",rotation,true,.18),true);
+      // ⚠ SAN khay cung mot mau voi DE khay (chu du an 2026-09-18: "mau san cua khay va mau
+      // ngoai cua khay (de khay), nen lam mau giong nhau de de hieu") - truoc day san kem con de
+      // hong, doc ra thanh hai vat the long nhau.
+      // ⚠ Va ca khay mang mau HO HANG VOI RAY, nhat hon (cung chu du an: "mau khay nen lam mau
+      // gan voi mau duong ray, nhung nhat hon, va dung de lan voi mau cua dong hop keo"): tim
+      // xam nhat, khong bao gio nham voi tim RUC cua hop keo (P #ad62ff).
+      tag(trayBox(statics,c.x,c.y,len+.28,TW+.04,.14,.67,"#a294cb",rotation,true,.06));
       // Open paper cavities, with real depth and no fake colored contents.
       for(let i=0;i<t.cap;i++){
         const p=game.slotPos(t,i,.5);
-        tag(trayBox(statics,p.x,p.y,SL-.12,TW-.20,.055,.755,"#d39b7b",rotation,true,.025));
-        tag(trayBox(statics,p.x,p.y,SL-.20,TW-.30,.040,.805,"#fff1c5",rotation,true,.018));
+        tag(trayBox(statics,p.x,p.y,SL-.12,TW-.20,.055,.755,"#8e7fbb",rotation,true,.025));
+        tag(trayBox(statics,p.x,p.y,SL-.20,TW-.30,.040,.805,"#b3a7d8",rotation,true,.018));
       }
       // Low rounded lips keep the silhouette a shallow confectionery tray.
       for(const side of [-1,1]){
         const x=c.x-t.my*side*(TW/2-.025),z=c.y+t.mx*side*(TW/2-.025);
-        tag(trayBox(statics,x,z,len+.27,.14,.18,.69,"#fff8df",rotation,true,.058));
+        tag(trayBox(statics,x,z,len+.27,.14,.18,.69,"#c4bbe4",rotation,true,.058));
       }
       const back={x:c.x-t.mx*len/2,z:c.y-t.my*len/2};
-      tag(trayBox(statics,back.x,back.z,.15,TW+.02,.18,.69,"#fff8df",rotation,true,.06));
+      tag(trayBox(statics,back.x,back.z,.15,TW+.02,.18,.69,"#c4bbe4",rotation,true,.06));
       const reach=Math.hypot(t.px-t.x,t.py-t.y);
       if(reach>.4){
         const group=new THREE.Group();
         group.position.set(t.px,0,t.py);
         group.rotation.y=-Math.atan2(t.py-t.y,t.px-t.x);
         group.userData.bridgeTruck=t;
-        const deck=box(group,-reach/2,0,reach+.10,1.35,.13,.43,"#fff1d5",0,true);
+        const deck=box(group,-reach/2,0,reach+.10,1.35,.13,.43,"#c4bbe4",0,true);
         deck.userData.truck=t;
         for(const side of [-1,1]){
-          const rail=box(group,-reach/2,side*.69,reach+.08,.17,.22,.45,"#4bd1b3",0,true);
+          const rail=box(group,-reach/2,side*.69,reach+.08,.17,.22,.45,"#7f6fb0",0,true);
           rail.userData.truck=t;
         }
         for(const u of [.27,.55,.8]){
-          const roller=box(group,-reach*u,0,.12,1.16,.035,.575,"#eac6a5",0,true);
+          const roller=box(group,-reach*u,0,.12,1.16,.035,.575,"#b3a7d8",0,true);
           roller.userData.truck=t;
         }
-        const cap=box(group,-.13,0,.40,1.62,.18,.34,"#ff93a6",0,true);
+        const cap=box(group,-.13,0,.40,1.62,.18,.34,"#a294cb",0,true);
         cap.userData.truck=t;
         statics.add(group);
       }

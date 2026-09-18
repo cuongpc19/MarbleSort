@@ -578,6 +578,60 @@ export class Game {
   }
 
   // Duoc dung ca khi ban co vua chet: mot khay rong nhan moi mau, nen no go duoc the tac.
+  // ⚠ Cho dat BIEN DEM HOP o giua long ray (chu du an 2026-09-18: "so luong keo tren bang
+  // chuyen co the de phia trong bang chuyen. Doi voi cac level ma co khay dat phia trong bang
+  // chuyen thi phai dam bao, bien so luong keo, k de len khay"). Tim diem TRONG NHAT ben trong
+  // vong ray: xa ray nhat va xa moi khay nhat. Tra null neu long ray khong du rong.
+  get plaque() {
+    if (this._plaque === undefined) this._plaque = this.findPlaque();
+    return this._plaque;
+  }
+
+  findPlaque() {
+    // ⚠ Ray HO (Portal) thi khong co "ben trong": phep dem giao diem tren mot da giac khong khep
+    // tra ve nhung vung nam ngoai ban co. Nhung level do treo cai bien duoi dai HUD.
+    if (!this.closed) return null;
+    const R = this.ring, b = this.bounds;
+    const inside = (x, y) => {           // ray casting tren da giac tim ray
+      let hit = false;
+      for (let i = 0, j = R.length - 1; i < R.length; j = i++)
+        if ((R[i].y > y) !== (R[j].y > y) &&
+            x < ((R[j].x - R[i].x) * (y - R[i].y)) / (R[j].y - R[i].y) + R[i].x) hit = !hit;
+      return hit;
+    };
+    const coarse = R.filter((_, i) => i % 2 === 0);
+    const rects = this.trucks.map((t) => ({ x: t.x, y: t.y, mx: t.mx, my: t.my,
+      L: t.cap * this.slotLen, h: this.truckW / 2 }));
+    const clearOf = (x, y) => {
+      let best = Infinity;
+      for (const q of coarse) best = Math.min(best, (q.x - x) ** 2 + (q.y - y) ** 2);
+      best = Math.sqrt(best) - (CHANNEL + RIM);
+      for (const r of rects) {
+        const u = (r.x - x) * r.mx + (r.y - y) * r.my, v = -(x - r.x) * r.my + (y - r.y) * r.mx;
+        const du = u < 0 ? -u : u > r.L ? u - r.L : 0, dv = Math.abs(v) - r.h;
+        best = Math.min(best, Math.hypot(Math.max(0, du), Math.max(0, dv)));
+      }
+      return best;
+    };
+    // ⚠ Level co khay nam TRONG long ray thi ben trong khong con cho nao du rong (level 12, 30):
+    // luc do tra null va vo game treo cai bien ngay duoi dai HUD.
+    let best = null;
+    const step = 0.5;
+    for (let x = b.x0; x <= b.x1; x += step)
+      for (let y = b.y0; y <= b.y1; y += step) {
+        const c = clearOf(x, y);
+        // ⚠ 2.4 don vi, khong phai 1.2: cai bien la mot the DOM rong ~90px, tuc khoang 2.2 don
+        // vi the gioi o co camera thuong - de sat 1.2 thi no van "khong de len khay" theo phep do
+        // ma tren man hinh thi cham vao khay that.
+        if (c < 2.4) continue;
+        // CHI ben trong long ray: ra ngoai thi cho trong nhat luon la nen nha ngoai ban co, va
+        // cai bien troi han ra mep man hinh. Khong co cho thi tra null - vo game treo no duoi HUD.
+        if (!inside(x, y)) continue;
+        if (!best || c > best.clear) best = { x, y, clear: c };
+      }
+    return best;
+  }
+
   canAddTray() {
     return this.state !== "win" && this.extraTrays < 1 && !!this.spare;
   }
@@ -594,6 +648,7 @@ export class Game {
     });
     this.extraTrays++;
     this.spare = null;
+    this._plaque = undefined;   // khay moi co the chiem dung cho cai bien
     this.bounds = this.computeBounds();
     this.state = "play";
     return true;

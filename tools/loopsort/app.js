@@ -531,10 +531,24 @@ function frame(now) {
       if (gone > audioGone) sound.play("deliver", gone - audioGone);
       audioGone = gone;
     }
-    const gauge = $("levelPill");
+    const gauge = $("beltGauge");
     // ⚠ O dem la SO HOP tren ray / suc chua (chu du an 2026-09-17: "o dem o tren cung, la dem so
     // hop, k phai dem limit so keo"). counter() lam tron LEN theo hop, dung cai canTap() hoi.
+    // Va no khong con nam trong the Level nua (2026-09-18): no la dong ho cua BAN CO, nen no dung
+    // GIUA LONG RAY, o cho trong nhat ma engine tim duoc - khong bao gio de len khay.
     $("hudBags").textContent = g.counter() + " / " + g.slotCount;
+    const spot = g.plaque;
+    gauge.hidden = false;
+    if (spot) {
+      const p = three.project(spot.x, spot.y, 0.35);
+      gauge.style.left = p.x + "px";
+      gauge.style.top = p.y + "px";
+    } else {
+      // Ban co khong con cho nao du rong (khay nam ca trong long ray): treo cai bien ngay duoi
+      // dai HUD, khong de len ban co.
+      gauge.style.left = "50%";
+      gauge.style.top = ($("topbar").offsetHeight + 26) + "px";
+    }
     // ⚠ Nguong canh bao la VUOT QUA 2/3 suc chua ray — con so chu du an chot. Truoc day no la
     // `slotCount - 2`, tuc mot khoang cach CO DINH tinh tu tran: tren ray 7 cho thi la 71%,
     // tren ray 12 cho thi la 83%. Cung mot cai nhan lai co nghia khac nhau tuy level, va tren
@@ -545,7 +559,7 @@ function frame(now) {
     // doc mot dang khac.
     const tran = g.counter() > g.slotCount * 2 / 3;
     gauge.classList.toggle("warning", tran);
-    gauge.setAttribute("aria-label", "Level " + g.id + ", boxes on belt: " + g.counter() + "/" + g.slotCount + (tran ? ", almost full" : ""));
+    gauge.setAttribute("aria-label", "Boxes on belt: " + g.counter() + "/" + g.slotCount + (tran ? ", almost full" : ""));
     // ⚠ Khong goi E.draw: bo 3D tu chay vong lap rieng cua no.
     if (demo) {
       // van nen tu choi: cham mot ben con hang, mien la ray con cho
@@ -665,10 +679,8 @@ $("homeArea").textContent = "loading…";
 $("btnPlay").onclick = () => { sound.unlock(); sound.play("ui"); startLevel(save.level); };
 $("btnSet").innerHTML = ICON.gear;
 $("btnHomeSet").innerHTML = ICON.gear;
-$("btnRetry").innerHTML = ICON.retry;
 $("btnSet").onclick = () => { sound.play("ui"); openSettings(true); };
 $("btnHomeSet").onclick = () => { sound.unlock(); sound.play("ui"); openSettings(false); };
-$("btnRetry").onclick = () => { sound.play("ui"); startLevel(E.getGame().id); };
 // ⚠ SETTINGS (chu du an 2026-09-17: "design lai nut setting ... doc game khac de biet nut nay
 // co gi. ngoai ra them cho t phan reset choi lai tu dau"). Theo Tube Tangle / Block Away:
 // am thanh, nhay toi level, CHOI LAI TU DAU (sau mot lan xac nhan - luat 1.4 / 4.6: nut xoa
@@ -685,6 +697,7 @@ function openSettings(inGame) {
     <div class="swRow"><span>Go to level</span>
       <input id="sLevel" type="number" min="1" max="${save.level}" value="${inGame ? E.getGame().id : save.level}"></div>
     <button class="b3" id="sGo">Play this level</button>
+    ${inGame ? '<button class="b3 ghost" id="sRetry">Restart this level</button>' : ""}
     ${inGame ? '<button class="b3 ghost" id="sHome">Back to home</button>' : ""}
     <button class="b3 danger" id="sReset">Start over from level 1</button>
     <button class="b3 ghost" id="sClose">Close</button>`, "res set");
@@ -695,7 +708,10 @@ function openSettings(inGame) {
     const n = Math.max(1, Math.min(save.level, Math.round(+$("sLevel").value || 1)));
     sound.play("ui"); carded = false; startLevel(n);
   };
-  if (inGame) $("sHome").onclick = () => { sound.play("ui"); carded = false; goHome(); };
+  if (inGame) {
+    $("sRetry").onclick = () => { sound.play("ui"); carded = false; startLevel(E.getGame().id); };
+    $("sHome").onclick = () => { sound.play("ui"); carded = false; goHome(); };
+  }
   $("sClose").onclick = () => { sound.play("ui"); close(); };
   $("sReset").onclick = () => {
     sound.play("ui");

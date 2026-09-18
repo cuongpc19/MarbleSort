@@ -159,3 +159,11 @@ button:not(:disabled):active{translate:0 2px}
 .bigTitle.candy span:nth-child(odd){animation-delay:-.9s}
 @keyframes letterBob{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
 @media (prefers-reduced-motion:reduce){.bigTitle.candy span{animation:none}}
+
+/* The belt counter lives on the board, in the emptiest part inside the loop. */
+#levelPill{min-width:96px;justify-content:center;gap:5px;padding:0 10px;font-size:21px}
+#levelPill .lbl{font-size:12px}
+#beltGauge{position:absolute;z-index:3;display:flex;align-items:center;gap:7px;padding:7px 15px 7px 11px;transform:translate(-50%,-50%);border:3px solid #fffdf2;border-radius:999px;background:linear-gradient(#fffdf3,#ffeccd);box-shadow:0 4px #d9b58f,0 8px 14px #6b455026;color:#8a4a63;font-weight:900;font-size:19px;font-variant-numeric:tabular-nums;pointer-events:none;white-space:nowrap}
+#beltGauge[hidden]{display:none}
+#beltGauge .candyIcon{width:19px;height:15px}
+#beltGauge.warning{background:linear-gradient(#ffe6da,#ffc9b6);border-color:#ffd9cb;color:#a13d50}
